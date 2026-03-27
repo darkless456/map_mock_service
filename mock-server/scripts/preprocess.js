@@ -2,8 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const { XMLParser } = require('fast-xml-parser');
 
-const DATA_DIR = path.resolve(__dirname, '..', '..'); // local_map root
-const OUTPUT_FILE = path.resolve(__dirname, '..', 'data', 'frames.json');
+const DATA_DIR = process.env.XML_DIR || path.resolve(__dirname, '..', '..');
+const OUTPUT_FILE = process.env.OUTPUT_FILE || path.resolve(__dirname, '..', 'data', 'frames.json');
 
 const parser = new XMLParser({
   ignoreAttributes: true,

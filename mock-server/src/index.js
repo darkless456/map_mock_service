@@ -5,7 +5,7 @@ const { startMqttServer } = require('./mqtt-server');
 const { startWsServer } = require('./ws-server');
 const { createRestApi } = require('./rest-api');
 
-const FRAMES_FILE = path.resolve(__dirname, '..', 'data', 'frames.json');
+const FRAMES_FILE = process.env.FRAMES_FILE || path.resolve(__dirname, '..', 'data', 'frames.json');
 
 const CONFIG = {
   rest: { port: parseInt(process.env.REST_PORT) || 8080 },

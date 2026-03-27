@@ -1,0 +1,14 @@
+services:
+  mock-server:
+    build: .
+    ports:
+      - "8080:8080"
+      - "8082:8082"
+      - "1883:1883"
+      - "8083:8083"
+    volumes:
+      - ./mock-server/data:/app/data
+      - .:/data/xml
+    environment:
+      - XML_DIR=/data/xml
+      - OUTPUT_FILE=/app/data/frames.json
