@@ -1,0 +1,19 @@
+{
+  "name": "slam-mock-server",
+  "version": "1.0.0",
+  "description": "Mock API server for SLAM local map data (WebSocket + MQTT + REST)",
+  "main": "src/index.js",
+  "scripts": {
+    "preprocess": "node scripts/preprocess.js",
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "aedes": "^0.51.3",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "fast-xml-parser": "^4.5.1",
+    "websocket-stream": "^5.5.2",
+    "ws": "^8.18.0"
+  }
+}
