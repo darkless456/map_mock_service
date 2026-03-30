@@ -1,28 +1,15 @@
 /**
  * Synthetic pixel data generator for SLAM mock frames.
  *
- * Generates a single-channel occupancy grid that simulates a local map
- * around a moving robot. The pattern evolves with each frame's world-space
- * origin to produce a visually meaningful incremental map.
+ * Layout approximates the product reference: green lawn ring, light-gray
+ * center “path”, thin red obstacle ring at the explored edge, unexplored outside.
  *
- * Semantic values follow the same palette as the app:
- *   0   = grass / free space
- *   1   = passable non-grass
- *   70  = channel
- *   250 = lawn boundary
- *   254 = obstacle
- *   205 = unexplored (used as the "unknown" fill in the builder)
+ * Semantic values (same as app shader):
+ *   0   = grass
+ *   1   = passable / light gray (center channel)
+ *   254 = obstacle (red)
+ *   205 = unexplored
  */
-
-const SEED_PRIME_A = 1597;
-const SEED_PRIME_B = 51749;
-const SEED_PRIME_C = 2741;
-
-function hash(x, y) {
-  let h = (x * SEED_PRIME_A) ^ (y * SEED_PRIME_B);
-  h = ((h >> 16) ^ h) * SEED_PRIME_C;
-  return (h >>> 0) / 0xffffffff;
-}
 
 /**
  * Generate a synthetic occupancy grid for one frame.
@@ -32,12 +19,13 @@ function hash(x, y) {
  * @returns {Buffer}       Single-channel pixel buffer (cols * rows bytes)
  */
 function generatePixels(frame, seq) {
-  const { map_cols: cols, map_rows: rows, origin_x, origin_y, resolution } = frame;
+  const { map_cols: cols, map_rows: rows } = frame;
   const pixels = Buffer.alloc(cols * rows);
 
   const cx = cols / 2;
   const cy = rows / 2;
   const maxR = Math.min(cols, rows) / 2;
+  const pathR = Math.max(2, maxR * 0.38);
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -45,27 +33,15 @@ function generatePixels(frame, seq) {
       const dy = r - cy;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
-      const worldX = origin_x + c * resolution;
-      const worldY = origin_y + r * resolution;
-
       let value;
-
       if (dist > maxR - 2) {
         value = 205;
-      } else if (dist > maxR - 4) {
-        value = 250;
+      } else if (dist > maxR - 3) {
+        value = 254;
+      } else if (dist < pathR) {
+        value = 1;
       } else {
-        const h = hash(Math.floor(worldX * 20), Math.floor(worldY * 20));
-
-        if (h < 0.06) {
-          value = 254;
-        } else if (h < 0.10) {
-          value = 1;
-        } else if (h < 0.13) {
-          value = 70;
-        } else {
-          value = 0;
-        }
+        value = 0;
       }
 
       pixels[r * cols + c] = value;
