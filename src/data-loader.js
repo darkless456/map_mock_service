@@ -14,8 +14,8 @@ const xmlParser = new XMLParser({
  * @property {string} id - timestamp-based ID (filename)
  * @property {number} timestampMs - timestamp in milliseconds
  * @property {number} resolution - meters per cell
- * @property {number} originX - origin x coordinate
- * @property {number} originY - origin y coordinate
+ * @property {number} originX - origin x coordinate (米, 浮点数)
+ * @property {number} originY - origin y coordinate (米, 浮点数)
  * @property {number} mapCols - width in cells
  * @property {number} mapRows - height in cells
  * @property {Buffer} imageData - raw PNG file bytes

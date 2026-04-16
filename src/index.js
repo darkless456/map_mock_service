@@ -2,12 +2,11 @@ const http = require('http');
 const { URL } = require('url');
 const { WebSocketServer } = require('ws');
 const { loadAllPatches } = require('./data-loader');
-const { encodeFragmentedPayloads } = require('./protocol');
+const { encodeMapMessage } = require('./protocol');
 const { verifyToken, generateWsSignature, verifyWsSignature } = require('./auth');
 
 const PORT = parseInt(process.env.PORT, 10) || 9900;
 const PUSH_INTERVAL_MS = parseInt(process.env.PUSH_INTERVAL_MS, 10) || 200;
-const FRAG_COUNT = parseInt(process.env.FRAG_COUNT, 10) || 1;
 
 console.log('Loading map patches from data directory...');
 const patches = loadAllPatches();
@@ -97,7 +96,6 @@ wss.on('connection', (ws, req) => {
 
   let patchIndex = 0;
   let running = true;
-  const subscriptions = new Set(['map_update']);
 
   const pushTimer = setInterval(() => {
     if (!running || ws.readyState !== ws.OPEN) {
@@ -105,90 +103,70 @@ wss.on('connection', (ws, req) => {
       return;
     }
 
-    if (!subscriptions.has('map_update')) {
-      return;
-    }
-
     const patch = patches[patchIndex % patches.length];
     patchIndex++;
 
     globalSessionId++;
-    const sessionId = globalSessionId;
+    const sesstionId = globalSessionId;
 
-    // Convert floating-point origin to integer (multiply by 1000 for mm precision)
-    const originXInt = Math.round(patch.originX * 1000);
-    const originYInt = Math.round(patch.originY * 1000);
-
-    // Split timestamp_ms into sec + nsec
     const totalMs = patch.timestampMs;
     const sec = Math.floor(totalMs / 1000);
     const nsec = Math.round((totalMs % 1000) * 1e6);
 
     const headerFields = {
       version: 1,
-      msgType: 0x01, // incremental
-      sessionId,
+      msgType: 0x01,
+      sesstionId,
       timestampSec: sec >>> 0,
       timestampNsec: nsec >>> 0,
       width: patch.mapCols,
       height: patch.mapRows,
-      originX: originXInt >>> 0,
-      originY: originYInt >>> 0,
+      originX: patch.originX,
+      originY: patch.originY,
       resolution: patch.resolution,
+      robotX: 0,
+      robotY: 0,
+      robotTheta: 0,
+      needAck: 1,
     };
 
-    const fragCount = FRAG_COUNT > 1 ? FRAG_COUNT : 1;
-
     try {
-      const payloads = encodeFragmentedPayloads(
+      const message = encodeMapMessage(
         headerFields,
         patch.imageData,
-        fragCount,
-        'map_update'
+        'MAP_INCREMENTAL_PATCH'
       );
 
-      // Simulate out-of-order delivery for multi-fragment: shuffle fragments
-      if (fragCount > 1 && Math.random() > 0.5) {
-        payloads.reverse();
-      }
-
-      for (const payload of payloads) {
-        if (ws.readyState === ws.OPEN) {
-          ws.send(payload);
-        }
+      if (ws.readyState === ws.OPEN) {
+        ws.send(message);
       }
     } catch (err) {
       console.error(`Failed to encode patch ${patch.id}:`, err.message);
     }
   }, PUSH_INTERVAL_MS);
 
-  // Handle client messages (e.g., commands)
   ws.on('message', (data) => {
     try {
       const msg = JSON.parse(data.toString());
-      if (msg.command === 'pause') {
-        running = false;
-        console.log('Client requested pause');
-      } else if (msg.command === 'resume') {
-        running = true;
-        subscriptions.add('map_update');
-        console.log('Client requested resume');
-      } else if (msg.command === 'full_map') {
-        // Backward-compatible alias: request one full-frame snapshot.
-        sendFullMap(ws, 'map_fix');
-      } else if (msg.command === 'subscribe' && msg.topic === 'map_update') {
-        subscriptions.add('map_update');
-        running = true;
-        console.log('Client subscribed to map_update');
-      } else if (msg.command === 'unsubscribe' && msg.topic === 'map_update') {
-        subscriptions.delete('map_update');
-        console.log('Client unsubscribed from map_update');
-      } else if (msg.command === 'subscribe' && msg.topic === 'map_fix') {
-        console.log('Client subscribed to map_fix');
-        sendFullMap(ws, 'map_fix');
+      switch (msg.cmd) {
+        case 'PAUSE':
+          running = false;
+          console.log('Client requested pause');
+          break;
+        case 'RESUME':
+          running = true;
+          console.log('Client requested resume');
+          break;
+        case 'REQUEST_FULL_MAP':
+          sendFullMap(ws, 'MAP_FIX_PATCH');
+          break;
+        case 'MAP_ACK':
+          break;
+        default:
+          break;
       }
     } catch {
-      // Ignore malformed messages
+      // ignore malformed messages
     }
   });
 
@@ -202,42 +180,39 @@ wss.on('connection', (ws, req) => {
     console.error('WS error:', err.message);
   });
 
-  // Send initial full map
-  sendFullMap(ws, 'map_fix');
+  sendFullMap(ws, 'MAP_FIX_PATCH');
 });
 
-function sendFullMap(ws, topic = 'map_fix') {
+function sendFullMap(ws, cmd = 'MAP_FIX_PATCH') {
   if (ws.readyState !== ws.OPEN || patches.length === 0) return;
 
   const patch = patches[0];
   globalSessionId++;
 
-  const originXInt = Math.round(patch.originX * 1000);
-  const originYInt = Math.round(patch.originY * 1000);
   const totalMs = patch.timestampMs;
   const sec = Math.floor(totalMs / 1000);
   const nsec = Math.round((totalMs % 1000) * 1e6);
 
   const headerFields = {
     version: 1,
-    msgType: 0x02, // full map
-    sessionId: globalSessionId,
+    msgType: 0x01,
+    sesstionId: globalSessionId,
     timestampSec: sec >>> 0,
     timestampNsec: nsec >>> 0,
     width: patch.mapCols,
     height: patch.mapRows,
-    originX: originXInt >>> 0,
-    originY: originYInt >>> 0,
+    originX: patch.originX,
+    originY: patch.originY,
     resolution: patch.resolution,
-    fragTotal: 1,
-    fragIndex: 0,
+    robotX: 0,
+    robotY: 0,
+    robotTheta: 0,
+    needAck: 1,
   };
 
-  const payloads = encodeFragmentedPayloads(headerFields, patch.imageData, 1, topic);
-  for (const payload of payloads) {
-    if (ws.readyState === ws.OPEN) {
-      ws.send(payload);
-    }
+  const message = encodeMapMessage(headerFields, patch.imageData, cmd);
+  if (ws.readyState === ws.OPEN) {
+    ws.send(message);
   }
 }
 
@@ -273,5 +248,4 @@ server.listen(PORT, () => {
   console.log(`  Health check:  GET /api/health`);
   console.log(`  WebSocket:     ws://localhost:${PORT}/ws/map?signature=<sig>`);
   console.log(`  Push interval: ${PUSH_INTERVAL_MS}ms`);
-  console.log(`  Fragment count: ${FRAG_COUNT}`);
 });
