@@ -135,6 +135,11 @@ node -e "const jwt=require('jsonwebtoken'); console.log(jwt.sign({userId:'demo-u
 curl -H "Authorization: Bearer <JWT>" http://127.0.0.1:9900/api/auth/ws-signature
 ```
 
+签名接口返回的 `wsUrl` 会复用当前请求的 `Host`，因此：
+
+- 模拟器走 `10.0.2.2:9900` 时，会拿到 `ws://10.0.2.2:9900/ws/map`
+- 本机直接联调时，会拿到 `ws://localhost:9900/ws/map`
+
 ### 3. 连接 WebSocket
 
 ```text

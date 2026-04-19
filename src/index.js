@@ -19,6 +19,14 @@ if (patches.length === 0) {
 
 let globalSessionId = 0;
 
+function buildWsUrl(req) {
+  const host = req.headers.host || `localhost:${PORT}`;
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  const wsProtocol = forwardedProto === 'https' ? 'wss' : 'ws';
+
+  return `${wsProtocol}://${host}/ws/map`;
+}
+
 // ── HTTP server ──────────────────────────────────────────────────────
 
 const server = http.createServer((req, res) => {
@@ -47,7 +55,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(
       JSON.stringify({
-        wsUrl: `ws://localhost:${PORT}/ws/map`,
+        wsUrl: buildWsUrl(req),
         signature: wsSign.signature,
         expiresAt: wsSign.expiresAt,
       })
