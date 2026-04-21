@@ -1,6 +1,6 @@
 # map_mock_service
 
-`map_mock_service` 是一个用于本地联调的 Node.js 模拟服务。它读取 `data/` 目录中的 XML + PNG 地图样本，按照新版二进制协议打包后，通过 WebSocket 推送给客户端。
+`map_mock_service` 是一个用于本地联调的 Node.js 模拟服务。它读取项目根下 **`data/`** 或 **`data2/`** 目录中的 XML + PNG 地图样本，按照新版二进制协议打包后，通过 WebSocket 推送给客户端。使用哪一套样本由 **`src/index.js` 顶部的常量 `MOCK_DATA_DIR`** 决定（`'data'` 或 `'data2'`），改完后重启服务即可。
 
 主要用途：
 
@@ -12,7 +12,7 @@
 ## 程序运行逻辑
 
 ```text
-读取 data/*.xml + data/*.png
+读取 <MOCK_DATA_DIR>/*.xml + 同名 *.png
         ↓
 解析 XML 元数据
   ├─ timestamp_ms
@@ -83,6 +83,17 @@ PNG 文件字节 → Base64 字符串
 {"cmd": "MAP_ACK", "cmd_id": "42", "data": {}}
 ```
 
+## 切换测试数据（`data` / `data2`）
+
+在 `src/index.js` 文件开头附近修改：
+
+```js
+/** 测试数据目录：改 `'data'` / `'data2'` 后重启服务即可切换 */
+const MOCK_DATA_DIR = 'data';
+```
+
+当前选中的目录在启动日志和 `GET /api/health` 的 JSON 里会带上字段 **`dataDir`**（值为 `data` 或 `data2`）以及 **`patchCount`**。所选目录下必须至少有一对有效的 XML+PNG，否则进程启动失败。
+
 ## 环境依赖与安装
 
 - Node.js 18+
@@ -112,14 +123,17 @@ PORT=9900 PUSH_INTERVAL_MS=100 npm start
 ### 启动输出
 
 ```text
-Loading map patches from data directory...
+Loading map patches from data/ ...
 Loaded 1521 map patches.
 Map Mock Service running on http://localhost:9900
+  Mock data dir: data/
   Auth endpoint: GET /api/auth/ws-signature
   Health check:  GET /api/health
   WebSocket:     ws://localhost:9900/ws/map?signature=<sig>
   Push interval: 200ms
 ```
+
+（patch 数量以你本地 `MOCK_DATA_DIR` 目录为准。）
 
 ## 鉴权流程
 
@@ -185,11 +199,11 @@ wscat -c "ws://localhost:9900/ws/map?signature=<sig>"
 npm test
 ```
 
-16 个测试覆盖：header 编解码 roundtrip、cmd 信封格式、origin f32、robot 字段、need_ack 等。
+测试覆盖：header 编解码 roundtrip、cmd 信封格式、origin f32、robot 字段、need_ack、鉴权与 WS 签名等（以 `npm test` 输出为准）。
 
 ## 当前验证状态
 
-- `npm test` 通过，16 个测试全部成功
+- `npm test` 通过
 - 可正常返回 WS 签名
 - 可自动下发首帧 `MAP_FIX_PATCH`
 - 可周期推送 `MAP_INCREMENTAL_PATCH`

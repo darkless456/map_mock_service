@@ -5,15 +5,18 @@ const { loadAllPatches } = require('./data-loader');
 const { encodeMapMessage } = require('./protocol');
 const { verifyToken, generateWsSignature, verifyWsSignature } = require('./auth');
 
+/** 测试数据目录：改 `'data'` / `'data2'` 后重启服务即可切换 */
+const MOCK_DATA_DIR = 'data2';
+
 const PORT = parseInt(process.env.PORT, 10) || 9900;
 const PUSH_INTERVAL_MS = parseInt(process.env.PUSH_INTERVAL_MS, 10) || 200;
 
-console.log('Loading map patches from data directory...');
-const patches = loadAllPatches();
+console.log(`Loading map patches from ${MOCK_DATA_DIR}/ ...`);
+const patches = loadAllPatches(MOCK_DATA_DIR);
 console.log(`Loaded ${patches.length} map patches.`);
 
 if (patches.length === 0) {
-  console.error('No patches found in data directory. Exiting.');
+  console.error(`No patches found in ${MOCK_DATA_DIR}/. Exiting.`);
   process.exit(1);
 }
 
@@ -65,7 +68,13 @@ const server = http.createServer((req, res) => {
 
   if (url.pathname === '/api/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', patchCount: patches.length }));
+    res.end(
+      JSON.stringify({
+        status: 'ok',
+        dataDir: MOCK_DATA_DIR,
+        patchCount: patches.length,
+      })
+    );
     return;
   }
 
@@ -252,6 +261,7 @@ wss.on('close', () => {
 
 server.listen(PORT, () => {
   console.log(`Map Mock Service running on http://localhost:${PORT}`);
+  console.log(`  Mock data dir: ${MOCK_DATA_DIR}/`);
   console.log(`  Auth endpoint: GET /api/auth/ws-signature`);
   console.log(`  Health check:  GET /api/health`);
   console.log(`  WebSocket:     ws://localhost:${PORT}/ws/map?signature=<sig>`);

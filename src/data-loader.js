@@ -2,7 +2,19 @@ const fs = require('fs');
 const path = require('path');
 const { XMLParser } = require('fast-xml-parser');
 
-const DATA_DIR = path.resolve(__dirname, '../data');
+const SERVICE_ROOT = path.resolve(__dirname, '..');
+
+/** @type {readonly string[]} */
+const ALLOWED_DATASETS = ['data', 'data2'];
+
+/**
+ * @param {string} name - directory name under service root (`data` or `data2`)
+ * @returns {string | null} absolute path, or null if not allowed
+ */
+function resolveDatasetDir(name) {
+  if (!ALLOWED_DATASETS.includes(name)) return null;
+  return path.join(SERVICE_ROOT, name);
+}
 
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
@@ -22,12 +34,17 @@ const xmlParser = new XMLParser({
  */
 
 /**
- * Load all map patch data from the data directory.
+ * Load all map patch data from a dataset directory (`data` or `data2`).
  * Returns sorted by timestamp ascending.
+ * @param {string} [dataset='data']
  * @returns {MapPatch[]}
  */
-function loadAllPatches() {
-  const files = fs.readdirSync(DATA_DIR);
+function loadAllPatches(dataset = 'data') {
+  const dataDir = resolveDatasetDir(dataset);
+  if (!dataDir) return [];
+  if (!fs.existsSync(dataDir)) return [];
+
+  const files = fs.readdirSync(dataDir);
   const xmlFiles = files
     .filter((f) => f.endsWith('.xml'))
     .sort();
@@ -37,13 +54,13 @@ function loadAllPatches() {
   for (const xmlFile of xmlFiles) {
     const basename = path.basename(xmlFile, '.xml');
     const pngFile = basename + '.png';
-    const pngPath = path.join(DATA_DIR, pngFile);
+    const pngPath = path.join(dataDir, pngFile);
 
     if (!fs.existsSync(pngPath)) {
       continue;
     }
 
-    const xmlContent = fs.readFileSync(path.join(DATA_DIR, xmlFile), 'utf8');
+    const xmlContent = fs.readFileSync(path.join(dataDir, xmlFile), 'utf8');
     const parsed = xmlParser.parse(xmlContent);
     const storage = parsed.opencv_storage;
 
