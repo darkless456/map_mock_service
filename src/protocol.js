@@ -1,202 +1,90 @@
-// MapHeader binary protocol encoder (新版协议)
+// protocol.js — WebSocket v2 message encoding (JSON + gzip)
 //
-// 新版布局: packed Little-Endian
-// 移除: magic "NVMP", header_len, frag_total, frag_index, frag_data_len
-// 新增: data_len, robot_x, robot_y, robot_theta, need_ack, sesstion_id
-// 变更: origin_x/y 从 u32(mm) 改为 f32(米)
-//
-// 字段布局 (packed LE):
-//   offset 0:  version        u8
-//   offset 1:  msg_type       u8    (0x01=灰度, 0x02=语义)
-//   offset 2:  data_len       u32   图像数据总字节数
-//   offset 6:  timestamp_sec  u32
-//   offset 10: timestamp_nsec u32
-//   offset 14: width          u32
-//   offset 18: height         u32
-//   offset 22: resolution     f32
-//   offset 26: origin_x       f32   米, 浮点数
-//   offset 30: origin_y       f32   米, 浮点数
-//   offset 34: sesstion_id    u32   帧唯一 ID
-//   offset 38: robot_x        f32   机器人 X (米)
-//   offset 42: robot_y        f32   机器人 Y (米)
-//   offset 46: robot_theta    f32   机器人朝向 (弧度)
-//   offset 50: need_ack       u8    1=需要 ACK
-//   total = 51 bytes
+// New format: JSON envelope with structured map_header and gzip+base64 map_data.
+// Old binary 51-byte LE header format is intentionally removed.
+const zlib = require('zlib');
+const { v4: uuidv4 } = require('uuid');
 
-const HEADER_SIZE = 51;
-const HEX_STR_LEN = HEADER_SIZE * 2; // 102 hex chars
-
-const MSG_TYPE_GRAYSCALE = 0x01;
-const MSG_TYPE_SEMANTIC = 0x02;
-
-/**
- * 将 MapHeader 编码为 LE Buffer。
- */
-function encodeMapHeader({
-  version = 1,
-  msgType = MSG_TYPE_GRAYSCALE,
-  dataLen = 0,
-  timestampSec,
-  timestampNsec,
-  width,
-  height,
-  resolution,
-  originX,
-  originY,
-  sesstionId,
-  robotX = 0,
-  robotY = 0,
-  robotTheta = 0,
-  needAck = 1,
-}) {
-  const buf = Buffer.alloc(HEADER_SIZE);
-  let offset = 0;
-
-  buf.writeUInt8(version, offset);
-  offset += 1;
-
-  buf.writeUInt8(msgType, offset);
-  offset += 1;
-
-  buf.writeUInt32LE(dataLen >>> 0, offset);
-  offset += 4;
-
-  buf.writeUInt32LE(timestampSec >>> 0, offset);
-  offset += 4;
-
-  buf.writeUInt32LE(timestampNsec >>> 0, offset);
-  offset += 4;
-
-  buf.writeUInt32LE(width >>> 0, offset);
-  offset += 4;
-
-  buf.writeUInt32LE(height >>> 0, offset);
-  offset += 4;
-
-  buf.writeFloatLE(resolution, offset);
-  offset += 4;
-
-  buf.writeFloatLE(originX, offset);
-  offset += 4;
-
-  buf.writeFloatLE(originY, offset);
-  offset += 4;
-
-  buf.writeUInt32LE(sesstionId >>> 0, offset);
-  offset += 4;
-
-  buf.writeFloatLE(robotX, offset);
-  offset += 4;
-
-  buf.writeFloatLE(robotY, offset);
-  offset += 4;
-
-  buf.writeFloatLE(robotTheta, offset);
-  offset += 4;
-
-  buf.writeUInt8(needAck, offset);
-  offset += 1;
-
-  return buf;
-}
-
-/**
- * 将 LE Buffer 解码为 MapHeader 对象。
- */
-function decodeMapHeader(buf) {
-  if (buf.length < HEADER_SIZE) {
-    throw new Error(`MapHeader buffer too short: ${buf.length} < ${HEADER_SIZE}`);
+// ── CRC32 table (pre-computed) ───────────────────────────────────────
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[i] = c;
   }
+  return t;
+})();
 
-  let offset = 0;
-
-  const version = buf.readUInt8(offset);
-  offset += 1;
-
-  const msgType = buf.readUInt8(offset);
-  offset += 1;
-
-  const dataLen = buf.readUInt32LE(offset);
-  offset += 4;
-
-  const timestampSec = buf.readUInt32LE(offset);
-  offset += 4;
-
-  const timestampNsec = buf.readUInt32LE(offset);
-  offset += 4;
-
-  const width = buf.readUInt32LE(offset);
-  offset += 4;
-
-  const height = buf.readUInt32LE(offset);
-  offset += 4;
-
-  const resolution = buf.readFloatLE(offset);
-  offset += 4;
-
-  const originX = buf.readFloatLE(offset);
-  offset += 4;
-
-  const originY = buf.readFloatLE(offset);
-  offset += 4;
-
-  const sesstionId = buf.readUInt32LE(offset);
-  offset += 4;
-
-  const robotX = buf.readFloatLE(offset);
-  offset += 4;
-
-  const robotY = buf.readFloatLE(offset);
-  offset += 4;
-
-  const robotTheta = buf.readFloatLE(offset);
-  offset += 4;
-
-  const needAck = buf.readUInt8(offset);
-  offset += 1;
-
-  return {
-    version,
-    msgType,
-    dataLen,
-    timestampSec,
-    timestampNsec,
-    width,
-    height,
-    resolution,
-    originX,
-    originY,
-    sesstionId,
-    robotX,
-    robotY,
-    robotTheta,
-    needAck,
-  };
+function crc32(buf) {
+  let crc = 0xFFFFFFFF;
+  for (const byte of buf) {
+    crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ byte) & 0xFF];
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
 }
 
 /**
- * 构建 WS 消息：二进制 header hex + base64 image，包裹在 cmd 信封中。
+ * Compress raw bytes with gzip and encode as base64 (new map_data format).
+ * @param {Buffer} rawBuffer
+ * @returns {string} base64-encoded gzip bytes
  */
-function encodeMapMessage(headerFields, imageBytes, cmd = 'MAP_INCREMENTAL_PATCH') {
-  const headerWithDataLen = { ...headerFields, dataLen: imageBytes.length };
-  const headerBuf = encodeMapHeader(headerWithDataLen);
-  const hexStr = headerBuf.toString('hex');
-  const base64Data = imageBytes.toString('base64');
-  const payload = hexStr + base64Data;
+function encodeMapData(rawBuffer) {
+  const compressed = zlib.gzipSync(rawBuffer);
+  return compressed.toString('base64');
+}
+
+/**
+ * Build a MAP_INCREMENTAL WS message using the v2 JSON protocol.
+ * @param {object} opts
+ * @param {string} opts.sn            - Robot SN
+ * @param {object} opts.headerFields  - map_header fields (see field list below)
+ * @param {Buffer}  opts.imageBytes   - Raw image bytes (PNG or grayscale)
+ * @param {string} [opts.cmdId]       - Override cmd_id (defaults to new UUID)
+ * @param {string} [opts.cmd]         - WS command name (default 'MAP_INCREMENTAL')
+ *
+ * headerFields keys:
+ *   version, msgType, timestampSec, timestampNsec,
+ *   width, height, resolution, originX, originY,
+ *   robotX, robotY, robotTheta, mapId,
+ *   frameId, frameSlicingTotal, frameSlicingId, frameSlicingIndex
+ */
+function encodeMapMessage({ sn, headerFields, imageBytes, cmdId, cmd }) {
+  const cmdIdStr = cmdId || uuidv4();
+  const cmdName = cmd || 'MAP_INCREMENTAL';
+
+  const mapHeader = {
+    version:             headerFields.version             ?? 1,
+    header_len:          36, // fixed as per protocol spec
+    data_len:            imageBytes.length,
+    msg_type:            headerFields.msgType             ?? 0x01,
+    timestamp_sec:       headerFields.timestampSec        ?? Math.floor(Date.now() / 1000),
+    timestamp_nsec:      headerFields.timestampNsec       ?? 0,
+    width:               headerFields.width,
+    height:              headerFields.height,
+    resolution:          headerFields.resolution,
+    origin_x:            headerFields.originX,
+    origin_y:            headerFields.originY,
+    robot_x:             headerFields.robotX              ?? 0.0,
+    robot_y:             headerFields.robotY              ?? 0.0,
+    robot_theta:         headerFields.robotTheta          ?? 0.0,
+    format:              'png',
+    map_id:              headerFields.mapId               ?? 0,
+    frame_id:            headerFields.frameId             ?? 0,
+    frame_slicing_total: headerFields.frameSlicingTotal   ?? 1,
+    frame_slicing_id:    headerFields.frameSlicingId      ?? 0,
+    frame_slicing_index: headerFields.frameSlicingIndex   ?? 0,
+    crc32:               crc32(imageBytes),
+  };
+
+  const mapData = encodeMapData(imageBytes);
 
   return JSON.stringify({
-    cmd,
-    cmd_id: String(headerFields.sesstionId),
-    data: { payload },
+    cmd:     cmdName,
+    cmd_id:  cmdIdStr,
+    version: 1,
+    data:    { sn, map_header: mapHeader, map_data: mapData },
   });
 }
 
-module.exports = {
-  HEADER_SIZE,
-  HEX_STR_LEN,
-  MSG_TYPE_GRAYSCALE,
-  MSG_TYPE_SEMANTIC,
-  encodeMapHeader,
-  decodeMapHeader,
-  encodeMapMessage,
-};
+module.exports = { encodeMapMessage, encodeMapData };
