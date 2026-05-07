@@ -57,7 +57,7 @@ function encodeMapMessage({ sn, headerFields, imageBytes, cmdId, cmd }) {
     version:             headerFields.version             ?? 1,
     header_len:          36, // fixed as per protocol spec
     data_len:            imageBytes.length,
-    msg_type:            headerFields.msgType             ?? 0x01,
+    msg_type:            headerFields.msgType             ?? 2,
     timestamp_sec:       headerFields.timestampSec        ?? Math.floor(Date.now() / 1000),
     timestamp_nsec:      headerFields.timestampNsec       ?? 0,
     width:               headerFields.width,

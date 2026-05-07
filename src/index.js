@@ -39,7 +39,7 @@ const server = http.createServer((req, res) => {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, platform');
+res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, platform, X-Device, X-Device-Id, X-Device-Version');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -127,8 +127,7 @@ wss.on('connection', (ws, req) => {
     const nsec = Math.round((patch.timestampMs % 1000) * 1e6);
 
     const headerFields = {
-      version:      1,
-      msgType:      0x01,
+      msgType:      2,
       timestampSec: sec >>> 0,
       timestampNsec:nsec >>> 0,
       width:        patch.mapCols,
@@ -162,8 +161,13 @@ wss.on('connection', (ws, req) => {
     try {
       const msg = JSON.parse(data.toString());
 
-      // ACK for received frames — used for flow control (no action needed in mock)
-      if (msg.cmd === 'MAP_INCREMENTAL' && msg.data?.result === 'SUCCESS') {
+// ACK for received frames — reply with server acknowledgment so Rust skips it cleanly
+        if (msg.data?.result === 'SUCCESS') {
+          ws.send(JSON.stringify({
+            cmd:    msg.cmd,
+            cmd_id: msg.cmd_id,
+            data:   { code: 200 },
+          }));
         return;
       }
 
@@ -184,18 +188,6 @@ wss.on('connection', (ws, req) => {
           cmd_id: msg.cmd_id,
           data:   { code: 200, codeMsg: 'Success', data: 'pong' },
         }));
-        return;
-      }
-
-      // Pass-through cmds from whitelist — pause/resume streaming
-      if (msg.cmd === 'PAUSE') {
-        running = false;
-        console.log('Client requested PAUSE');
-        return;
-      }
-      if (msg.cmd === 'RESUME') {
-        running = true;
-        console.log('Client requested RESUME');
         return;
       }
 
@@ -233,8 +225,7 @@ function sendFullMap(ws) {
   const nsec = Math.round((patch.timestampMs % 1000) * 1e6);
 
   const headerFields = {
-    version:      1,
-    msgType:      0x01,
+    msgType:      2,
     timestampSec: sec >>> 0,
     timestampNsec:nsec >>> 0,
     width:        patch.mapCols,
