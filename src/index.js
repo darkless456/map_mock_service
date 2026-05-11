@@ -10,7 +10,7 @@ const http = require('http');
 const { URL } = require('url');
 const { WebSocketServer } = require('ws');
 const { loadAllPatches } = require('./data-loader');
-const { encodeMapMessage } = require('./protocol');
+const { encodeMapMessage, isClientFrameAck } = require('./protocol');
 const { verifyJwt, generateTicket, verifyTicket } = require('./auth');
 
 /** Test data directory: change 'data' / 'data2' and restart to switch. */
@@ -135,9 +135,9 @@ wss.on('connection', (ws, req) => {
       originX:      patch.originX,
       originY:      patch.originY,
       resolution:   patch.resolution,
-      robotX:       0,
-      robotY:       0,
-      robotTheta:   0,
+      robotX:       patch.robotX,
+      robotY:       patch.robotY,
+      robotTheta:   patch.robotTheta,
       frameId:      globalFrameId,
     };
 
@@ -161,13 +161,14 @@ wss.on('connection', (ws, req) => {
     try {
       const msg = JSON.parse(data.toString());
 
-// ACK for received frames — reply with server acknowledgment so Rust skips it cleanly
-        if (msg.data?.result === 'SUCCESS') {
-          ws.send(JSON.stringify({
-            cmd:    msg.cmd,
-            cmd_id: msg.cmd_id,
-            data:   { code: 200 },
-          }));
+// ACK for received frames — Rust sends { data: { code: 200, msg: "success", frame_id?, ... } }
+      // Reply with server acknowledgment so Rust client skips it cleanly.
+      if (isClientFrameAck(msg)) {
+        ws.send(JSON.stringify({
+          cmd:    msg.cmd,
+          cmd_id: msg.cmd_id,
+          data:   { code: 200 },
+        }));
         return;
       }
 
@@ -233,9 +234,9 @@ function sendFullMap(ws) {
     originX:      patch.originX,
     originY:      patch.originY,
     resolution:   patch.resolution,
-    robotX:       0,
-    robotY:       0,
-    robotTheta:   0,
+    robotX:       patch.robotX,
+    robotY:       patch.robotY,
+    robotTheta:   patch.robotTheta,
     frameId:      globalFrameId,
   };
 

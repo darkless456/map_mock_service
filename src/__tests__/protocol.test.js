@@ -1,7 +1,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const zlib = require('zlib');
-const { encodeMapMessage, encodeMapData } = require('../protocol');
+const { encodeMapMessage, encodeMapData, isClientFrameAck } = require('../protocol');
 
 // Minimal PNG-like bytes for testing (just the magic bytes)
 const imageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -106,5 +106,56 @@ describe('encodeMapMessage', () => {
     delete fieldsNoType.msgType;
     const parsed = JSON.parse(encodeMapMessage({ sn: 'SN', headerFields: fieldsNoType, imageBytes }));
     assert.equal(parsed.data.map_header.msg_type, 2);
+  });
+});
+
+describe('isClientFrameAck', () => {
+  it('should recognise a minimal ACK with code=200 and msg="success"', () => {
+    const ack = {
+      cmd:     'MAP_INCREMENTAL',
+      cmd_id:  'abc-123',
+      version: 1,
+      data:    { code: 200, msg: 'success' },
+    };
+    assert.ok(isClientFrameAck(ack));
+  });
+
+  it('should recognise an ACK that includes optional frame fields', () => {
+    const ack = {
+      cmd:     'MAP_INCREMENTAL',
+      cmd_id:  'abc-123',
+      version: 1,
+      data:    { code: 200, msg: 'success', frame_id: 42, frame_slicing_id: 42, frame_slicing_index: 0 },
+    };
+    assert.ok(isClientFrameAck(ack));
+  });
+
+  it('should reject old-format ACK with result="SUCCESS"', () => {
+    const oldAck = {
+      cmd:     'MAP_INCREMENTAL',
+      cmd_id:  'abc-123',
+      version: 1,
+      data:    { result: 'SUCCESS', payload: [{ session: 'abc-123', ack: true, frame_id: 42 }] },
+    };
+    assert.ok(!isClientFrameAck(oldAck));
+  });
+
+  it('should reject a heartbeat message', () => {
+    const hb = { cmd: 'heartbeat', cmd_id: 'xyz', data: { code: 200, codeMsg: 'Success', data: {} } };
+    assert.ok(!isClientFrameAck(hb));
+  });
+
+  it('should reject a ping message', () => {
+    const ping = { cmd: 'ping', cmd_id: 'xyz', data: { code: 200, codeMsg: 'Success', data: 'pong' } };
+    assert.ok(!isClientFrameAck(ping));
+  });
+
+  it('should reject non-200 code', () => {
+    const ack = { cmd: 'MAP_INCREMENTAL', cmd_id: 'xyz', data: { code: 400, msg: 'error' } };
+    assert.ok(!isClientFrameAck(ack));
+  });
+
+  it('should reject null', () => {
+    assert.ok(!isClientFrameAck(null));
   });
 });

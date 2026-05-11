@@ -250,7 +250,7 @@ CRC32 在 gzip 之前对原始 PNG 字节计算，写入 `map_header.crc32`。
 
 ```bash
 # 1. 生成测试 JWT
-TOKEN=$(node -e "const jwt=require('jsonwebtoken'); console.log(jwt.sign({userId:'test'}, 'mock-map-service-secret-key-2024', {expiresIn:'1h'}))")
+TOKEN=$(node -e "const jwt=require('jsonwebtoken'); console.log(jwt.sign({userId:'test'}, 'mock-map-service-secret-key-2024', {expiresIn:'24h'}))")
 
 # 2. 获取 ticket
 TICKET=$(curl -s -X POST http://localhost:9900/ratel/api/v1/wss/acc_ticket \

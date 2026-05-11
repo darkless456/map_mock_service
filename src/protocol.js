@@ -87,4 +87,39 @@ function encodeMapMessage({ sn, headerFields, imageBytes, cmdId, cmd }) {
   });
 }
 
-module.exports = { encodeMapMessage, encodeMapData };
+/**
+ * Check whether an incoming WebSocket message from the Rust client is a
+ * frame-acknowledgement sent after receiving a MAP_INCREMENTAL (or similar)
+ * map frame.
+ *
+ * The new ACK format sent by the Rust client (as of v1.1.0+) is:
+ * ```json
+ * {
+ *   "cmd":     "<same cmd as received frame>",
+ *   "cmd_id":  "<same cmd_id as received frame>",
+ *   "version": 1,
+ *   "data": {
+ *     "code":               200,
+ *     "msg":                "success",
+ *     "frame_id":           42,      // optional – present when frame had frame_id
+ *     "frame_slicing_id":   1,       // optional – present when frame had frame_slicing_id
+ *     "frame_slicing_index": 0       // optional – present when frame had frame_slicing_index
+ *   }
+ * }
+ * ```
+ *
+ * @param {object} msg - Already-parsed JSON message object
+ * @returns {boolean}
+ */
+function isClientFrameAck(msg) {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    typeof msg.data === 'object' &&
+    msg.data !== null &&
+    msg.data.code === 200 &&
+    msg.data.msg === 'success'
+  );
+}
+
+module.exports = { encodeMapMessage, encodeMapData, isClientFrameAck };

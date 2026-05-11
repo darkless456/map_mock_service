@@ -31,6 +31,9 @@ const xmlParser = new XMLParser({
  * @property {number} mapCols - width in cells
  * @property {number} mapRows - height in cells
  * @property {Buffer} imageData - raw PNG file bytes
+ * @property {number} robotX - robot world-frame x (center of patch tile, metres)
+ * @property {number} robotY - robot world-frame y (centre of patch tile, metres)
+ * @property {number} robotTheta - robot heading in radians, derived from patch-centre displacement
  */
 
 /**
@@ -83,6 +86,31 @@ function loadAllPatches(dataset = 'data') {
   }
 
   patches.sort((a, b) => a.timestampMs - b.timestampMs);
+
+  // Derive robot pose from patch-centre positions.
+  // robot position  = centre of each patch tile in world coordinates.
+  // robot heading   = direction to the next patch centre; the last patch
+  //                   inherits the heading of the second-to-last segment.
+  //                   When consecutive centres coincide the previous theta is
+  //                   reused so we never emit NaN.
+  let prevTheta = 0;
+  for (let i = 0; i < patches.length; i++) {
+    const p = patches[i];
+    p.robotX = p.originX + p.mapCols * p.resolution / 2;
+    p.robotY = p.originY + p.mapRows * p.resolution / 2;
+
+    if (i + 1 < patches.length) {
+      const nx = patches[i + 1].originX + patches[i + 1].mapCols * patches[i + 1].resolution / 2;
+      const ny = patches[i + 1].originY + patches[i + 1].mapRows * patches[i + 1].resolution / 2;
+      const dx = nx - p.robotX;
+      const dy = ny - p.robotY;
+      if (dx !== 0 || dy !== 0) {
+        prevTheta = Math.atan2(dy, dx);
+      }
+    }
+    p.robotTheta = prevTheta;
+  }
+
   return patches;
 }
 
