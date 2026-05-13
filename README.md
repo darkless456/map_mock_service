@@ -110,8 +110,157 @@ PORT=8080 MOCK_DATA_DIR=data PUSH_INTERVAL_MS=100 npm start
 {
   "status": "ok",
   "dataDir": "data2",
-  "patchCount": 1521
+  "patchCount": 1521,
+  "work_status": "idle"
 }
+```
+
+---
+
+### POST `/api/robot/start_mowing` — 开始割草
+
+将机器人状态切换为 `mowing`，并通过 WebSocket 广播 `ROBOT_STATUS` 消息。
+
+**响应（200）：**
+
+```json
+{ "code": 200, "message": "Success", "work_status": "mowing" }
+```
+
+---
+
+### POST `/api/robot/start_charging` — 开始充电
+
+将机器人状态切换为 `charging`，并通过 WebSocket 广播 `ROBOT_STATUS` 消息。
+
+**响应（200）：**
+
+```json
+{ "code": 200, "message": "Success", "work_status": "charging" }
+```
+
+---
+
+### POST `/api/robot/start_mapping` — 开始建图
+
+将机器人状态切换为 `mapping`，**同时开始向所有已连接的 WS 客户端推送增量地图帧**，并广播 `ROBOT_STATUS` 消息。
+
+**响应（200）：**
+
+```json
+{ "code": 200, "message": "Success", "work_status": "mapping" }
+```
+
+---
+
+### POST `/api/robot/stop_mowing` — 停止割草
+
+将机器人状态切换为 `idle`，并通过 WebSocket 广播 `ROBOT_STATUS` 消息。
+
+**响应（200）：**
+
+```json
+{ "code": 200, "message": "Success", "work_status": "idle" }
+```
+
+---
+
+### POST `/api/robot/stop_mapping` — 停止建图
+
+将机器人状态切换为 `idle`，**同时停止向所有已连接的 WS 客户端推送增量地图帧**，并广播 `ROBOT_STATUS` 消息。
+
+**响应（200）：**
+
+```json
+{ "code": 200, "message": "Success", "work_status": "idle" }
+```
+
+---
+
+### POST `/api/robot/error` — 触发错误状态
+
+将机器人状态切换为 `error`，并通过 WebSocket 广播 `ROBOT_STATUS` 消息。
+
+**响应（200）：**
+
+```json
+{ "code": 200, "message": "Success", "work_status": "error" }
+```
+
+---
+
+## 机器人状态（ROBOT_STATUS）
+
+服务维护一个全局的 `work_status` 字段（初始值 `idle`）。以下情况会向所有已连接的 WebSocket 客户端广播 `ROBOT_STATUS` 消息：
+
+1. **客户端建立 WS 连接时**：立即推送当前状态。
+2. **调用上述 Robot API 后**：状态变更后立即广播。
+
+**WS 推送消息格式：**
+
+```json
+{
+  "cmd": "ROBOT_STATUS",
+  "cmd_id": "<uuid-v4>",
+  "sn": "MOCK:00:11:22:33:44",
+  "work_status": "idle",
+  "battery": {
+    "level": 80,
+    "charging": -1,
+    "temperature": 30,
+    "cycles": 42
+  },
+  "signals": {
+    "bluetooth": { "connected": 1, "rssi": -55 },
+    "wifi": { "connected": 1, "ssid": "MockWiFi", "rssi": -60, "signal_strength": "good" },
+    "cellular": { "connected": 0, "signal_strength": "weak" }
+  }
+}
+```
+
+> `battery.charging` 字段：当 `work_status` 为 `charging` 时值为 `1`，其他状态下为 `-1`。
+
+**`work_status` 取值说明：**
+
+| 值 | 说明 |
+|----|------|
+| `idle` | 空闲，无任务执行 |
+| `mowing` | 正在割草 |
+| `charging` | 正在充电 |
+| `mapping` | 正在建图 |
+| `error` | 出现错误，需处理 |
+
+**API 与状态对应关系：**
+
+| HTTP API | 切换后 `work_status` |
+|----------|---------------------|
+| `POST /api/robot/start_mowing` | `mowing` |
+| `POST /api/robot/start_charging` | `charging` |
+| `POST /api/robot/start_mapping` | `mapping` |
+| `POST /api/robot/stop_mowing` | `idle` |
+| `POST /api/robot/stop_mapping` | `idle` |
+| `POST /api/robot/error` | `error` |
+
+**curl 示例：**
+
+```bash
+# 开始割草
+curl -X POST http://localhost:9900/api/robot/start_mowing
+
+# 停止割草（回到空闲）
+curl -X POST http://localhost:9900/api/robot/stop_mowing
+
+# 开始充电
+curl -X POST http://localhost:9900/api/robot/start_charging
+
+# 开始建图
+curl -X POST http://localhost:9900/api/robot/start_mapping
+
+# 停止建图（回到空闲）
+curl -X POST http://localhost:9900/api/robot/stop_mapping
+
+# 触发错误状态
+curl -X POST http://localhost:9900/api/robot/error
 ```
 
 ---
@@ -163,8 +312,8 @@ ws://localhost:9900/acc?ticket=<ticket>
 **连接行为：**
 
 1. 握手时服务端验证 `ticket`，无效则返回 `HTTP 401` 并关闭 socket。
-2. 握手成功后立即推送一帧**全量地图**（`MAP_INCREMENTAL` cmd，使用 `patches[0]`）。
-3. 随后每隔 `PUSH_INTERVAL_MS` 循环推送各增量帧，帧序到末尾后从头重播。
+2. 握手成功后立即推送一帧**全量地图**（`MAP_FIX` cmd，使用 `patches[0]`）以及当前 **`ROBOT_STATUS`** 消息。
+3. 增量帧推送**仅在 `start_mapping` 被调用后启动**，调用 `stop_mapping` 后停止。未处于 mapping 状态时帧定时器空转不发送数据。
 
 ---
 

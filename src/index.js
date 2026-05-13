@@ -3,12 +3,19 @@
 // Routes:
 //   POST /ratel/api/v1/wss/acc_ticket  — issue short-lived WS ticket
 //   GET  /api/health                   — health check
+//   POST /api/robot/start_mowing       — set work_status = mowing
+//   POST /api/robot/start_charging     — set work_status = charging
+//   POST /api/robot/start_mapping      — set work_status = mapping
+//   POST /api/robot/stop_mowing        — set work_status = idle
+//   POST /api/robot/stop_mapping       — set work_status = idle
+//   POST /api/robot/error              — set work_status = error
 //   WS   /acc?ticket=<ticket>          — map stream connection
 //
 // Old routes (/api/auth/ws-signature, /ws/map) are intentionally removed.
 const http = require('http');
 const { URL } = require('url');
 const { WebSocketServer } = require('ws');
+const { v4: uuidv4 } = require('uuid');
 const { loadAllPatches } = require('./data-loader');
 const { encodeMapMessage, isClientFrameAck } = require('./protocol');
 const { verifyJwt, generateTicket, verifyTicket } = require('./auth');
@@ -30,6 +37,43 @@ if (patches.length === 0) {
 }
 
 let globalFrameId = 0;
+
+// ── Robot work status ────────────────────────────────────────────────
+
+let robotWorkStatus = 'idle';
+
+// Controls whether incremental map frames are pushed to WS clients.
+// Enabled by start_mapping, disabled by stop_mapping.
+let mapStreamingActive = false;
+
+function buildRobotStatusMessage() {
+  return JSON.stringify({
+    cmd: 'ROBOT_STATUS',
+    cmd_id: uuidv4(),
+    sn: MOCK_ROBOT_SN,
+    work_status: robotWorkStatus,
+    battery: {
+      level: 80,
+      charging: robotWorkStatus === 'charging' ? 1 : -1,
+      temperature: 30,
+      cycles: 42,
+    },
+    signals: {
+      bluetooth: { connected: 1, rssi: -55 },
+      wifi: { connected: 1, ssid: 'MockWiFi', rssi: -60, signal_strength: 'good' },
+      cellular: { connected: 0, signal_strength: 'weak' },
+    },
+  });
+}
+
+function broadcastRobotStatus() {
+  const msg = buildRobotStatusMessage();
+  wss.clients.forEach((client) => {
+    if (client.readyState === client.OPEN) {
+      client.send(msg);
+    }
+  });
+}
 
 // ── HTTP server ──────────────────────────────────────────────────────
 
@@ -73,7 +117,35 @@ res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, plat
   // ── GET /api/health ───────────────────────────────────────────────
   if (url.pathname === '/api/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', dataDir: MOCK_DATA_DIR, patchCount: patches.length }));
+    res.end(JSON.stringify({ status: 'ok', dataDir: MOCK_DATA_DIR, patchCount: patches.length, work_status: robotWorkStatus }));
+    return;
+  }
+
+  // ── POST /api/robot/:action ───────────────────────────────────────
+  const robotActionMap = {
+    '/api/robot/start_mowing':  'mowing',
+    '/api/robot/start_charging': 'charging',
+    '/api/robot/start_mapping':  'mapping',
+    '/api/robot/stop_mowing':    'idle',
+    '/api/robot/stop_mapping':   'idle',
+    '/api/robot/error':          'error',
+  };
+
+  if (req.method === 'POST' && robotActionMap[url.pathname] !== undefined) {
+    robotWorkStatus = robotActionMap[url.pathname];
+
+    if (url.pathname === '/api/robot/start_mapping') {
+      mapStreamingActive = true;
+      console.log('Map streaming STARTED');
+    } else if (url.pathname === '/api/robot/stop_mapping') {
+      mapStreamingActive = false;
+      console.log('Map streaming STOPPED');
+    }
+
+    console.log(`Robot work_status changed to: ${robotWorkStatus}`);
+    broadcastRobotStatus();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ code: 200, message: 'Success', work_status: robotWorkStatus }));
     return;
   }
 
@@ -110,14 +182,18 @@ wss.on('connection', (ws, req) => {
   let patchIndex = 0;
   let running = true;
 
-  // Send initial full map immediately on connect
+  // Send initial full map and current robot status immediately on connect
   sendFullMap(ws);
+  ws.send(buildRobotStatusMessage());
 
   const pushTimer = setInterval(() => {
     if (!running || ws.readyState !== ws.OPEN) {
       clearInterval(pushTimer);
       return;
     }
+
+    // Only push incremental frames while mapping is active
+    if (!mapStreamingActive) return;
 
     const patch = patches[patchIndex % patches.length];
     patchIndex++;
