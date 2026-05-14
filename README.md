@@ -177,6 +177,88 @@ PORT=8080 MOCK_DATA_DIR=data PUSH_INTERVAL_MS=100 npm start
 
 ---
 
+### GET `/api/map-config` — 地图配置
+
+返回指定地图的基础配置，包括 base map 图片的下载 URI。  
+APP 端使用 `asset_uri` 构造 `CvMatSource { kind: 'uri' }` 传给 `useSemanticMapLoader`。
+
+**查询参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `map_id` | string | `mock_map_001` | 地图 ID |
+
+**响应（200）：**
+
+```json
+{
+  "map_id": "mock_map_001",
+  "base_version": 1,
+  "resolution": 0.05,
+  "asset_uri": "http://localhost:9900/api/map-asset?map_id=mock_map_001"
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `map_id` | 地图唯一 ID |
+| `base_version` | 当前已保存的版本号，用于 `acknowledgeSaved(base_version + 1)` |
+| `resolution` | 底图分辨率（米/像素），传给 `useSemanticMapLoader` |
+| `asset_uri` | 底图 PNG 下载地址 |
+
+---
+
+### GET `/api/map-asset` — 底图 PNG
+
+以 `image/png` 返回底图灰度图像。`asset_uri` 中已内嵌此地址，APP 通常不需要手动拼接。
+
+**查询参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `map_id` | string | 地图 ID（当前 mock 忽略，返回最后一帧 patch PNG） |
+
+**响应：**  
+`Content-Type: image/png`，直接返回 PNG 字节流（`Cache-Control: no-store`）。
+
+**错误（503）：** 尚无可用的地图 patch 数据。
+
+---
+
+### GET `/api/annotations/:mapId` — 标注增量包
+
+返回指定地图的 `IncrementPackage`（与 `docs/map_marked_data_design.md` §3 协议格式一致）。  
+APP 端将响应直接传给 `annotationStore.hydrateFromProtocol(pkg)`。
+
+**路径参数：** `:mapId` — 地图 ID，例如 `mock_map_001`。
+
+**响应（200）：**
+
+```json
+{
+  "map_id": "mock_map_001",
+  "base_version": 1,
+  "timestamp": 1778314165808,
+  "unit": "meter",
+  "increments": [
+    {
+      "element_id": "d2e7a38e-...",
+      "type": 251,
+      "action": "add",
+      "shape": "polygon",
+      "points": [{ "x": 6.46, "y": 16.94 }, "..."],
+      "properties": {}
+    }
+  ]
+}
+```
+
+**错误（404）：** 该 `map_id` 没有对应的标注数据。
+
+Seed 数据在 `src/annotation-store.js` 中维护，包含三条默认标注：禁区 251 / 分区线 99 / 虚拟墙 254。
+
+---
+
 ### POST `/api/robot/error` — 触发错误状态
 
 将机器人状态切换为 `error`，并通过 WebSocket 广播 `ROBOT_STATUS` 消息。

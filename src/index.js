@@ -19,6 +19,7 @@ const { v4: uuidv4 } = require('uuid');
 const { loadAllPatches } = require('./data-loader');
 const { encodeMapMessage, isClientFrameAck } = require('./protocol');
 const { verifyJwt, generateTicket, verifyTicket } = require('./auth');
+const { getAnnotationPackage } = require('./annotation-store');
 
 /** Test data directory: change 'data' / 'data2' / 'data3' and restart to switch. */
 const MOCK_DATA_DIR = process.env.MOCK_DATA_DIR || 'data3';
@@ -146,6 +147,60 @@ res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, plat
     broadcastRobotStatus();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ code: 200, message: 'Success', work_status: robotWorkStatus }));
+    return;
+  }
+
+  // ── GET /api/map-config ───────────────────────────────────────────
+  //
+  // Returns: { map_id, base_version, resolution, asset_uri }
+  // The `asset_uri` points to GET /api/map-asset?map_id=<id> on this service.
+  if (url.pathname === '/api/map-config' && req.method === 'GET') {
+    const mapId = url.searchParams.get('map_id') || 'mock_map_001';
+    const assetUri = `http://localhost:${PORT}/api/map-asset?map_id=${encodeURIComponent(mapId)}`;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      map_id: mapId,
+      base_version: 1,
+      resolution: 0.05,
+      asset_uri: assetUri,
+    }));
+    return;
+  }
+
+  // ── GET /api/map-asset ────────────────────────────────────────────
+  //
+  // Serves the last loaded patch PNG as a grayscale base-map image.
+  // In production this would be the full stitched semantic map.
+  if (url.pathname === '/api/map-asset' && req.method === 'GET') {
+    if (patches.length === 0) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'No map patches available' }));
+      return;
+    }
+    const patch = patches[patches.length - 1]; // most recent patch as proxy for full map
+    res.writeHead(200, {
+      'Content-Type': 'image/png',
+      'Content-Length': patch.imageData.length,
+      'Cache-Control': 'no-store',
+    });
+    res.end(patch.imageData);
+    return;
+  }
+
+  // ── GET /api/annotations/:mapId ───────────────────────────────────
+  //
+  // Returns an IncrementPackage (JSON) for the requested map_id.
+  const annotationsMatch = url.pathname.match(/^\/api\/annotations\/([^/]+)$/);
+  if (annotationsMatch && req.method === 'GET') {
+    const mapId = decodeURIComponent(annotationsMatch[1]);
+    const pkg = getAnnotationPackage(mapId);
+    if (!pkg) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `No annotations found for map_id: ${mapId}` }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(pkg));
     return;
   }
 
