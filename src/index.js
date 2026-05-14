@@ -20,8 +20,8 @@ const { loadAllPatches } = require('./data-loader');
 const { encodeMapMessage, isClientFrameAck } = require('./protocol');
 const { verifyJwt, generateTicket, verifyTicket } = require('./auth');
 
-/** Test data directory: change 'data' / 'data2' and restart to switch. */
-const MOCK_DATA_DIR = process.env.MOCK_DATA_DIR || 'data2';
+/** Test data directory: change 'data' / 'data2' / 'data3' and restart to switch. */
+const MOCK_DATA_DIR = process.env.MOCK_DATA_DIR || 'data3';
 const MOCK_ROBOT_SN = process.env.ROBOT_SN || 'MOCK:00:11:22:33:44';
 
 const PORT = parseInt(process.env.PORT, 10) || 9900;
@@ -333,8 +333,8 @@ function sendFullMap(ws) {
 
 // ── Start ────────────────────────────────────────────────────────────
 
-server.listen(PORT, () => {
-  console.log(`Map Mock Service (v2 protocol) running on http://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Map Mock Service (v2 protocol) running on http://0.0.0.0:${PORT}`);
   console.log(`  Mock data dir: ${MOCK_DATA_DIR}/`);
   console.log(`  Robot SN:      ${MOCK_ROBOT_SN}`);
   console.log(`  Auth endpoint: POST /ratel/api/v1/wss/acc_ticket`);
