@@ -59,7 +59,7 @@ Map Mock Service running on http://localhost:9900
 |--------|--------|------|
 | `PORT` | `9900` | HTTP / WS 监听端口 |
 | `MOCK_DATA_DIR` | `data2` | 使用的数据目录（`data` 或 `data2`） |
-| `ROBOT_SN` | `MOCK:00:11:22:33:44` | 推流消息中的机器人序列号 `sn` 字段 |
+| `ROBOT_SN` | `MOCK:00:11:22:33:44` | 推流消息中的机器人序列号 `sn` 字段（也可运行时通过 `POST /api/robot/set_sn` 切换，见 §`POST /api/robot/set_sn`） |
 | `PUSH_INTERVAL_MS` | `200` | 增量帧推送间隔（毫秒） |
 | `JWT_SECRET` | `mock-map-service-secret-key-2024` | 验证客户端 JWT 的签名密钥 |
 | `TICKET_SECRET` | `mock-ticket-secret-2024` | 签发 WS ticket 的密钥 |
@@ -111,8 +111,67 @@ PORT=8080 MOCK_DATA_DIR=data PUSH_INTERVAL_MS=100 npm start
   "status": "ok",
   "dataDir": "data2",
   "patchCount": 1521,
-  "work_status": "idle"
+  "work_status": "idle",
+  "sn": "MOCK:00:11:22:33:44"
 }
+```
+
+`sn` 字段反映当前正在使用的机器人序列号（即所有 WS 推流消息 `data.sn` 的取值）。
+
+---
+
+### POST `/api/robot/set_sn` — 运行时修改机器人 SN
+
+> 修改日期：2026-05-15
+> 用途：联调 Rust kit 的 `mapConfig.sn` 帧过滤功能时无需重启服务即可切换机器 SN，
+> 也可在不同端口启动多个 mock 实例模拟多机同时建图的场景。
+
+**请求体：**
+
+```json
+{ "sn": "PUDU:99:88:77:66:55" }
+```
+
+**响应（200）：**
+
+```json
+{
+  "code": 200,
+  "message": "Success",
+  "sn": "PUDU:99:88:77:66:55",
+  "previousSn": "MOCK:00:11:22:33:44"
+}
+```
+
+**错误响应：**
+
+| HTTP 状态码 | 触发条件 |
+|-------------|----------|
+| `400` | body 不是合法 JSON，或 `sn` 字段缺失 / 为空字符串 |
+
+**行为：**
+
+1. 立即对所有已连接 WS 客户端广播一条 `ROBOT_STATUS`（携带新 `sn`）。
+2. 后续推送的 `MAP_INCREMENTAL` / `MAP_FIX` 帧均使用新 `sn`。
+
+**curl 示例：**
+
+```bash
+curl -X POST http://localhost:9900/api/robot/set_sn \
+  -H "Content-Type: application/json" \
+  -d '{"sn":"PUDU:99:88:77:66:55"}'
+```
+
+**多机模拟示例：**
+
+```bash
+# 终端 1：模拟机器人 A
+ROBOT_SN=PUDU:AAA PORT=9900 npm start
+
+# 终端 2：模拟机器人 B
+ROBOT_SN=PUDU:BBB PORT=9901 npm start
+
+# 客户端配置 mapConfig.sn = "PUDU:AAA"，并把两个 baseUrl 都注册（或合并）即可仅渲染 A 的帧
 ```
 
 ---

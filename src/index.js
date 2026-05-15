@@ -23,7 +23,19 @@ const { getAnnotationPackage } = require('./annotation-store');
 
 /** Test data directory: change 'data' / 'data2' / 'data3' and restart to switch. */
 const MOCK_DATA_DIR = process.env.MOCK_DATA_DIR || 'data3';
-const MOCK_ROBOT_SN = process.env.ROBOT_SN || 'MOCK:00:11:22:33:44';
+
+/**
+ * Robot SN used in every outbound WS message's `data.sn` field.
+ *
+ * Initial value comes from env `ROBOT_SN`; can be changed at runtime via
+ * `POST /api/robot/set_sn` (see README for usage). Multiple mock instances
+ * with different SNs can be run side-by-side on different ports to simulate
+ * multi-robot scenarios for the new Rust-side SN filter (mapConfig.sn).
+ *
+ * Mutable via API — declared as `let` rather than `const` so robot-status
+ * and frame builders read the latest value on every push.
+ */
+let mockRobotSn = process.env.ROBOT_SN || 'MOCK:00:11:22:33:44';
 
 const PORT = parseInt(process.env.PORT, 10) || 9900;
 const PUSH_INTERVAL_MS = parseInt(process.env.PUSH_INTERVAL_MS, 10) || 200;
@@ -51,7 +63,7 @@ function buildRobotStatusMessage() {
   return JSON.stringify({
     cmd: 'ROBOT_STATUS',
     cmd_id: uuidv4(),
-    sn: MOCK_ROBOT_SN,
+    sn: mockRobotSn,
     work_status: robotWorkStatus,
     battery: {
       level: 80,
@@ -118,7 +130,44 @@ res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, plat
   // ── GET /api/health ───────────────────────────────────────────────
   if (url.pathname === '/api/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', dataDir: MOCK_DATA_DIR, patchCount: patches.length, work_status: robotWorkStatus }));
+    res.end(JSON.stringify({
+      status: 'ok',
+      dataDir: MOCK_DATA_DIR,
+      patchCount: patches.length,
+      work_status: robotWorkStatus,
+      sn: mockRobotSn,
+    }));
+    return;
+  }
+
+  // ── POST /api/robot/set_sn ────────────────────────────────────────
+  // Runtime SN switcher — useful to test the JS/Rust mapConfig.sn filter
+  // without restarting the service. Body: { "sn": "<new-sn>" }
+  if (url.pathname === '/api/robot/set_sn' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk.toString(); });
+    req.on('end', () => {
+      let parsed;
+      try {
+        parsed = JSON.parse(body || '{}');
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ code: 400, message: 'Invalid JSON body' }));
+        return;
+      }
+      const newSn = typeof parsed.sn === 'string' ? parsed.sn.trim() : '';
+      if (!newSn) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ code: 400, message: 'sn is required (non-empty string)' }));
+        return;
+      }
+      const prevSn = mockRobotSn;
+      mockRobotSn = newSn;
+      console.log(`Robot SN changed: ${prevSn} -> ${mockRobotSn}`);
+      broadcastRobotStatus();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ code: 200, message: 'Success', sn: mockRobotSn, previousSn: prevSn }));
+    });
     return;
   }
 
@@ -274,7 +323,7 @@ wss.on('connection', (ws, req) => {
 
     try {
       const message = encodeMapMessage({
-        sn:           MOCK_ROBOT_SN,
+        sn:           mockRobotSn,
         headerFields,
         imageBytes:   patch.imageData,
         cmd:          'MAP_INCREMENTAL',
@@ -373,7 +422,7 @@ function sendFullMap(ws) {
 
   try {
     const message = encodeMapMessage({
-      sn:          MOCK_ROBOT_SN,
+      sn:          mockRobotSn,
       headerFields,
       imageBytes:  patch.imageData,
       cmd:         'MAP_FIX',
@@ -391,7 +440,7 @@ function sendFullMap(ws) {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Map Mock Service (v2 protocol) running on http://0.0.0.0:${PORT}`);
   console.log(`  Mock data dir: ${MOCK_DATA_DIR}/`);
-  console.log(`  Robot SN:      ${MOCK_ROBOT_SN}`);
+  console.log(`  Robot SN:      ${mockRobotSn}`);
   console.log(`  Auth endpoint: POST /ratel/api/v1/wss/acc_ticket`);
   console.log(`  Health check:  GET  /api/health`);
   console.log(`  WebSocket:     ws://localhost:${PORT}/acc?ticket=<ticket>`);
