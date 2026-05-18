@@ -63,6 +63,204 @@ let robotWorkStatus = 'idle';
 // Enabled by start_mapping, disabled by stop_mapping.
 let mapStreamingActive = false;
 
+// ── Mowing simulation state ───────────────────────────────────────────
+
+/**
+ * Whether a mowing task is currently active.
+ * Set true by POST /api/robot/start_mowing, false by stop_mowing.
+ */
+let mowingActive = false;
+let mowingTaskId = null;
+let robotPoseTimer = null;   // setInterval handle for ROBOT_POSE push
+let mowingStatusTimer = null; // setInterval handle for MOWING_STATUS push
+
+// Robot path state (S-pattern across a 8m × 8m mowing field)
+const MOW_FIELD_X1 = 1.5;
+const MOW_FIELD_X2 = 8.5;
+const MOW_FIELD_Y1 = 1.5;
+const MOW_FIELD_Y2 = 8.5;
+const MOW_STRIPE_Y = 0.5;   // row spacing (= mow_width_m)
+const ROBOT_STEP_M = 0.10;  // meters per pose push (300 ms interval → ~0.33 m/s)
+
+let mowRobotX = MOW_FIELD_X1;
+let mowRobotY = MOW_FIELD_Y1;
+let mowGoingRight = true;
+let mowingPaused = false;   // true while MOWING_PAUSE is active
+
+const MOCK_PLAN_ZONES = [
+  {
+    id: 'zone_main',
+    polygon: [
+      [MOW_FIELD_X1, MOW_FIELD_Y1],
+      [MOW_FIELD_X2, MOW_FIELD_Y1],
+      [MOW_FIELD_X2, MOW_FIELD_Y2],
+      [MOW_FIELD_X1, MOW_FIELD_Y2],
+    ],
+    label: '主草坪',
+  },
+];
+
+const MOCK_NO_GO_ZONES = [
+  {
+    id: 'nogo_obstacle',
+    polygon: [
+      [3.5, 3.5],
+      [5.5, 3.5],
+      [5.5, 5.5],
+      [3.5, 5.5],
+    ],
+    label: '花坛',
+  },
+];
+
+/** Advance robot position by one step along the S-pattern path. */
+function advanceMowingPosition() {
+  const dx = mowGoingRight ? ROBOT_STEP_M : -ROBOT_STEP_M;
+  mowRobotX += dx;
+
+  if (mowGoingRight && mowRobotX >= MOW_FIELD_X2) {
+    mowRobotX = MOW_FIELD_X2;
+    mowRobotY += MOW_STRIPE_Y;
+    mowGoingRight = false;
+  } else if (!mowGoingRight && mowRobotX <= MOW_FIELD_X1) {
+    mowRobotX = MOW_FIELD_X1;
+    mowRobotY += MOW_STRIPE_Y;
+    mowGoingRight = true;
+  }
+
+  // Wrap around when the whole field is covered
+  if (mowRobotY > MOW_FIELD_Y2) {
+    mowRobotX = MOW_FIELD_X1;
+    mowRobotY = MOW_FIELD_Y1;
+    mowGoingRight = true;
+  }
+}
+
+/** Broadcast a JSON payload to all open WS clients. */
+function broadcastJson(payload) {
+  const msg = JSON.stringify(payload);
+  wss.clients.forEach((client) => {
+    if (client.readyState === client.OPEN) {
+      client.send(msg);
+    }
+  });
+}
+
+/** Start the ROBOT_POSE push timer (300 ms interval). */
+function startRobotPoseTimer() {
+  if (robotPoseTimer) return;
+  robotPoseTimer = setInterval(() => {
+    if (!mowingActive || mowingPaused) return;
+    advanceMowingPosition();
+    const yaw = mowGoingRight ? 0 : Math.PI;
+    broadcastJson({
+      cmd: 'ROBOT_POSE',
+      sn:  mockRobotSn,
+      data: {
+        x:             mowRobotX,
+        y:             mowRobotY,
+        yaw,
+        timestamp_sec: Math.floor(Date.now() / 1000),
+      },
+    });
+  }, 300);
+}
+
+/** Stop the ROBOT_POSE push timer. */
+function stopRobotPoseTimer() {
+  if (robotPoseTimer) {
+    clearInterval(robotPoseTimer);
+    robotPoseTimer = null;
+  }
+}
+
+/** Start the periodic MOWING_STATUS push (every 5 s). */
+function startMowingStatusTimer() {
+  if (mowingStatusTimer) return;
+  mowingStatusTimer = setInterval(() => {
+    if (!mowingActive) return;
+    broadcastJson({
+      cmd:  'MOWING_STATUS',
+      sn:   mockRobotSn,
+      data: {
+        state:         mowingPaused ? 'PAUSED' : 'MOWING',
+        battery:       0.78,
+        error_code:    null,
+        timestamp_sec: Math.floor(Date.now() / 1000),
+      },
+    });
+  }, 5000);
+}
+
+/** Stop the MOWING_STATUS push timer. */
+function stopMowingStatusTimer() {
+  if (mowingStatusTimer) {
+    clearInterval(mowingStatusTimer);
+    mowingStatusTimer = null;
+  }
+}
+
+/** Start a new mowing task: broadcast MOWING_START + begin pose push. */
+function startMowingTask() {
+  mowingActive   = true;
+  mowingPaused   = false;
+  mowingTaskId   = `task_${Date.now()}`;
+  mowRobotX      = MOW_FIELD_X1;
+  mowRobotY      = MOW_FIELD_Y1;
+  mowGoingRight  = true;
+
+  console.log(`[Mowing] Task started: ${mowingTaskId}`);
+
+  broadcastJson({
+    cmd:  'MOWING_START',
+    sn:   mockRobotSn,
+    data: {
+      task_id:      mowingTaskId,
+      mow_width_m:  0.5,
+      plan_zones:   MOCK_PLAN_ZONES,
+      no_go_zones:  MOCK_NO_GO_ZONES,
+      timestamp_sec: Math.floor(Date.now() / 1000),
+    },
+  });
+
+  // Send initial MOWING_STATUS so client transitions to MOWING immediately
+  broadcastJson({
+    cmd:  'MOWING_STATUS',
+    sn:   mockRobotSn,
+    data: {
+      state:         'MOWING',
+      battery:       0.78,
+      error_code:    null,
+      timestamp_sec: Math.floor(Date.now() / 1000),
+    },
+  });
+
+  startRobotPoseTimer();
+  startMowingStatusTimer();
+}
+
+/** Stop the current mowing task: stop pose push + broadcast MOWING_STOP. */
+function stopMowingTask() {
+  mowingActive = false;
+  mowingPaused = false;
+  stopRobotPoseTimer();
+  stopMowingStatusTimer();
+
+  console.log(`[Mowing] Task stopped: ${mowingTaskId}`);
+
+  broadcastJson({
+    cmd:  'MOWING_STOP',
+    sn:   mockRobotSn,
+    data: {
+      task_id:       mowingTaskId,
+      reason:        'server_stopped',
+      timestamp_sec: Math.floor(Date.now() / 1000),
+    },
+  });
+
+  mowingTaskId = null;
+}
+
 function buildRobotStatusMessage() {
   return JSON.stringify({
     cmd: 'ROBOT_STATUS',
@@ -194,6 +392,13 @@ res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, plat
     } else if (url.pathname === '/api/robot/stop_mapping') {
       mapStreamingActive = false;
       console.log('Map streaming STOPPED');
+    }
+
+    // Mowing lifecycle hooks
+    if (url.pathname === '/api/robot/start_mowing') {
+      startMowingTask();
+    } else if (url.pathname === '/api/robot/stop_mowing') {
+      if (mowingActive) stopMowingTask();
     }
 
     console.log(`Robot work_status changed to: ${robotWorkStatus}`);
@@ -388,6 +593,51 @@ wss.on('connection', (ws, req) => {
         sendFullMap(ws);
         return;
       }
+
+      // ── Mowing control cmds from the app ──────────────────────────────
+      if (msg.cmd === 'MOWING_PAUSE') {
+        if (mowingActive && !mowingPaused) {
+          mowingPaused = true;
+          console.log('[Mowing] Paused by client');
+          ws.send(JSON.stringify({
+            cmd:  'MOWING_STATUS',
+            sn:   mockRobotSn,
+            data: {
+              state:         'PAUSED',
+              battery:       0.78,
+              error_code:    null,
+              timestamp_sec: Math.floor(Date.now() / 1000),
+            },
+          }));
+        }
+        return;
+      }
+
+      if (msg.cmd === 'MOWING_RESUME') {
+        if (mowingActive && mowingPaused) {
+          mowingPaused = false;
+          console.log('[Mowing] Resumed by client');
+          ws.send(JSON.stringify({
+            cmd:  'MOWING_STATUS',
+            sn:   mockRobotSn,
+            data: {
+              state:         'MOWING',
+              battery:       0.78,
+              error_code:    null,
+              timestamp_sec: Math.floor(Date.now() / 1000),
+            },
+          }));
+        }
+        return;
+      }
+
+      if (msg.cmd === 'MOWING_STOP') {
+        if (mowingActive) {
+          stopMowingTask();
+          console.log('[Mowing] Stopped by client');
+        }
+        return;
+      }
     } catch {
       // Silently ignore malformed messages
     }
@@ -442,7 +692,19 @@ function sendFullMap(ws) {
     console.error('Failed to send full map:', err.message);
   }
 }
-
+  // ── GET /api/robot/mowing_status (debug) ──────────────────────────
+  if (req.method === 'GET' && url.pathname === '/api/robot/mowing_status') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      active:     mowingActive,
+      paused:     mowingPaused,
+      task_id:    mowingTaskId,
+      robot:      { x: mowRobotX, y: mowRobotY, going_right: mowGoingRight },
+      plan_zones: MOCK_PLAN_ZONES,
+      no_go_zones: MOCK_NO_GO_ZONES,
+    }));
+    return;
+  }
 // ── Start ────────────────────────────────────────────────────────────
 
 server.listen(PORT, '0.0.0.0', () => {
