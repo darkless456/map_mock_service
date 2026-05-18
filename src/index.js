@@ -20,6 +20,10 @@ const { loadAllPatches } = require('./data-loader');
 const { encodeMapMessage, isClientFrameAck } = require('./protocol');
 const { verifyJwt, generateTicket, verifyTicket } = require('./auth');
 const { getAnnotationPackage } = require('./annotation-store');
+const fs = require('fs');
+const path = require('path');
+
+const SEMANTIC_MAP_PATH = path.resolve(__dirname, '..', 'full_semanticmap.png');
 
 /** Test data directory: change 'data' / 'data2' / 'data3' and restart to switch. */
 const MOCK_DATA_DIR = process.env.MOCK_DATA_DIR || 'data3';
@@ -205,7 +209,10 @@ res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, plat
   // The `asset_uri` points to GET /api/map-asset?map_id=<id> on this service.
   if (url.pathname === '/api/map-config' && req.method === 'GET') {
     const mapId = url.searchParams.get('map_id') || 'mock_map_001';
-    const assetUri = `http://localhost:${PORT}/api/map-asset?map_id=${encodeURIComponent(mapId)}`;
+    // Use the Host header so the returned URI is reachable from the requesting client
+    // (devices/emulators cannot reach `localhost` on the host machine).
+    const host = req.headers.host || `localhost:${PORT}`;
+    const assetUri = `http://${host}/api/map-asset?map_id=${encodeURIComponent(mapId)}`;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       map_id: mapId,
@@ -218,21 +225,22 @@ res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, plat
 
   // ── GET /api/map-asset ────────────────────────────────────────────
   //
-  // Serves the last loaded patch PNG as a grayscale base-map image.
-  // In production this would be the full stitched semantic map.
+  // Serves full_semanticmap.png as the base-map image.
   if (url.pathname === '/api/map-asset' && req.method === 'GET') {
-    if (patches.length === 0) {
+    let imageData;
+    try {
+      imageData = fs.readFileSync(SEMANTIC_MAP_PATH);
+    } catch (err) {
       res.writeHead(503, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'No map patches available' }));
+      res.end(JSON.stringify({ error: 'full_semanticmap.png not found' }));
       return;
     }
-    const patch = patches[patches.length - 1]; // most recent patch as proxy for full map
     res.writeHead(200, {
       'Content-Type': 'image/png',
-      'Content-Length': patch.imageData.length,
+      'Content-Length': imageData.length,
       'Cache-Control': 'no-store',
     });
-    res.end(patch.imageData);
+    res.end(imageData);
     return;
   }
 
