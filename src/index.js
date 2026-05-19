@@ -74,18 +74,45 @@ let mowingTaskId = null;
 let robotPoseTimer = null;   // setInterval handle for ROBOT_POSE push
 let mowingStatusTimer = null; // setInterval handle for MOWING_STATUS push
 
-// Robot path state (S-pattern across a 8m × 8m mowing field)
-const MOW_FIELD_X1 = 1.5;
-const MOW_FIELD_X2 = 8.5;
-const MOW_FIELD_Y1 = 1.5;
-const MOW_FIELD_Y2 = 8.5;
-const MOW_STRIPE_Y = 0.5;   // row spacing (= mow_width_m)
-const ROBOT_STEP_M = 0.10;  // meters per pose push (300 ms interval → ~0.33 m/s)
+/*
+ * 坐标系与底图对齐说明（更新于 2026-05-19）
+ * ─────────────────────────────────────────────────────────────────
+ * 当前服务的底图为 `full_semanticmap.png`：
+ *   - 尺寸：512 × 512 px
+ *   - 分辨率：0.05 m/px（GET /api/map-config 返回值）
+ *   - 整个世界：25.6 m × 25.6 m
+ *   - 坐标原点：图像左上角，x 向右、y 向下（与 BaseMapLayer 约定一致；
+ *     由 worldPointToThree 翻转到 THREE 的 Y-up 渲染坐标）
+ *
+ * 实际语义内容（非白色像素）集中在图像中部：
+ *   像素 X ∈ [213, 284]  → 世界 X ≈ [10.65, 14.20] m
+ *   像素 Y ∈ [195, 295]  → 世界 Y ≈ [ 9.75, 14.75] m
+ *
+ * 因此 mowing 模拟字段必须落在该区域内，否则机器人会跑在白色 unknown
+ * 背景上，前端 MapMower 看不到任何可视化反馈。下方常量在该 bbox 内
+ * 留 ~0.15 m 边距，并安排一个小型 no-go 障碍物。
+ *
+ * 如未来更换底图，请：
+ *   1) 用 `node -e "..."` 或 ImageMagick 重新计算内容 bbox；
+ *   2) 同步调整下方 MOW_FIELD_* / no-go 多边形顶点；
+ *   3) 保持 stripe 宽度 = mow_width_m，避免重叠/漏割视觉。
+ */
+
+// 字段范围（米）—— 落在新底图的内容 bbox 内
+const MOW_FIELD_X1 = 10.80;
+const MOW_FIELD_X2 = 14.00;   // 宽 3.20 m
+const MOW_FIELD_Y1 = 10.00;
+const MOW_FIELD_Y2 = 14.60;   // 高 4.60 m
+
+// 割草宽度 = 行距，3.20 m / 0.40 m ≈ 8 趟来回
+const MOW_WIDTH_M  = 0.40;
+const MOW_STRIPE_Y = MOW_WIDTH_M;
+const ROBOT_STEP_M = 0.10;    // 300 ms 一帧 → ~0.33 m/s
 
 let mowRobotX = MOW_FIELD_X1;
 let mowRobotY = MOW_FIELD_Y1;
 let mowGoingRight = true;
-let mowingPaused = false;   // true while MOWING_PAUSE is active
+let mowingPaused = false;     // true while MOWING_PAUSE is active
 
 const MOCK_PLAN_ZONES = [
   {
@@ -102,21 +129,55 @@ const MOCK_PLAN_ZONES = [
 
 const MOCK_NO_GO_ZONES = [
   {
+    // 字段中部的小障碍（约 1.0 × 1.0 m），便于客户端调试 no-go 渲染
     id: 'nogo_obstacle',
     polygon: [
-      [3.5, 3.5],
-      [5.5, 3.5],
-      [5.5, 5.5],
-      [3.5, 5.5],
+      [12.00, 12.20],
+      [13.00, 12.20],
+      [13.00, 13.20],
+      [12.00, 13.20],
     ],
     label: '花坛',
   },
 ];
 
+/** 判断 (x, y) 是否落在第一个 no-go 多边形的轴对齐 bbox 内（mock 用，足够直观）。 */
+function isInsideNoGoBBox(x, y) {
+  const polys = MOCK_NO_GO_ZONES;
+  for (let i = 0; i < polys.length; i++) {
+    const poly = polys[i].polygon;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let j = 0; j < poly.length; j++) {
+      const [px, py] = poly[j];
+      if (px < minX) minX = px;
+      if (px > maxX) maxX = px;
+      if (py < minY) minY = py;
+      if (py > maxY) maxY = py;
+    }
+    if (x >= minX && x <= maxX && y >= minY && y <= maxY) return true;
+  }
+  return false;
+}
+
 /** Advance robot position by one step along the S-pattern path. */
 function advanceMowingPosition() {
   const dx = mowGoingRight ? ROBOT_STEP_M : -ROBOT_STEP_M;
   mowRobotX += dx;
+
+  // 简易避障：若新位置落入 no-go bbox，则直接跳到对侧边界并换向
+  if (isInsideNoGoBBox(mowRobotX, mowRobotY)) {
+    const polyBBox = MOCK_NO_GO_ZONES[0].polygon;
+    let bboxMinX = Infinity, bboxMaxX = -Infinity;
+    for (let j = 0; j < polyBBox.length; j++) {
+      if (polyBBox[j][0] < bboxMinX) bboxMinX = polyBBox[j][0];
+      if (polyBBox[j][0] > bboxMaxX) bboxMaxX = polyBBox[j][0];
+    }
+    if (mowGoingRight) {
+      mowRobotX = bboxMaxX + ROBOT_STEP_M;
+    } else {
+      mowRobotX = bboxMinX - ROBOT_STEP_M;
+    }
+  }
 
   if (mowGoingRight && mowRobotX >= MOW_FIELD_X2) {
     mowRobotX = MOW_FIELD_X2;
@@ -215,10 +276,10 @@ function startMowingTask() {
     cmd:  'MOWING_START',
     sn:   mockRobotSn,
     data: {
-      task_id:      mowingTaskId,
-      mow_width_m:  0.5,
-      plan_zones:   MOCK_PLAN_ZONES,
-      no_go_zones:  MOCK_NO_GO_ZONES,
+      task_id:       mowingTaskId,
+      mow_width_m:   MOW_WIDTH_M,
+      plan_zones:    MOCK_PLAN_ZONES,
+      no_go_zones:   MOCK_NO_GO_ZONES,
       timestamp_sec: Math.floor(Date.now() / 1000),
     },
   });
@@ -466,6 +527,20 @@ res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, plat
     return;
   }
 
+  // ── GET /api/robot/mowing_status (debug) ──────────────────────────
+  if (req.method === 'GET' && url.pathname === '/api/robot/mowing_status') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      active:      mowingActive,
+      paused:      mowingPaused,
+      task_id:     mowingTaskId,
+      robot:       { x: mowRobotX, y: mowRobotY, going_right: mowGoingRight },
+      plan_zones:  MOCK_PLAN_ZONES,
+      no_go_zones: MOCK_NO_GO_ZONES,
+    }));
+    return;
+  }
+
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'Not Found' }));
 });
@@ -692,19 +767,7 @@ function sendFullMap(ws) {
     console.error('Failed to send full map:', err.message);
   }
 }
-  // ── GET /api/robot/mowing_status (debug) ──────────────────────────
-  if (req.method === 'GET' && url.pathname === '/api/robot/mowing_status') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      active:     mowingActive,
-      paused:     mowingPaused,
-      task_id:    mowingTaskId,
-      robot:      { x: mowRobotX, y: mowRobotY, going_right: mowGoingRight },
-      plan_zones: MOCK_PLAN_ZONES,
-      no_go_zones: MOCK_NO_GO_ZONES,
-    }));
-    return;
-  }
+
 // ── Start ────────────────────────────────────────────────────────────
 
 server.listen(PORT, '0.0.0.0', () => {
