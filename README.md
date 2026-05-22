@@ -2,7 +2,7 @@
 
 本地联调用 Node.js WebSocket mock 服务，用于模拟机器人地图推流，配合 `@pudu/mobile-map-rust-kit` 以及宿主 App 进行集成测试。
 
-服务读取本地 `data/` 或 `data2/` 目录中的 XML + PNG 地图样本，按照 **WS 协议 v2（JSON 信封）** 打包后通过 WebSocket 持续向客户端推送增量帧。
+服务读取本地 `data/`、`data2/`、`data3/` 或 `data4/` 目录中的 XML + PNG 地图样本，按照 **WS 协议 v2（JSON 信封）** 打包后通过 WebSocket 持续向客户端推送增量帧。
 
 ---
 
@@ -20,7 +20,9 @@ map_mock_service/
 │       ├── auth.test.js
 │       └── protocol.test.js
 ├── data/                 # 数据集 A（XML + PNG 对）
-├── data2/                # 数据集 B（XML + PNG 对，默认使用）
+├── data2/                # 数据集 B（XML + PNG 对）
+├── data3/                # 数据集 C（XML + PNG 对）
+├── data4/                # 数据集 D — 增量建图数据（XML + PNG 对，文件名带 _fixed 后缀）
 └── package.json
 ```
 
@@ -58,7 +60,7 @@ Map Mock Service running on http://localhost:9900
 | 变量名 | 默认值 | 说明 |
 |--------|--------|------|
 | `PORT` | `9900` | HTTP / WS 监听端口 |
-| `MOCK_DATA_DIR` | `data2` | 使用的数据目录（`data` 或 `data2`） |
+| `MOCK_DATA_DIR` | `data3` | 使用的数据目录（`data`、`data2`、`data3` 或 `data4`） |
 | `ROBOT_SN` | `MOCK:00:11:22:33:44` | 推流消息中的机器人序列号 `sn` 字段（也可运行时通过 `POST /api/robot/set_sn` 切换，见 §`POST /api/robot/set_sn`） |
 | `PUSH_INTERVAL_MS` | `200` | 增量帧推送间隔（毫秒） |
 | `JWT_SECRET` | `mock-map-service-secret-key-2024` | 验证客户端 JWT 的签名密钥 |

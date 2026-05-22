@@ -5,7 +5,7 @@ const { XMLParser } = require('fast-xml-parser');
 const SERVICE_ROOT = path.resolve(__dirname, '..');
 
 /** @type {readonly string[]} */
-const ALLOWED_DATASETS = ['data', 'data2', 'data3'];
+const ALLOWED_DATASETS = ['data', 'data2', 'data3', 'data4'];
 
 /**
  * @param {string} name - directory name under service root (`data` or `data2`)
