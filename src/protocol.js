@@ -34,6 +34,42 @@ function encodeMapData(rawBuffer) {
   return compressed.toString('base64');
 }
 
+// ── Forced slicing (Stage 4 / R3) ────────────────────────────────────────────
+//
+// When `MMR_SLICE_BYTES` (or the legacy `MAP_MOCK_SLICE_BYTES`) env var is set
+// to a positive integer N, the encoder splits the base64 `map_data` payload
+// into chunks of N characters and emits one WS message per chunk with
+// `frame_slicing_total` / `frame_slicing_index` populated accordingly. This
+// lets the POC stage-4 test harness exercise the Rust `frame_assembler` path
+// without needing a real upstream that performs server-side slicing.
+//
+// All other header fields are duplicated verbatim across slices; the `crc32`
+// field always carries the checksum of the FULL raw (post-gzip-decode) bytes
+// so the assembler can validate reassembly. `data_len` likewise always
+// carries the raw byte length, not the per-slice length.
+const FORCE_SLICE_BYTES = (() => {
+  const raw = process.env.MMR_SLICE_BYTES || process.env.MAP_MOCK_SLICE_BYTES;
+  if (!raw) return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+})();
+
+/**
+ * Split a base64 string into chunks of at most `chunkChars` characters.
+ * Returned in the original order so concatenation yields the input verbatim.
+ * @param {string} b64
+ * @param {number} chunkChars
+ * @returns {string[]}
+ */
+function sliceBase64(b64, chunkChars) {
+  if (chunkChars <= 0 || b64.length <= chunkChars) return [b64];
+  const out = [];
+  for (let i = 0; i < b64.length; i += chunkChars) {
+    out.push(b64.slice(i, i + chunkChars));
+  }
+  return out;
+}
+
 /**
  * Build a MAP_INCREMENTAL WS message using the v2 JSON protocol.
  * @param {object} opts
@@ -53,7 +89,7 @@ function encodeMapMessage({ sn, headerFields, imageBytes, cmdId, cmd }) {
   const cmdIdStr = cmdId || uuidv4();
   const cmdName = cmd || 'MAP_INCREMENTAL';
 
-  const mapHeader = {
+  const baseHeader = {
     version:             headerFields.version             ?? 1,
     header_len:          36, // fixed as per protocol spec
     data_len:            imageBytes.length,
@@ -83,8 +119,88 @@ function encodeMapMessage({ sn, headerFields, imageBytes, cmdId, cmd }) {
     cmd:     cmdName,
     cmd_id:  cmdIdStr,
     version: 1,
-    data:    { sn, map_header: mapHeader, map_data: mapData },
+    data:    { sn, map_header: baseHeader, map_data: mapData },
   });
+}
+
+/**
+ * Stage 4 (R3) — encode a single map frame as one OR MORE WS messages.
+ *
+ * Returns an array of JSON strings, each ready to be `ws.send()`-ed. When
+ * the `MMR_SLICE_BYTES` env var is set to a positive integer N, the base64
+ * `map_data` payload is split into chunks of N characters and each chunk is
+ * emitted as its own message with the appropriate
+ * `frame_slicing_total` / `frame_slicing_index` populated. All other header
+ * fields (including `crc32` and `data_len`, which always reference the FULL
+ * raw post-gzip-decode payload) are duplicated verbatim across slices.
+ *
+ * Without `MMR_SLICE_BYTES` set, the array always has length 1 — semantically
+ * equivalent to `[encodeMapMessage(opts)]`.
+ *
+ * The Rust `frame_assembler` accepts arbitrary base64 splits because it
+ * decodes the concatenated slice payload as one base64 stream after
+ * reassembly.
+ *
+ * @param {object} opts — same shape as `encodeMapMessage`
+ * @returns {string[]}
+ */
+function encodeMapMessageSliced(opts) {
+  if (FORCE_SLICE_BYTES <= 0) {
+    return [encodeMapMessage(opts)];
+  }
+
+  const { sn, headerFields, imageBytes, cmdId, cmd } = opts;
+  const callerDeclaredSlicing =
+    headerFields.frameSlicingTotal !== undefined ||
+    headerFields.frameSlicingIndex !== undefined;
+  if (callerDeclaredSlicing) {
+    return [encodeMapMessage(opts)];
+  }
+
+  const cmdIdStr = cmdId || uuidv4();
+  const cmdName = cmd || 'MAP_INCREMENTAL';
+  const mapData = encodeMapData(imageBytes);
+  const chunks = sliceBase64(mapData, FORCE_SLICE_BYTES);
+  if (chunks.length <= 1) {
+    return [encodeMapMessage({ ...opts, cmdId: cmdIdStr, cmd: cmdName })];
+  }
+
+  const baseHeader = {
+    version:             headerFields.version             ?? 1,
+    header_len:          36,
+    data_len:            imageBytes.length,
+    msg_type:            headerFields.msgType             ?? 2,
+    timestamp_sec:       headerFields.timestampSec        ?? Math.floor(Date.now() / 1000),
+    timestamp_nsec:      headerFields.timestampNsec       ?? 0,
+    width:               headerFields.width,
+    height:              headerFields.height,
+    resolution:          headerFields.resolution,
+    origin_x:            headerFields.originX,
+    origin_y:            headerFields.originY,
+    robot_x:             headerFields.robotX              ?? 0.0,
+    robot_y:             headerFields.robotY              ?? 0.0,
+    robot_theta:         headerFields.robotTheta          ?? 0.0,
+    format:              'png',
+    map_id:              headerFields.mapId               ?? 0,
+    frame_id:            headerFields.frameId             ?? 0,
+    frame_slicing_id:    headerFields.frameSlicingId      ?? 0,
+    crc32:               crc32(imageBytes),
+  };
+
+  return chunks.map((chunk, index) => JSON.stringify({
+    cmd:     cmdName,
+    cmd_id:  cmdIdStr,
+    version: 1,
+    data: {
+      sn,
+      map_header: {
+        ...baseHeader,
+        frame_slicing_total: chunks.length,
+        frame_slicing_index: index,
+      },
+      map_data: chunk,
+    },
+  }));
 }
 
 /**
@@ -122,4 +238,4 @@ function isClientFrameAck(msg) {
   );
 }
 
-module.exports = { encodeMapMessage, encodeMapData, isClientFrameAck };
+module.exports = { encodeMapMessage, encodeMapMessageSliced, encodeMapData, isClientFrameAck };

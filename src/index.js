@@ -17,7 +17,7 @@ const { URL } = require('url');
 const { WebSocketServer } = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const { loadAllPatches } = require('./data-loader');
-const { encodeMapMessage, isClientFrameAck } = require('./protocol');
+const { encodeMapMessage, encodeMapMessageSliced, isClientFrameAck } = require('./protocol');
 const { verifyJwt, generateTicket, verifyTicket } = require('./auth');
 const { getAnnotationPackage } = require('./annotation-store');
 const fs = require('fs');
@@ -610,7 +610,7 @@ wss.on('connection', (ws, req) => {
     };
 
     try {
-      const message = encodeMapMessage({
+      const messages = encodeMapMessageSliced({
         sn:           mockRobotSn,
         headerFields,
         imageBytes:   patch.imageData,
@@ -618,7 +618,9 @@ wss.on('connection', (ws, req) => {
       });
 
       if (ws.readyState === ws.OPEN) {
-        ws.send(message);
+        for (const message of messages) {
+          ws.send(message);
+        }
       }
     } catch (err) {
       console.error(`Failed to encode patch ${patch.id}:`, err.message);
@@ -754,14 +756,16 @@ function sendFullMap(ws) {
   };
 
   try {
-    const message = encodeMapMessage({
+    const messages = encodeMapMessageSliced({
       sn:          mockRobotSn,
       headerFields,
       imageBytes:  patch.imageData,
       cmd:         'MAP_FIX',
     });
     if (ws.readyState === ws.OPEN) {
-      ws.send(message);
+      for (const message of messages) {
+        ws.send(message);
+      }
     }
   } catch (err) {
     console.error('Failed to send full map:', err.message);
