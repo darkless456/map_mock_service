@@ -1,17 +1,35 @@
 // index.js — Map Mock Service (WebSocket protocol v2)
 //
 // Routes:
-//   POST /ratel/api/v1/wss/acc_ticket  — issue short-lived WS ticket
-//   GET  /api/health                   — health check
-//   POST /api/robot/start_mowing       — set work_status = mowing
-//   POST /api/robot/start_charging     — set work_status = charging
-//   POST /api/robot/start_mapping      — set work_status = mapping
-//   POST /api/robot/stop_mowing        — set work_status = idle
-//   POST /api/robot/stop_mapping       — set work_status = idle
-//   POST /api/robot/error              — set work_status = error
-//   WS   /acc?ticket=<ticket>          — map stream connection
+//   POST /ratel/api/v1/wss/acc_ticket                                    — issue short-lived WS ticket
+//   GET  /api/health                                                      — health check
+//   POST /api/robot/set_sn                                                — change mock robot SN at runtime
+//   POST /api/robot/start_charging                                        — set work_status = charging
+//   POST /api/robot/start_mapping                                         — set work_status = mapping
+//   POST /api/robot/stop_mapping                                          — set work_status = idle
+//   POST /api/robot/error                                                 — set work_status = error
+//   GET  /api/map-config                                                  — base-map metadata
+//   GET  /api/map-asset                                                   — serve full_semanticmap.png
+//   GET  /api/annotations/:mapId                                          — semantic annotation package
+//   WS   /acc?ticket=<ticket>                                             — map stream + mowing status
 //
-// Old routes (/api/auth/ws-signature, /ws/map) are intentionally removed.
+// Mowing task REST (mirrors real ratel gateway paths):
+//   POST /ratel/central-control-service/api/v1/ratel_task/create         — create mowing task
+//   POST /ratel/central-control-service/api/v1/ratel_task/action         — pause / resume / cancel
+//   POST /ratel/central-control-service/api/v1/ratel_task/list           — task list for a SN
+//
+// Mowing WS protocol (server → client):
+//   NOTIFY_MOW_STATUS  { cmd, cmd_id, data: { payload: { task_id, task_status, …TaskNotify }, sn } }
+//   ROBOT_LOCATION     { cmd, data: { sn, mac, map_id, x, y, angle, timestamp, notify_time } }
+//
+// Mowing WS protocol (client → server):
+//   LOCATION_REGISTER   { cmd, data: { sn } }
+//   LOCATION_UNREGISTER { cmd, data: { sn } }
+//
+// Old routes (/api/auth/ws-signature, /ws/map, /api/robot/start_mowing,
+//   /api/robot/stop_mowing, /api/robot/mowing_status) and legacy WS cmds
+//   (MOWING_PAUSE, MOWING_RESUME, MOWING_STOP, ROBOT_POSE, MOWING_STATUS,
+//   MOWING_START, MOWING_STOP) are intentionally removed.
 const http = require('http');
 const { URL } = require('url');
 const { WebSocketServer } = require('ws');
@@ -63,139 +81,91 @@ let robotWorkStatus = 'idle';
 // Enabled by start_mapping, disabled by stop_mapping.
 let mapStreamingActive = false;
 
-// ── Mowing simulation state ───────────────────────────────────────────
+// ── Mowing task store ────────────────────────────────────────────────
+//
+// `activeTasks`  — in-memory store of all known tasks, keyed by task_id.
+// `tasksBySn`    — reverse index: sn → task_id (latest task per robot).
+// `locationSubs` — per-WS-client set of SNs subscribed to ROBOT_LOCATION.
+//
+// Task shape:
+//   { task_id, sn, status, task_info, mow_progress, mow_area, estimated_time,
+//     task_type, task_message, task_error_code, created_at }
 
-/**
- * Whether a mowing task is currently active.
- * Set true by POST /api/robot/start_mowing, false by stop_mowing.
- */
-let mowingActive = false;
-let mowingTaskId = null;
-let robotPoseTimer = null;   // setInterval handle for ROBOT_POSE push
-let mowingStatusTimer = null; // setInterval handle for MOWING_STATUS push
+/** @type {Map<string, object>} */
+const activeTasks = new Map();
+/** @type {Map<string, string>} */
+const tasksBySn   = new Map();
+/** @type {WeakMap<import('ws').WebSocket, Set<string>>} */
+const locationSubs = new WeakMap();
 
-/*
- * 坐标系与底图对齐说明（更新于 2026-05-19）
- * ─────────────────────────────────────────────────────────────────
- * 当前服务的底图为 `full_semanticmap.png`：
- *   - 尺寸：512 × 512 px
- *   - 分辨率：0.05 m/px（GET /api/map-config 返回值）
- *   - 整个世界：25.6 m × 25.6 m
- *   - 坐标原点：图像左上角，x 向右、y 向下（与 BaseMapLayer 约定一致；
- *     由 worldPointToThree 翻转到 THREE 的 Y-up 渲染坐标）
- *
- * 实际语义内容（非白色像素）集中在图像中部：
- *   像素 X ∈ [213, 284]  → 世界 X ≈ [10.65, 14.20] m
- *   像素 Y ∈ [195, 295]  → 世界 Y ≈ [ 9.75, 14.75] m
- *
- * 因此 mowing 模拟字段必须落在该区域内，否则机器人会跑在白色 unknown
- * 背景上，前端 MapMower 看不到任何可视化反馈。下方常量在该 bbox 内
- * 留 ~0.15 m 边距，并安排一个小型 no-go 障碍物。
- *
- * 如未来更换底图，请：
- *   1) 用 `node -e "..."` 或 ImageMagick 重新计算内容 bbox；
- *   2) 同步调整下方 MOW_FIELD_* / no-go 多边形顶点；
- *   3) 保持 stripe 宽度 = mow_width_m，避免重叠/漏割视觉。
- */
+// ── Lawn / robot pose simulation ─────────────────────────────────────
+//
+// Coordinate system matches full_semanticmap.png:
+//   512 × 512 px, 0.05 m/px → 25.6 m × 25.6 m world
+//   Origin top-left, x right, y down
+//   Lawn content bbox in world coords:
+//     X ∈ [10.65, 14.20], Y ∈ [ 9.75, 14.75]
+//   Robot follows an S-pattern, skipping a central flower-bed obstacle.
 
-// 字段范围（米）—— 落在新底图的内容 bbox 内
-const MOW_FIELD_X1 = 10.80;
-const MOW_FIELD_X2 = 14.00;   // 宽 3.20 m
-const MOW_FIELD_Y1 = 10.00;
-const MOW_FIELD_Y2 = 14.60;   // 高 4.60 m
+const MOW_FIELD_X1  = 10.80;
+const MOW_FIELD_X2  = 14.00;   // width  3.20 m → ~8 S-lanes at 0.40 m
+const MOW_FIELD_Y1  = 10.00;
+const MOW_FIELD_Y2  = 14.60;   // height 4.60 m
+const MOW_WIDTH_M   = 0.40;    // stripe / lane width
+const ROBOT_STEP_M  = 0.10;    // distance per 300 ms tick ≈ 0.33 m/s
 
-// 割草宽度 = 行距，3.20 m / 0.40 m ≈ 8 趟来回
-const MOW_WIDTH_M  = 0.40;
-const MOW_STRIPE_Y = MOW_WIDTH_M;
-const ROBOT_STEP_M = 0.10;    // 300 ms 一帧 → ~0.33 m/s
+// Mock "flower bed" obstacle inside the lawn
+const NO_GO_BOX = { minX: 12.00, maxX: 13.00, minY: 12.20, maxY: 13.20 };
 
-let mowRobotX = MOW_FIELD_X1;
-let mowRobotY = MOW_FIELD_Y1;
-let mowGoingRight = true;
-let mowingPaused = false;     // true while MOWING_PAUSE is active
+/** Shared robot pose, updated by the pose-advance timer. */
+let simX           = MOW_FIELD_X1;
+let simY           = MOW_FIELD_Y1;
+let simGoingRight  = true;
 
-const MOCK_PLAN_ZONES = [
-  {
-    id: 'zone_main',
-    polygon: [
-      [MOW_FIELD_X1, MOW_FIELD_Y1],
-      [MOW_FIELD_X2, MOW_FIELD_Y1],
-      [MOW_FIELD_X2, MOW_FIELD_Y2],
-      [MOW_FIELD_X1, MOW_FIELD_Y2],
-    ],
-    label: '主草坪',
-  },
-];
+/** setInterval handle for the 300 ms ROBOT_LOCATION push. */
+let robotLocTimer = null;
+/** setInterval handle for the 5 s NOTIFY_MOW_STATUS push. */
+let mowStatusTimer = null;
 
-const MOCK_NO_GO_ZONES = [
-  {
-    // 字段中部的小障碍（约 1.0 × 1.0 m），便于客户端调试 no-go 渲染
-    id: 'nogo_obstacle',
-    polygon: [
-      [12.00, 12.20],
-      [13.00, 12.20],
-      [13.00, 13.20],
-      [12.00, 13.20],
-    ],
-    label: '花坛',
-  },
-];
+/** Advance the simulated robot by one step along the S-pattern path. */
+function advanceRobotPos() {
+  const dx = simGoingRight ? ROBOT_STEP_M : -ROBOT_STEP_M;
+  simX += dx;
 
-/** 判断 (x, y) 是否落在第一个 no-go 多边形的轴对齐 bbox 内（mock 用，足够直观）。 */
-function isInsideNoGoBBox(x, y) {
-  const polys = MOCK_NO_GO_ZONES;
-  for (let i = 0; i < polys.length; i++) {
-    const poly = polys[i].polygon;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (let j = 0; j < poly.length; j++) {
-      const [px, py] = poly[j];
-      if (px < minX) minX = px;
-      if (px > maxX) maxX = px;
-      if (py < minY) minY = py;
-      if (py > maxY) maxY = py;
-    }
-    if (x >= minX && x <= maxX && y >= minY && y <= maxY) return true;
+  // Simple obstacle skip
+  if (
+    simX >= NO_GO_BOX.minX && simX <= NO_GO_BOX.maxX &&
+    simY >= NO_GO_BOX.minY && simY <= NO_GO_BOX.maxY
+  ) {
+    simX = simGoingRight ? NO_GO_BOX.maxX + ROBOT_STEP_M : NO_GO_BOX.minX - ROBOT_STEP_M;
+  }
+
+  if (simGoingRight && simX >= MOW_FIELD_X2) {
+    simX = MOW_FIELD_X2;
+    simY += MOW_WIDTH_M;
+    simGoingRight = false;
+  } else if (!simGoingRight && simX <= MOW_FIELD_X1) {
+    simX = MOW_FIELD_X1;
+    simY += MOW_WIDTH_M;
+    simGoingRight = true;
+  }
+
+  if (simY > MOW_FIELD_Y2) {
+    simX = MOW_FIELD_X1;
+    simY = MOW_FIELD_Y1;
+    simGoingRight = true;
+  }
+}
+
+/** Returns true if any task is currently ON_THE_WAY. */
+function isMowingActive() {
+  for (const t of activeTasks.values()) {
+    if (t.status === 'ON_THE_WAY') return true;
   }
   return false;
 }
 
-/** Advance robot position by one step along the S-pattern path. */
-function advanceMowingPosition() {
-  const dx = mowGoingRight ? ROBOT_STEP_M : -ROBOT_STEP_M;
-  mowRobotX += dx;
-
-  // 简易避障：若新位置落入 no-go bbox，则直接跳到对侧边界并换向
-  if (isInsideNoGoBBox(mowRobotX, mowRobotY)) {
-    const polyBBox = MOCK_NO_GO_ZONES[0].polygon;
-    let bboxMinX = Infinity, bboxMaxX = -Infinity;
-    for (let j = 0; j < polyBBox.length; j++) {
-      if (polyBBox[j][0] < bboxMinX) bboxMinX = polyBBox[j][0];
-      if (polyBBox[j][0] > bboxMaxX) bboxMaxX = polyBBox[j][0];
-    }
-    if (mowGoingRight) {
-      mowRobotX = bboxMaxX + ROBOT_STEP_M;
-    } else {
-      mowRobotX = bboxMinX - ROBOT_STEP_M;
-    }
-  }
-
-  if (mowGoingRight && mowRobotX >= MOW_FIELD_X2) {
-    mowRobotX = MOW_FIELD_X2;
-    mowRobotY += MOW_STRIPE_Y;
-    mowGoingRight = false;
-  } else if (!mowGoingRight && mowRobotX <= MOW_FIELD_X1) {
-    mowRobotX = MOW_FIELD_X1;
-    mowRobotY += MOW_STRIPE_Y;
-    mowGoingRight = true;
-  }
-
-  // Wrap around when the whole field is covered
-  if (mowRobotY > MOW_FIELD_Y2) {
-    mowRobotX = MOW_FIELD_X1;
-    mowRobotY = MOW_FIELD_Y1;
-    mowGoingRight = true;
-  }
-}
+// ── Broadcast helpers ────────────────────────────────────────────────
 
 /** Broadcast a JSON payload to all open WS clients. */
 function broadcastJson(payload) {
@@ -207,119 +177,212 @@ function broadcastJson(payload) {
   });
 }
 
-/** Start the ROBOT_POSE push timer (300 ms interval). */
-function startRobotPoseTimer() {
-  if (robotPoseTimer) return;
-  robotPoseTimer = setInterval(() => {
-    if (!mowingActive || mowingPaused) return;
-    advanceMowingPosition();
-    const yaw = mowGoingRight ? 0 : Math.PI;
-    broadcastJson({
-      cmd: 'ROBOT_POSE',
-      sn:  mockRobotSn,
-      data: {
-        x:             mowRobotX,
-        y:             mowRobotY,
-        yaw,
-        timestamp_sec: Math.floor(Date.now() / 1000),
+/**
+ * Build a NOTIFY_MOW_STATUS message following the API doc format.
+ *
+ * Shape: { cmd, cmd_id, data: { payload: { …fields }, sn } }
+ *
+ * AUDIT NOTE: The app's `payloadOf` helper in useWsDeviceListener extracts
+ * `root.data` (not `root.data.payload`).  As a result, `task_id` /
+ * `task_status` inside `data.payload` will be invisible to `useMowingTask`
+ * unless the app is patched to read `payload.payload.*` or the server flattens
+ * `data.payload` into `data`.  See audit section below.
+ */
+function buildMowStatusMsg(task) {
+  return {
+    cmd:    'NOTIFY_MOW_STATUS',
+    cmd_id: uuidv4(),
+    data: {
+      sn: task.sn,
+      payload: {
+        sn:               task.sn,
+        task_id:          task.task_id,
+        task_status:      task.status,
+        task_type:        task.task_type,
+        task_message:     task.task_message,
+        task_error_code:  task.task_error_code,
+        mow_area:         task.mow_area,
+        mow_progress:     task.mow_progress,
+        estimated_time:   task.estimated_time,
+        timestamp:        Math.floor(Date.now() / 1000),
+        notify_timestamp: Date.now(),
       },
-    });
+    },
+  };
+}
+
+/** Push NOTIFY_MOW_STATUS for a task to all connected WS clients. */
+function pushMowStatus(task) {
+  broadcastJson(buildMowStatusMsg(task));
+}
+
+/**
+ * Build a ROBOT_LOCATION message following the API doc format.
+ *
+ * AUDIT NOTE: API doc uses `angle` (radians) but `RobotLocationEventPayload`
+ * in the app declares `yaw`.  Mock follows the API doc (`angle`), so `yaw`
+ * will be undefined in the app unless the field is renamed.
+ */
+function buildRobotLocationMsg(sn, x, y, angle) {
+  const now = Date.now();
+  return {
+    cmd: 'ROBOT_LOCATION',
+    data: {
+      sn,
+      mac:         'D2:9C:35:EF:D1:04',
+      map_id:      '123',
+      x,
+      y,
+      angle,
+      timestamp:   Math.floor(now / 1000),
+      notify_time: now,
+    },
+  };
+}
+
+/** Push ROBOT_LOCATION to each WS client that subscribed to `sn`. */
+function pushRobotLocation(sn, x, y, angle) {
+  const msg = JSON.stringify(buildRobotLocationMsg(sn, x, y, angle));
+  wss.clients.forEach((ws) => {
+    if (ws.readyState !== ws.OPEN) return;
+    const subs = locationSubs.get(ws);
+    if (subs && subs.has(sn)) ws.send(msg);
+  });
+}
+
+// ── Mowing simulation timers ─────────────────────────────────────────
+
+/** Start the 300 ms ROBOT_LOCATION push (runs while any task is ON_THE_WAY). */
+function ensureRobotLocTimer() {
+  if (robotLocTimer) return;
+  robotLocTimer = setInterval(() => {
+    if (!isMowingActive()) return;
+    advanceRobotPos();
+    const angle = simGoingRight ? 0 : Math.PI;
+    pushRobotLocation(mockRobotSn, simX, simY, angle);
   }, 300);
 }
 
-/** Stop the ROBOT_POSE push timer. */
-function stopRobotPoseTimer() {
-  if (robotPoseTimer) {
-    clearInterval(robotPoseTimer);
-    robotPoseTimer = null;
-  }
+/** Stop the ROBOT_LOCATION push timer. */
+function stopRobotLocTimer() {
+  if (robotLocTimer) { clearInterval(robotLocTimer); robotLocTimer = null; }
 }
 
-/** Start the periodic MOWING_STATUS push (every 5 s). */
-function startMowingStatusTimer() {
-  if (mowingStatusTimer) return;
-  mowingStatusTimer = setInterval(() => {
-    if (!mowingActive) return;
-    broadcastJson({
-      cmd:  'MOWING_STATUS',
-      sn:   mockRobotSn,
-      data: {
-        state:         mowingPaused ? 'PAUSED' : 'MOWING',
-        battery:       0.78,
-        error_code:    null,
-        timestamp_sec: Math.floor(Date.now() / 1000),
-      },
-    });
+/** Start the 5 s periodic NOTIFY_MOW_STATUS push. */
+function ensureMowStatusTimer() {
+  if (mowStatusTimer) return;
+  mowStatusTimer = setInterval(() => {
+    for (const task of activeTasks.values()) {
+      if (task.status !== 'ON_THE_WAY') continue;
+      task.mow_progress = Math.min(100, task.mow_progress + 2);
+      task.estimated_time = Math.max(0, Math.round((100 - task.mow_progress) * 3));
+      if (task.mow_progress >= 100) {
+        task.status = 'COMPLETE';
+        task.task_message = 'Mowing complete';
+        pushMowStatus(task);
+        console.log(`[Mowing] Task ${task.task_id} auto-completed`);
+        stopMowingSimIfIdle();
+        return;
+      }
+      pushMowStatus(task);
+    }
   }, 5000);
 }
 
-/** Stop the MOWING_STATUS push timer. */
-function stopMowingStatusTimer() {
-  if (mowingStatusTimer) {
-    clearInterval(mowingStatusTimer);
-    mowingStatusTimer = null;
+/** Stop the periodic NOTIFY_MOW_STATUS push. */
+function stopMowStatusTimer() {
+  if (mowStatusTimer) { clearInterval(mowStatusTimer); mowStatusTimer = null; }
+}
+
+/** Stop simulation timers when no active tasks remain. */
+function stopMowingSimIfIdle() {
+  if (!isMowingActive()) { stopRobotLocTimer(); stopMowStatusTimer(); }
+}
+
+// ── Mowing task lifecycle ────────────────────────────────────────────
+
+/** Create a new task and start simulation. Returns the task object. */
+function createTask(sn, taskInfo) {
+  const task_id = `mock-task-${Date.now()}`;
+  const task = {
+    task_id,
+    sn,
+    status:          'ON_THE_WAY',
+    task_type:       'cloud',
+    task_message:    '',
+    task_error_code: 0,
+    mow_area:        256.5,
+    mow_progress:    0,
+    estimated_time:  300,
+    task_info:       taskInfo,
+    created_at:      Date.now(),
+  };
+
+  activeTasks.set(task_id, task);
+  tasksBySn.set(sn, task_id);
+
+  // Reset robot pose for new task
+  simX = MOW_FIELD_X1;
+  simY = MOW_FIELD_Y1;
+  simGoingRight = true;
+
+  console.log(`[Mowing] Task created: ${task_id} for SN=${sn}`);
+
+  ensureRobotLocTimer();
+  ensureMowStatusTimer();
+  pushMowStatus(task);
+
+  return task;
+}
+
+/** Apply an action (PAUSE / RESUME / CANCEL) to a task. Returns error string or null. */
+function applyAction(task_id, action) {
+  const task = activeTasks.get(task_id);
+  if (!task) return `task ${task_id} not found`;
+
+  switch (action) {
+    case 'PAUSE':
+      if (task.status !== 'ON_THE_WAY') return `cannot PAUSE from status ${task.status}`;
+      task.status = 'PAUSE';
+      task.task_message = 'Paused by user';
+      break;
+    case 'RESUME':
+      if (task.status !== 'PAUSE') return `cannot RESUME from status ${task.status}`;
+      task.status = 'ON_THE_WAY';
+      task.task_message = '';
+      ensureRobotLocTimer();
+      ensureMowStatusTimer();
+      break;
+    case 'CANCEL':
+      task.status = 'CANCEL';
+      task.task_message = 'Cancelled by user';
+      break;
+    default:
+      return `unknown action ${action}`;
   }
+
+  console.log(`[Mowing] Task ${task_id} \u2192 ${task.status}`);
+  pushMowStatus(task);
+  stopMowingSimIfIdle();
+  return null;
 }
 
-/** Start a new mowing task: broadcast MOWING_START + begin pose push. */
-function startMowingTask() {
-  mowingActive   = true;
-  mowingPaused   = false;
-  mowingTaskId   = `task_${Date.now()}`;
-  mowRobotX      = MOW_FIELD_X1;
-  mowRobotY      = MOW_FIELD_Y1;
-  mowGoingRight  = true;
+// ── HTTP helpers ──────────────────────────────────────────────────────
 
-  console.log(`[Mowing] Task started: ${mowingTaskId}`);
-
-  broadcastJson({
-    cmd:  'MOWING_START',
-    sn:   mockRobotSn,
-    data: {
-      task_id:       mowingTaskId,
-      mow_width_m:   MOW_WIDTH_M,
-      plan_zones:    MOCK_PLAN_ZONES,
-      no_go_zones:   MOCK_NO_GO_ZONES,
-      timestamp_sec: Math.floor(Date.now() / 1000),
-    },
+/** Read full request body as JSON, then call cb(parsed). */
+function withJsonBody(req, res, cb) {
+  let raw = '';
+  req.on('data', (chunk) => { raw += chunk.toString(); });
+  req.on('end', () => {
+    let parsed;
+    try { parsed = raw ? JSON.parse(raw) : {}; }
+    catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ code: 400, message: 'Invalid JSON body' }));
+      return;
+    }
+    cb(parsed);
   });
-
-  // Send initial MOWING_STATUS so client transitions to MOWING immediately
-  broadcastJson({
-    cmd:  'MOWING_STATUS',
-    sn:   mockRobotSn,
-    data: {
-      state:         'MOWING',
-      battery:       0.78,
-      error_code:    null,
-      timestamp_sec: Math.floor(Date.now() / 1000),
-    },
-  });
-
-  startRobotPoseTimer();
-  startMowingStatusTimer();
-}
-
-/** Stop the current mowing task: stop pose push + broadcast MOWING_STOP. */
-function stopMowingTask() {
-  mowingActive = false;
-  mowingPaused = false;
-  stopRobotPoseTimer();
-  stopMowingStatusTimer();
-
-  console.log(`[Mowing] Task stopped: ${mowingTaskId}`);
-
-  broadcastJson({
-    cmd:  'MOWING_STOP',
-    sn:   mockRobotSn,
-    data: {
-      task_id:       mowingTaskId,
-      reason:        'server_stopped',
-      timestamp_sec: Math.floor(Date.now() / 1000),
-    },
-  });
-
-  mowingTaskId = null;
 }
 
 function buildRobotStatusMessage() {
@@ -394,30 +457,19 @@ res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, plat
   if (url.pathname === '/api/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
-      status: 'ok',
-      dataDir: MOCK_DATA_DIR,
-      patchCount: patches.length,
+      status:      'ok',
+      dataDir:     MOCK_DATA_DIR,
+      patchCount:  patches.length,
       work_status: robotWorkStatus,
-      sn: mockRobotSn,
+      sn:          mockRobotSn,
+      activeTasks: activeTasks.size,
     }));
     return;
   }
 
   // ── POST /api/robot/set_sn ────────────────────────────────────────
-  // Runtime SN switcher — useful to test the JS/Rust mapConfig.sn filter
-  // without restarting the service. Body: { "sn": "<new-sn>" }
   if (url.pathname === '/api/robot/set_sn' && req.method === 'POST') {
-    let body = '';
-    req.on('data', (chunk) => { body += chunk.toString(); });
-    req.on('end', () => {
-      let parsed;
-      try {
-        parsed = JSON.parse(body || '{}');
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ code: 400, message: 'Invalid JSON body' }));
-        return;
-      }
+    withJsonBody(req, res, (parsed) => {
       const newSn = typeof parsed.sn === 'string' ? parsed.sn.trim() : '';
       if (!newSn) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -435,11 +487,11 @@ res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, plat
   }
 
   // ── POST /api/robot/:action ───────────────────────────────────────
+  // Retained: charging / mapping / error status helpers (mowing lifecycle
+  // is now driven by the ratel_task REST endpoints below).
   const robotActionMap = {
-    '/api/robot/start_mowing':  'mowing',
     '/api/robot/start_charging': 'charging',
     '/api/robot/start_mapping':  'mapping',
-    '/api/robot/stop_mowing':    'idle',
     '/api/robot/stop_mapping':   'idle',
     '/api/robot/error':          'error',
   };
@@ -455,17 +507,118 @@ res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, plat
       console.log('Map streaming STOPPED');
     }
 
-    // Mowing lifecycle hooks
-    if (url.pathname === '/api/robot/start_mowing') {
-      startMowingTask();
-    } else if (url.pathname === '/api/robot/stop_mowing') {
-      if (mowingActive) stopMowingTask();
-    }
-
     console.log(`Robot work_status changed to: ${robotWorkStatus}`);
     broadcastRobotStatus();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ code: 200, message: 'Success', work_status: robotWorkStatus }));
+    return;
+  }
+
+  // ── POST /ratel/central-control-service/api/v1/ratel_task/create ──
+  //
+  // Body: { sn, task_info: { task_mode, map_id, area_id?, mow_height,
+  //                          mow_speed, texture: { mode, bow_shaped_spacing,
+  //                          texture_angle, intelligent_alternation_mode } } }
+  // Response: { code: 200, data: { task_id, robot_code, robot_message } }
+  if (
+    url.pathname === '/ratel/central-control-service/api/v1/ratel_task/create' &&
+    req.method === 'POST'
+  ) {
+    withJsonBody(req, res, (body) => {
+      const sn = typeof body.sn === 'string' ? body.sn.trim() : '';
+      if (!sn) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ code: 400, message: 'sn is required' }));
+        return;
+      }
+      if (!body.task_info || typeof body.task_info !== 'object') {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ code: 400, message: 'task_info is required' }));
+        return;
+      }
+      const task = createTask(sn, body.task_info);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        code: 200,
+        message: '',
+        data: { task_id: task.task_id, robot_code: 0, robot_message: 'ok' },
+      }));
+    });
+    return;
+  }
+
+  // ── POST /ratel/central-control-service/api/v1/ratel_task/action ──
+  //
+  // Body: { sn, task_id, action: "PAUSE" | "RESUME" | "CANCEL" }
+  // Response: { code: 200, data: { robot_code, robot_message } }
+  if (
+    url.pathname === '/ratel/central-control-service/api/v1/ratel_task/action' &&
+    req.method === 'POST'
+  ) {
+    withJsonBody(req, res, (body) => {
+      const { task_id, action } = body;
+      if (!task_id || !action) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ code: 400, message: 'task_id and action are required' }));
+        return;
+      }
+      const err = applyAction(task_id, action);
+      if (err) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ code: 400, message: err, data: { robot_code: -1, robot_message: err } }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ code: 200, message: '', data: { robot_code: 0, robot_message: 'ok' } }));
+    });
+    return;
+  }
+
+  // ── POST /ratel/central-control-service/api/v1/ratel_task/list ────
+  //
+  // Body: { sn }
+  // Response: { code: 200, data: { total, list, task_info?, task_notify? } }
+  if (
+    url.pathname === '/ratel/central-control-service/api/v1/ratel_task/list' &&
+    req.method === 'POST'
+  ) {
+    withJsonBody(req, res, (body) => {
+      const sn = typeof body.sn === 'string' ? body.sn.trim() : '';
+
+      // Collect tasks for this SN (all states), newest first
+      const list = [];
+      for (const t of activeTasks.values()) {
+        if (!sn || t.sn === sn) list.push({ task_id: t.task_id, task_status: t.status });
+      }
+      list.sort((a, b) => {
+        const ta = activeTasks.get(a.task_id);
+        const tb = activeTasks.get(b.task_id);
+        return (tb ? tb.created_at : 0) - (ta ? ta.created_at : 0);
+      });
+
+      const currentTaskId = tasksBySn.get(sn);
+      const currentTask   = currentTaskId ? activeTasks.get(currentTaskId) : null;
+      const isActive      = currentTask &&
+        (currentTask.status === 'ON_THE_WAY' || currentTask.status === 'PAUSE');
+
+      const data = {
+        total:       list.length,
+        list,
+        task_info:   isActive ? currentTask.task_info : null,
+        task_notify: isActive
+          ? {
+              task_type:       currentTask.task_type,
+              task_message:    currentTask.task_message,
+              task_error_code: currentTask.task_error_code,
+              mow_area:        currentTask.mow_area,
+              mow_progress:    currentTask.mow_progress,
+              estimated_time:  currentTask.estimated_time,
+            }
+          : null,
+      };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ code: 200, message: '', data }));
+    });
     return;
   }
 
@@ -527,20 +680,6 @@ res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, plat
     return;
   }
 
-  // ── GET /api/robot/mowing_status (debug) ──────────────────────────
-  if (req.method === 'GET' && url.pathname === '/api/robot/mowing_status') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      active:      mowingActive,
-      paused:      mowingPaused,
-      task_id:     mowingTaskId,
-      robot:       { x: mowRobotX, y: mowRobotY, going_right: mowGoingRight },
-      plan_zones:  MOCK_PLAN_ZONES,
-      no_go_zones: MOCK_NO_GO_ZONES,
-    }));
-    return;
-  }
-
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'Not Found' }));
 });
@@ -571,12 +710,22 @@ server.on('upgrade', (req, socket, head) => {
 wss.on('connection', (ws, req) => {
   console.log(`WS client connected from ${req.socket.remoteAddress}`);
 
+  // Initialise per-client location subscription set
+  locationSubs.set(ws, new Set());
+
   let patchIndex = 0;
-  let running = true;
+  let running    = true;
 
   // Send initial full map and current robot status immediately on connect
   sendFullMap(ws);
   ws.send(buildRobotStatusMessage());
+
+  // Push any currently active/paused task status so the app can reconcile
+  for (const task of activeTasks.values()) {
+    if (task.status === 'ON_THE_WAY' || task.status === 'PAUSE') {
+      ws.send(JSON.stringify(buildMowStatusMsg(task)));
+    }
+  }
 
   const pushTimer = setInterval(() => {
     if (!running || ws.readyState !== ws.OPEN) {
@@ -671,47 +820,32 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
-      // ── Mowing control cmds from the app ──────────────────────────────
-      if (msg.cmd === 'MOWING_PAUSE') {
-        if (mowingActive && !mowingPaused) {
-          mowingPaused = true;
-          console.log('[Mowing] Paused by client');
-          ws.send(JSON.stringify({
-            cmd:  'MOWING_STATUS',
-            sn:   mockRobotSn,
-            data: {
-              state:         'PAUSED',
-              battery:       0.78,
-              error_code:    null,
-              timestamp_sec: Math.floor(Date.now() / 1000),
-            },
-          }));
+      // ── LOCATION_REGISTER ─────────────────────────────────────────
+      // Client → Server: { cmd: "LOCATION_REGISTER", data: { sn } }
+      // Server starts pushing ROBOT_LOCATION for that SN to this client.
+      if (msg.cmd === 'LOCATION_REGISTER') {
+        const targetSn = msg.data?.sn;
+        if (typeof targetSn === 'string' && targetSn) {
+          const subs = locationSubs.get(ws);
+          if (subs) {
+            subs.add(targetSn);
+            console.log(`[WS] LOCATION_REGISTER sn=${targetSn}`);
+          }
         }
         return;
       }
 
-      if (msg.cmd === 'MOWING_RESUME') {
-        if (mowingActive && mowingPaused) {
-          mowingPaused = false;
-          console.log('[Mowing] Resumed by client');
-          ws.send(JSON.stringify({
-            cmd:  'MOWING_STATUS',
-            sn:   mockRobotSn,
-            data: {
-              state:         'MOWING',
-              battery:       0.78,
-              error_code:    null,
-              timestamp_sec: Math.floor(Date.now() / 1000),
-            },
-          }));
-        }
-        return;
-      }
-
-      if (msg.cmd === 'MOWING_STOP') {
-        if (mowingActive) {
-          stopMowingTask();
-          console.log('[Mowing] Stopped by client');
+      // ── LOCATION_UNREGISTER ───────────────────────────────────────
+      // Client → Server: { cmd: "LOCATION_UNREGISTER", data: { sn } }
+      // Server stops pushing ROBOT_LOCATION for that SN to this client.
+      if (msg.cmd === 'LOCATION_UNREGISTER') {
+        const targetSn = msg.data?.sn;
+        if (typeof targetSn === 'string' && targetSn) {
+          const subs = locationSubs.get(ws);
+          if (subs) {
+            subs.delete(targetSn);
+            console.log(`[WS] LOCATION_UNREGISTER sn=${targetSn}`);
+          }
         }
         return;
       }
@@ -721,11 +855,14 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
+    running = false;
     clearInterval(pushTimer);
+    locationSubs.delete(ws);
     console.log('WS client disconnected');
   });
 
   ws.on('error', (err) => {
+    running = false;
     clearInterval(pushTimer);
     console.error('WS error:', err.message);
   });
@@ -776,10 +913,13 @@ function sendFullMap(ws) {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Map Mock Service (v2 protocol) running on http://0.0.0.0:${PORT}`);
-  console.log(`  Mock data dir: ${MOCK_DATA_DIR}/`);
-  console.log(`  Robot SN:      ${mockRobotSn}`);
-  console.log(`  Auth endpoint: POST /ratel/api/v1/wss/acc_ticket`);
-  console.log(`  Health check:  GET  /api/health`);
-  console.log(`  WebSocket:     ws://localhost:${PORT}/acc?ticket=<ticket>`);
-  console.log(`  Push interval: ${PUSH_INTERVAL_MS}ms`);
+  console.log(`  Mock data dir:       ${MOCK_DATA_DIR}/`);
+  console.log(`  Robot SN:            ${mockRobotSn}`);
+  console.log(`  Auth endpoint:       POST /ratel/api/v1/wss/acc_ticket`);
+  console.log(`  Health check:        GET  /api/health`);
+  console.log(`  WebSocket:           ws://localhost:${PORT}/acc?ticket=<ticket>`);
+  console.log(`  Push interval:       ${PUSH_INTERVAL_MS}ms`);
+  console.log(`  Mowing task create:  POST /ratel/central-control-service/api/v1/ratel_task/create`);
+  console.log(`  Mowing task action:  POST /ratel/central-control-service/api/v1/ratel_task/action`);
+  console.log(`  Mowing task list:    POST /ratel/central-control-service/api/v1/ratel_task/list`);
 });
