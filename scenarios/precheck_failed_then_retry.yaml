@@ -1,0 +1,14 @@
+name: precheck_failed_then_retry
+description: PREPARING / MAP_PRECHECK -> PRECHECK_FAILED -> retry -> scan
+domain: mapping
+setup:
+  state: PREPARING
+  phase: MAP_PRECHECK
+steps:
+  - emit: { type: DEVICE_ERROR, code: PRECHECK_FAILED, recoverable: true }
+  - expect: { state: PREPARING, phase: MAP_PRECHECK_FAILED, error: { code: PRECHECK_FAILED, recoverable: true } }
+  - emit: { type: CMD_RETRY }
+  - expect: { state: PREPARING, phase: MAP_PRECHECK, error: null }
+  - emit: { type: DEVICE_WORK_STATUS, status: mapping }
+  - emit: { type: DEVICE_PHASE, phase: MAP_SCAN_BOUNDARY }
+  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY }

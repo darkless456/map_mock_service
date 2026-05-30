@@ -1,0 +1,9 @@
+name: coverage_wait_save
+description: coverage wait can save and complete mapping
+domain: mapping
+setup:
+  state: WORKING
+  phase: MAP_COVERAGE_WAIT
+steps:
+  - emit: { type: CMD_SAVE }
+  - expect: { state: COMPLETED, phase: MAP_COVERAGE_DONE }

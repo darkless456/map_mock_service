@@ -1,20 +1,30 @@
 {
   "name": "map-mock-service",
   "version": "1.0.0",
-  "description": "Mock WebSocket service for 2D grid map patch streaming",
-  "main": "src/index.js",
+  "description": "Mower Dev Simulator for local REST/WebSocket robot state flows",
+  "main": "src/server.ts",
   "scripts": {
-    "start": "node src/index.js",
-    "test": "node --test src/__tests__/*.test.js"
+    "start": "tsx src/server.ts",
+    "build": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test": "node --test --import tsx __tests__/*.test.ts __tests__/e2e/*.test.ts",
+    "sync-fsm-mirror": "node scripts/sync-fsm-mirror.mjs"
   },
   "dependencies": {
     "fast-xml-parser": "^4.3.0",
+    "js-yaml": "^4.1.1",
     "jsonwebtoken": "^9.0.0",
     "uuid": "^14.0.0",
     "ws": "^8.16.0"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.15.29",
+    "@types/ws": "^8.18.1",
     "pngjs": "^7.0.0",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
   }
 }

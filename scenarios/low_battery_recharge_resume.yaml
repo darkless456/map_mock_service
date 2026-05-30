@@ -1,0 +1,18 @@
+name: low_battery_recharge_resume
+description: low battery enters recharge, charged battery can resume previous phase
+domain: mapping
+setup:
+  state: WORKING
+  phase: MAP_SCAN_BOUNDARY
+  battery: 25
+steps:
+  - emit: { type: DEVICE_LOW_BATTERY }
+  - expect: { state: RECHARGING, phase: returning }
+  - emit: { type: DEVICE_DOCKED }
+  - expect: { state: RECHARGING, phase: charging }
+  - emit: { type: DEVICE_BATTERY, battery: 85 }
+  - expect: { state: RECHARGING, phase: charged, battery: 85 }
+  - emit: { type: CMD_RESUME }
+  - expect: { state: RESUMING, phase: charged }
+  - emit: { type: DEVICE_PHASE, phase: MAP_SCAN_BOUNDARY }
+  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY }

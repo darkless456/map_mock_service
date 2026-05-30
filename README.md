@@ -1,627 +1,125 @@
-# map-mock-service
+# Mower Dev Simulator
 
-本地联调用 Node.js WebSocket mock 服务，用于模拟机器人地图推流，配合 `@pudu/mobile-map-rust-kit` 以及宿主 App 进行集成测试。
+`map-mock-service` is now the local **Mower Dev Simulator** for mower app development. It simulates the backend REST API, `/acc` WebSocket pushes, map incremental frames, mowing task status, robot location, and the development control surface.
 
-服务读取本地 `data/`、`data2/`、`data3/` 或 `data4/` 目录中的 XML + PNG 地图样本，按照 **WS 协议 v2（JSON 信封）** 打包后通过 WebSocket 持续向客户端推送增量帧。
+The simulator is intentionally a breaking replacement for the old map-only mock service. Legacy `/api/robot/*` helper routes were removed; unknown paths return:
 
----
-
-## 目录结构
-
-```
-map_mock_service/
-├── src/
-│   ├── index.js          # HTTP + WebSocket 服务入口
-│   ├── protocol.js       # WS v2 消息编码（JSON + gzip + base64）
-│   ├── auth.js           # JWT 鉴权与短期 ticket 生成
-│   ├── data-loader.js    # XML + PNG 地图数据加载
-│   ├── encrypt.js        # RSA 加密工具（独立辅助，不参与主流程）
-│   └── __tests__/
-│       ├── auth.test.js
-│       └── protocol.test.js
-├── data/                 # 数据集 A（XML + PNG 对）
-├── data2/                # 数据集 B（XML + PNG 对）
-├── data3/                # 数据集 C（XML + PNG 对）
-├── data4/                # 数据集 D — 增量建图数据（XML + PNG 对，文件名带 _fixed 后缀）
-└── package.json
+```json
+{ "code": 404, "message": "deprecated; removed in simulator v1" }
 ```
 
----
-
-## 环境要求
-
-- Node.js 18+
-- npm 9+
-
----
-
-## 快速启动
+## Quick start
 
 ```bash
-cd map_mock_service
 npm install
+npm run sync-fsm-mirror
 npm start
 ```
 
-默认端口 **9900**，推送间隔 **200 ms**，使用 `data2/` 目录。
+Default URL: `http://localhost:9900`.
+
+## Scripts
+
+| Script | Purpose |
+|---|---|
+| `npm start` | Run `tsx src/server.ts`. |
+| `npm run build` | Type-check the TypeScript simulator. |
+| `npm test` | Run Node's TS unit and e2e scenario test suite. |
+| `npm run lint` | Alias to `tsc --noEmit`. |
+| `npm run sync-fsm-mirror` | Copy the mower FSM mirror into `src/sim/fsm-mirror/`. |
+
+## Environment variables
+
+| Variable | Default | Description |
+|---|---:|---|
+| `PORT` | `9900` | HTTP and WebSocket port. |
+| `MOCK_DATA_DIR` | `data3` | Dataset directory: `data`, `data2`, `data3`, or `data4`. |
+| `ROBOT_SN` | `MOCK:00:11:22:33:44` | Default robot SN. |
+| `PUSH_INTERVAL_MS` | `200` | Map incremental frame interval. |
+| `JWT_SECRET` | local mock secret | JWT verification secret. |
+| `TICKET_SECRET` | local mock secret | `/acc` ticket signing secret. |
+| `SIM_PANEL` | enabled | Set `SIM_PANEL=0` to disable `/sim/*` control APIs. |
+
+## Business HTTP API
+
+The service only registers the mower API paths below. For app compatibility, device detail and map list accept both the documented `GET` method and the current mower app's `POST` calls.
+
+| Method | Path | Behavior |
+|---|---|---|
+| `POST` | `/ratel/api/v1/wss/acc_ticket` | Validate `Authorization` + `platform`, issue one-time 120s WS ticket. |
+| `GET/POST` | `/ratel/api/v1/courtyard/robot/detail` | Return current virtual robot device info. |
+| `POST` | `/ratel/api/v1/courtyard/robot/info/update` | Update simulator nickname / SN and broadcast robot status. |
+| `POST` | `/ratel/api/v1/courtyard/robot/unbind` | Reset virtual robot state. |
+| `GET/POST` | `/ratel/map-service/api/v1/ratel/map/list` | Return semantic basemap URL and annotation increments. |
+| `POST` | `/ratel/map-service/api/v1/ratel/semantic/save` | Save annotation increment package in memory and dispatch `CMD_SAVE`. |
+| `POST` | `/ratel/api/v1/map/delete` | Delete an in-memory map package. |
+| `POST` | `/ratel/api/v1/mapping/start` | Dispatch mapping `CMD_START` and `MAP_PRECHECK`. |
+| `POST` | `/ratel/api/v1/mapping/pause` | Dispatch mapping `CMD_PAUSE`. |
+| `POST` | `/ratel/central-control-service/api/v1/ratel_task/create` | Create mowing task, dispatch mowing `CMD_START` + `DEVICE_REPORT_STARTED`. |
+| `POST` | `/ratel/central-control-service/api/v1/ratel_task/action` | Handle `PAUSE`, `RESUME`, `CANCEL`, and `FINISH_AND_RETURN_DOCK`. |
+| `POST` | `/ratel/central-control-service/api/v1/ratel_task/list` | Return task list and active `task_notify`. |
+| `GET` | `/api/health` | Local health check. |
+
+Asset URLs returned by map list currently point to `/sim/assets/full_semanticmap.png`.
+
+## WebSocket API
+
+1. Request a ticket from `/ratel/api/v1/wss/acc_ticket`.
+2. Connect to `ws://localhost:9900/acc?ticket=<ticket>`.
+3. The simulator sends `MAP_FIX` and `ROBOT_STATUS` immediately.
+
+### Client to server
+
+| `cmd` | Behavior |
+|---|---|
+| `heartbeat` | Reply with `{ code: 200, codeMsg: 'Success' }`. |
+| `MAP_INCREMENTAL` ack | Acknowledge frame receipt. |
+| `LOCATION_REGISTER` | Subscribe this socket to `ROBOT_LOCATION` for `sn`. |
+| `LOCATION_UNREGISTER` | Remove location subscription. |
+
+### Server to client
+
+| `cmd` | Source |
+|---|---|
+| `ROBOT_STATUS` | Derived from active FSM context. Includes `mapping_phase`, `capabilities`, `estop`, `notices`, and `error`. |
+| `NOTIFY_MOW_STATUS` | Flattened mowing task status payload. |
+| `ROBOT_LOCATION` | S-pattern location stream for registered SN while mowing. |
+| `MAP_FIX` / `MAP_INCREMENTAL` | `data*/` XML + PNG patches encoded by protocol v2. |
+
+## Control API
+
+`/sim/*` is dev-only and enabled by default.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/sim/state` | Inspect current robot contexts and recent events. |
+| `GET` | `/sim/panel` | htmx control panel for scenarios, event buttons, chaos, and recorder. |
+| `GET` | `/sim/scenarios` | List checked-in YAML scenarios. |
+| `POST` | `/sim/event` | Dispatch raw FSM event. Optional body field: `domain`. |
+| `POST` | `/sim/scenario/run` | Run `{ "name": "happy_mapping" }` or `{ "inline": "...yaml" }`. |
+| `POST` | `/sim/scenario/stop` | Stop the active scenario. |
+| `POST` | `/sim/recorder/start` | Start writing `recordings/<timestamp>.jsonl`. |
+| `POST` | `/sim/recorder/stop` | Stop the active recording. |
+| `POST` | `/sim/recorder/replay` | Replay `{ "file": "...jsonl" }` or inline entries. |
+| `GET` | `/sim/recorder/list` | List recording files and recorder status. |
+| `POST` | `/sim/reset` | Reset simulator state. |
+| `POST` | `/sim/chaos` | Set WS latency/drop/reorder knobs. |
+| `POST` | `/sim/ble/register` | Placeholder for mower mock BLE control-channel registration. |
+| `POST` | `/sim/ble/notify` | Placeholder echo endpoint for future BLE notify injection. |
+| `WS` | `/sim/inspect` | Live reducer transcript stream for the panel and debugging. |
+
+Checked-in scenarios live in [scenarios](scenarios). `recordings/*.jsonl` is git-ignored by default; commit only curated regression recordings intentionally.
+
+## Mower app联调
+
+1. Start this service: `npm start`.
+2. Generate a local JWT using `JWT_SECRET` and set it as the mower mock `accessToken`.
+3. In mower app `mock/config.local.ts`, set `enabled: true` and `http.baseUrl: 'http://localhost:9900'`.
+4. Start the app. Business HTTP calls and WS pushes should now come from the simulator.
+5. Open `http://localhost:9900/sim/panel` to run scenarios or trigger raw FSM events.
 
-启动成功后输出示例：
+## More docs
 
-```
-Loading map patches from data2/ ...
-Loaded 1521 map patches.
-Map Mock Service running on http://localhost:9900
-```
-
----
-
-## 环境变量
-
-| 变量名 | 默认值 | 说明 |
-|--------|--------|------|
-| `PORT` | `9900` | HTTP / WS 监听端口 |
-| `MOCK_DATA_DIR` | `data3` | 使用的数据目录（`data`、`data2`、`data3` 或 `data4`） |
-| `ROBOT_SN` | `MOCK:00:11:22:33:44` | 推流消息中的机器人序列号 `sn` 字段（也可运行时通过 `POST /api/robot/set_sn` 切换，见 §`POST /api/robot/set_sn`） |
-| `PUSH_INTERVAL_MS` | `200` | 增量帧推送间隔（毫秒） |
-| `JWT_SECRET` | `mock-map-service-secret-key-2024` | 验证客户端 JWT 的签名密钥 |
-| `TICKET_SECRET` | `mock-ticket-secret-2024` | 签发 WS ticket 的密钥 |
-
-示例：
-
-```bash
-PORT=8080 MOCK_DATA_DIR=data PUSH_INTERVAL_MS=100 npm start
-```
-
----
-
-## HTTP API
-
-### POST `/ratel/api/v1/wss/acc_ticket` — 申请 WS 接入票据
-
-**请求头：**
-
-| Header | 说明 |
-|--------|------|
-| `Authorization` | `Bearer <JWT>` |
-| `platform` | 客户端平台标识，任意非空字符串（如 `android`） |
-
-**响应（200）：**
-
-```json
-{
-  "code": 200,
-  "message": "Success",
-  "ticket": "<short-lived JWT>",
-  "expire_seconds": 120,
-  "wss_path_hint": "ws://localhost:9900/acc?ticket=<ticket>"
-}
-```
-
-**错误响应：**
-
-| HTTP 状态码 | 说明 |
-|-------------|------|
-| `400` | 缺少 `platform` 请求头 |
-| `401` | JWT 无效或过期 |
-
----
-
-### GET `/api/health` — 健康检查
-
-```json
-{
-  "status": "ok",
-  "dataDir": "data2",
-  "patchCount": 1521,
-  "work_status": "idle",
-  "sn": "MOCK:00:11:22:33:44"
-}
-```
-
-`sn` 字段反映当前正在使用的机器人序列号（即所有 WS 推流消息 `data.sn` 的取值）。
-
----
-
-### POST `/api/robot/set_sn` — 运行时修改机器人 SN
-
-> 修改日期：2026-05-15
-> 用途：联调 Rust kit 的 `mapConfig.sn` 帧过滤功能时无需重启服务即可切换机器 SN，
-> 也可在不同端口启动多个 mock 实例模拟多机同时建图的场景。
-
-**请求体：**
-
-```json
-{ "sn": "PUDU:99:88:77:66:55" }
-```
-
-**响应（200）：**
-
-```json
-{
-  "code": 200,
-  "message": "Success",
-  "sn": "PUDU:99:88:77:66:55",
-  "previousSn": "MOCK:00:11:22:33:44"
-}
-```
-
-**错误响应：**
-
-| HTTP 状态码 | 触发条件 |
-|-------------|----------|
-| `400` | body 不是合法 JSON，或 `sn` 字段缺失 / 为空字符串 |
-
-**行为：**
-
-1. 立即对所有已连接 WS 客户端广播一条 `ROBOT_STATUS`（携带新 `sn`）。
-2. 后续推送的 `MAP_INCREMENTAL` / `MAP_FIX` 帧均使用新 `sn`。
-
-**curl 示例：**
-
-```bash
-curl -X POST http://localhost:9900/api/robot/set_sn \
-  -H "Content-Type: application/json" \
-  -d '{"sn":"PUDU:99:88:77:66:55"}'
-```
-
-**多机模拟示例：**
-
-```bash
-# 终端 1：模拟机器人 A
-ROBOT_SN=PUDU:AAA PORT=9900 npm start
-
-# 终端 2：模拟机器人 B
-ROBOT_SN=PUDU:BBB PORT=9901 npm start
-
-# 客户端配置 mapConfig.sn = "PUDU:AAA"，并把两个 baseUrl 都注册（或合并）即可仅渲染 A 的帧
-```
-
----
-
-### POST `/api/robot/start_mowing` — 开始割草
-
-将机器人状态切换为 `mowing`，并通过 WebSocket 广播 `ROBOT_STATUS` 消息。
-
-**响应（200）：**
-
-```json
-{ "code": 200, "message": "Success", "work_status": "mowing" }
-```
-
----
-
-### POST `/api/robot/start_charging` — 开始充电
-
-将机器人状态切换为 `charging`，并通过 WebSocket 广播 `ROBOT_STATUS` 消息。
-
-**响应（200）：**
-
-```json
-{ "code": 200, "message": "Success", "work_status": "charging" }
-```
-
----
-
-### POST `/api/robot/start_mapping` — 开始建图
-
-将机器人状态切换为 `mapping`，**同时开始向所有已连接的 WS 客户端推送增量地图帧**，并广播 `ROBOT_STATUS` 消息。
-
-**响应（200）：**
-
-```json
-{ "code": 200, "message": "Success", "work_status": "mapping" }
-```
-
----
-
-### POST `/api/robot/stop_mowing` — 停止割草
-
-将机器人状态切换为 `idle`，并通过 WebSocket 广播 `ROBOT_STATUS` 消息。
-
-**响应（200）：**
-
-```json
-{ "code": 200, "message": "Success", "work_status": "idle" }
-```
-
----
-
-### POST `/api/robot/stop_mapping` — 停止建图
-
-将机器人状态切换为 `idle`，**同时停止向所有已连接的 WS 客户端推送增量地图帧**，并广播 `ROBOT_STATUS` 消息。
-
-**响应（200）：**
-
-```json
-{ "code": 200, "message": "Success", "work_status": "idle" }
-```
-
----
-
-### GET `/api/map-config` — 地图配置
-
-返回指定地图的基础配置，包括 base map 图片的下载 URI。  
-APP 端使用 `asset_uri` 构造 `CvMatSource { kind: 'uri' }` 传给 `useSemanticMapLoader`。
-
-**查询参数：**
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `map_id` | string | `mock_map_001` | 地图 ID |
-
-**响应（200）：**
-
-```json
-{
-  "map_id": "mock_map_001",
-  "base_version": 1,
-  "resolution": 0.05,
-  "asset_uri": "http://localhost:9900/api/map-asset?map_id=mock_map_001"
-}
-```
-
-| 字段 | 说明 |
-|------|------|
-| `map_id` | 地图唯一 ID |
-| `base_version` | 当前已保存的版本号，用于 `acknowledgeSaved(base_version + 1)` |
-| `resolution` | 底图分辨率（米/像素），传给 `useSemanticMapLoader` |
-| `asset_uri` | 底图 PNG 下载地址 |
-
----
-
-### GET `/api/map-asset` — 底图 PNG
-
-以 `image/png` 返回底图灰度图像。`asset_uri` 中已内嵌此地址，APP 通常不需要手动拼接。
-
-**查询参数：**
-
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| `map_id` | string | 地图 ID（当前 mock 忽略，返回最后一帧 patch PNG） |
-
-**响应：**  
-`Content-Type: image/png`，直接返回 PNG 字节流（`Cache-Control: no-store`）。
-
-**错误（503）：** 尚无可用的地图 patch 数据。
-
----
-
-### GET `/api/annotations/:mapId` — 标注增量包
-
-返回指定地图的 `IncrementPackage`（与 `docs/map_marked_data_design.md` §3 协议格式一致）。  
-APP 端将响应直接传给 `annotationStore.hydrateFromProtocol(pkg)`。
-
-**路径参数：** `:mapId` — 地图 ID，例如 `mock_map_001`。
-
-**响应（200）：**
-
-```json
-{
-  "map_id": "mock_map_001",
-  "base_version": 1,
-  "timestamp": 1778314165808,
-  "unit": "meter",
-  "increments": [
-    {
-      "element_id": "d2e7a38e-...",
-      "type": 251,
-      "action": "add",
-      "shape": "polygon",
-      "points": [{ "x": 6.46, "y": 16.94 }, "..."],
-      "properties": {}
-    }
-  ]
-}
-```
-
-**错误（404）：** 该 `map_id` 没有对应的标注数据。
-
-Seed 数据在 `src/annotation-store.js` 中维护，包含三条默认标注：禁区 251 / 分区线 99 / 虚拟墙 254。
-
----
-
-### POST `/api/robot/error` — 触发错误状态
-
-将机器人状态切换为 `error`，并通过 WebSocket 广播 `ROBOT_STATUS` 消息。
-
-**响应（200）：**
-
-```json
-{ "code": 200, "message": "Success", "work_status": "error" }
-```
-
----
-
-## 机器人状态（ROBOT_STATUS）
-
-服务维护一个全局的 `work_status` 字段（初始值 `idle`）。以下情况会向所有已连接的 WebSocket 客户端广播 `ROBOT_STATUS` 消息：
-
-1. **客户端建立 WS 连接时**：立即推送当前状态。
-2. **调用上述 Robot API 后**：状态变更后立即广播。
-
-**WS 推送消息格式：**
-
-```json
-{
-  "cmd": "ROBOT_STATUS",
-  "cmd_id": "<uuid-v4>",
-  "sn": "MOCK:00:11:22:33:44",
-  "work_status": "idle",
-  "battery": {
-    "level": 80,
-    "charging": -1,
-    "temperature": 30,
-    "cycles": 42
-  },
-  "signals": {
-    "bluetooth": { "connected": 1, "rssi": -55 },
-    "wifi": { "connected": 1, "ssid": "MockWiFi", "rssi": -60, "signal_strength": "good" },
-    "cellular": { "connected": 0, "signal_strength": "weak" }
-  }
-}
-```
-
-> `battery.charging` 字段：当 `work_status` 为 `charging` 时值为 `1`，其他状态下为 `-1`。
-
-**`work_status` 取值说明：**
-
-| 值 | 说明 |
-|----|------|
-| `idle` | 空闲，无任务执行 |
-| `mowing` | 正在割草 |
-| `charging` | 正在充电 |
-| `mapping` | 正在建图 |
-| `error` | 出现错误，需处理 |
-
-**API 与状态对应关系：**
-
-| HTTP API | 切换后 `work_status` |
-|----------|---------------------|
-| `POST /api/robot/start_mowing` | `mowing` |
-| `POST /api/robot/start_charging` | `charging` |
-| `POST /api/robot/start_mapping` | `mapping` |
-| `POST /api/robot/stop_mowing` | `idle` |
-| `POST /api/robot/stop_mapping` | `idle` |
-| `POST /api/robot/error` | `error` |
-
-**curl 示例：**
-
-```bash
-# 开始割草
-curl -X POST http://localhost:9900/api/robot/start_mowing
-
-# 停止割草（回到空闲）
-curl -X POST http://localhost:9900/api/robot/stop_mowing
-
-# 开始充电
-curl -X POST http://localhost:9900/api/robot/start_charging
-
-# 开始建图
-curl -X POST http://localhost:9900/api/robot/start_mapping
-
-# 停止建图（回到空闲）
-curl -X POST http://localhost:9900/api/robot/stop_mapping
-
-# 触发错误状态
-curl -X POST http://localhost:9900/api/robot/error
-```
-
----
-
-## 认证流程
-
-整体采用 **两步鉴权**：
-
-```
-客户端                              服务端
-  │                                   │
-  │  POST /ratel/api/v1/wss/          │
-  │        acc_ticket                 │
-  │  Authorization: Bearer <JWT>      │
-  │  platform: android                │
-  │ ──────────────────────────────►   │  验证 JWT
-  │ ◄──────────────────────────────   │  返回短期 ticket（TTL 120s）
-  │                                   │
-  │  WS /acc?ticket=<ticket>          │
-  │ ══════════════════════════════►   │  验证 ticket，升级为 WebSocket
-```
-
-### 生成测试 JWT
-
-服务不对外暴露 JWT 注册接口，本地测试时手动生成：
-
-```bash
-node -e "
-const jwt = require('jsonwebtoken');
-const token = jwt.sign(
-  { userId: 'demo-user', role: 'map_viewer' },
-  'mock-map-service-secret-key-2024',
-  { expiresIn: '24h' }
-);
-console.log(token);
-"
-```
-
----
-
-## WebSocket 连接
-
-**升级地址：**
-
-```
-ws://localhost:9900/acc?ticket=<ticket>
-```
-
-**连接行为：**
-
-1. 握手时服务端验证 `ticket`，无效则返回 `HTTP 401` 并关闭 socket。
-2. 握手成功后立即推送一帧**全量地图**（`MAP_FIX` cmd，使用 `patches[0]`）以及当前 **`ROBOT_STATUS`** 消息。
-3. 增量帧推送**仅在 `start_mapping` 被调用后启动**，调用 `stop_mapping` 后停止。未处于 mapping 状态时帧定时器空转不发送数据。
-
----
-
-## 推流协议 v2
-
-### 服务端 → 客户端：地图帧
-
-所有地图帧（全量和增量）均使用 cmd `MAP_INCREMENTAL`。
-
-```json
-{
-  "cmd": "MAP_INCREMENTAL",
-  "cmd_id": "<uuid-v4>",
-  "version": 1,
-  "data": {
-    "sn": "MOCK:00:11:22:33:44",
-    "map_header": { "...": "..." },
-    "map_data": "<base64(gzip(PNG字节))>"
-  }
-}
-```
-
-### `map_header` 字段说明
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `version` | number | 协议版本 = `1` |
-| `header_len` | number | header 固定长度 = `36` |
-| `data_len` | number | 原始 PNG 字节数 |
-| `msg_type` | number | 消息类型（`0x01` 灰度） |
-| `timestamp_sec` | number | Unix 时间戳（秒） |
-| `timestamp_nsec` | number | 纳秒部分 |
-| `width` | number | 地图宽度（像素） |
-| `height` | number | 地图高度（像素） |
-| `resolution` | number | 分辨率（米/像素） |
-| `origin_x` | number | 地图原点世界坐标 X（米） |
-| `origin_y` | number | 地图原点世界坐标 Y（米） |
-| `robot_x` | number | 机器人 X（米），mock 固定为 `0` |
-| `robot_y` | number | 机器人 Y（米），mock 固定为 `0` |
-| `robot_theta` | number | 机器人朝向（弧度），mock 固定为 `0` |
-| `format` | string | 图像格式 = `"png"` |
-| `map_id` | string | 地图 ID（空字符串） |
-| `frame_id` | number | 全局递增帧序号 |
-| `frame_slicing_total` | number | 分片总数，默认 `1` |
-| `frame_slicing_id` | number | 分片标识，默认 `0` |
-| `frame_slicing_index` | number | 分片索引，默认 `0` |
-| `crc32` | number | 原始 PNG 字节的 CRC32 校验值 |
-
-### `map_data` 编码
-
-```
-map_data = base64( gzip( PNG 原始字节 ) )
-```
-
-CRC32 在 gzip 之前对原始 PNG 字节计算，写入 `map_header.crc32`。
-
----
-
-## 客户端 → 服务端：控制消息
-
-| `cmd` | 说明 |
-|-------|------|
-| `MAP_INCREMENTAL` + `data.result = "SUCCESS"` | 客户端 ACK，服务端忽略（无操作） |
-| `heartbeat` | 心跳保活，服务端回复 `{code:200, codeMsg:"Success", data:{}}` |
-| `ping` | 连通性探测，服务端回复 `{code:200, codeMsg:"Success", data:"pong"}` |
-| `PAUSE` | 暂停增量帧推送 |
-| `RESUME` | 恢复增量帧推送 |
-| `MAP_INCREMENTAL_REISSUE` | 客户端丢帧，请求重传；服务端重新发送一次全量地图 |
-
-**服务端响应示例：**
-
-```json
-// heartbeat
-{ "cmd": "heartbeat", "cmd_id": "<原始cmd_id>", "data": { "code": 200, "codeMsg": "Success", "data": {} } }
-
-// ping
-{ "cmd": "ping", "cmd_id": "<原始cmd_id>", "data": { "code": 200, "codeMsg": "Success", "data": "pong" } }
-```
-
----
-
-## 使用 wscat 调试
-
-```bash
-# 1. 生成测试 JWT
-TOKEN=$(node -e "const jwt=require('jsonwebtoken'); console.log(jwt.sign({userId:'test'}, 'mock-map-service-secret-key-2024', {expiresIn:'24h'}))")
-
-# 2. 获取 ticket
-TICKET=$(curl -s -X POST http://localhost:9900/ratel/api/v1/wss/acc_ticket \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "platform: android" | node -e "process.stdin.resume();let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).ticket))")
-
-# 3. 连接 WebSocket
-wscat -c "ws://localhost:9900/acc?ticket=$TICKET"
-```
-
-连接后可发送控制消息：
-
-```
-> {"cmd": "PAUSE", "data": {}}
-> {"cmd": "RESUME", "data": {}}
-> {"cmd": "MAP_INCREMENTAL_REISSUE", "cmd_id": "1", "data": {"frame_id": 10}}
-> {"cmd": "ping", "cmd_id": "2", "data": {}}
-> {"cmd": "heartbeat", "cmd_id": "3", "data": {}}
-```
-
----
-
-## 数据集格式
-
-`data/` 和 `data2/` 目录下均为成对的 `<timestamp_ms>.xml` 和 `<timestamp_ms>.png` 文件（OpenCV FileStorage 格式）。
-
-**XML 字段：**
-
-| 路径 | 说明 |
-|------|------|
-| `opencv_storage.timestamp_ms` | 帧时间戳（毫秒） |
-| `opencv_storage.resolution` | 分辨率（米/像素） |
-| `opencv_storage.origin_x` | 原点 X（米） |
-| `opencv_storage.origin_y` | 原点 Y（米） |
-| `opencv_storage.map_cols` | 地图宽度（像素） |
-| `opencv_storage.map_rows` | 地图高度（像素） |
-
-加载规则：
-
-- 扫描目录下所有 `*.xml`，找到同名 `*.png` 配对；无法配对的文件跳过并输出警告
-- 按 `timestamp_ms` 升序排序
-- 仅允许 `data` 和 `data2` 作为有效目录名（防路径穿越）
-- 若有效帧数为 0，服务启动失败并退出
-
----
-
-## 切换数据集
-
-**方式一：环境变量（推荐）**
-
-```bash
-MOCK_DATA_DIR=data npm start
-```
-
-**方式二：修改代码常量**
-
-修改 `src/index.js` 顶部，将默认值改为 `'data'`，重启服务即可。
-
-`GET /api/health` 响应中的 `dataDir` 字段反映当前实际使用的目录。
-
----
-
-## 测试
-
-```bash
-npm test
-```
-
-> ⚠️ **注意**：`src/__tests__/auth.test.js` 中部分测试引用了旧 API 名称（`generateWsSignature` / `verifyWsSignature`），这些函数已被 ticket 体系取代，相关用例会失败。`src/__tests__/protocol.test.js` 引用了旧二进制协议 API（`HEADER_SIZE`、`encodeMapHeader`、`decodeMapHeader`），均已从 `protocol.js` 移除，这些用例也会失败。JWT 生成/验证相关用例仍可正常运行。
-
----
-
-## `encrypt.js` 工具
-
-`src/encrypt.js` 是一个**独立的 RSA 加密辅助工具**，不参与服务主流程。它模拟移动端 `encryptData()` 逻辑：
-
-```
-UTF-8 文本 → hex → RSA-PKCS1 公钥加密 → base64 → hex
-```
-
-可在需要验证 token 加密格式时单独导入使用，与 HTTP 路由和 WebSocket 无关。
-
+- [docs/api.md](docs/api.md)
+- [docs/fsm-mirror.md](docs/fsm-mirror.md)
+- [docs/scenarios.md](docs/scenarios.md)

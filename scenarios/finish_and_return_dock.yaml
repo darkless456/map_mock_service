@@ -1,0 +1,11 @@
+name: finish_and_return_dock
+description: mowing can finish early and return dock
+domain: mowing
+setup:
+  state: WORKING
+  phase: MOW_RUNNING
+steps:
+  - emit: { type: CMD_FINISH_AND_RETURN_DOCK }
+  - expect: { state: RETURNING_DOCK, phase: returning }
+  - emit: { type: DEVICE_DOCKED }
+  - expect: { state: COMPLETED, phase: MOW_RUNNING }

@@ -1,0 +1,67 @@
+{
+  "mowerRoot": "/Users/linyang1/Development/pudu_ratel_app_mower",
+  "mirrorRoot": "/Users/linyang1/Development/map_mock_service/src/sim/fsm-mirror",
+  "syncedAt": "2026-05-30T08:44:44.301Z",
+  "files": [
+    {
+      "source": "src/domain/shared/TaskFSM.ts",
+      "dest": "src/sim/fsm-mirror/domain/shared/TaskFSM.ts",
+      "sha256": "c575fc47ef9331cd53790961a48f7eae5a4566e244c0418cfeb4bb7e6c90fd79"
+    },
+    {
+      "source": "src/domain/shared/EstopReducer.ts",
+      "dest": "src/sim/fsm-mirror/domain/shared/EstopReducer.ts",
+      "sha256": "ba17a65fc9d597985ae4d1251f27da169189960989b38aec85e4c0caca8138da"
+    },
+    {
+      "source": "src/domain/shared/LoggerLike.ts",
+      "dest": "src/sim/fsm-mirror/domain/shared/LoggerLike.ts",
+      "sha256": "9eb4d2d4aee3996b649893ad05cc68792b3e88c016a72419b4b84d9923772fe8"
+    },
+    {
+      "source": "src/domain/mapping/MappingSession.ts",
+      "dest": "src/sim/fsm-mirror/domain/mapping/MappingSession.ts",
+      "sha256": "53bd1993a7c927fb9ccd9cf3f6dfc450bdce795132c0ecbb6f6926138abcc0e1"
+    },
+    {
+      "source": "src/domain/mowing/MowingTask.ts",
+      "dest": "src/sim/fsm-mirror/domain/mowing/MowingTask.ts",
+      "sha256": "b9313fb48211674295adbf40f50354cc4091877bcdbfc995a2db899c5d1cd0b0"
+    },
+    {
+      "source": "src/domain/mapEdit/MapEditSession.ts",
+      "dest": "src/sim/fsm-mirror/domain/mapEdit/MapEditSession.ts",
+      "sha256": "a793b151adb8d57c271d2b017f9e152d3acef80b4f9addfc0d5ee352b6bb6285"
+    },
+    {
+      "source": "src/features/shared/mapping/BackendStatusMapper.ts",
+      "dest": "src/sim/fsm-mirror/features/shared/mapping/BackendStatusMapper.ts",
+      "sha256": "402b65536a4f93eccfbd2d0eebcfdad7d5a279e4e8b27278a8736b37bc8eb668"
+    },
+    {
+      "source": "src/features/mapping/state/mappingBackendRegistry.ts",
+      "dest": "src/sim/fsm-mirror/features/mapping/state/mappingBackendRegistry.ts",
+      "sha256": "e51c43c03a760a42927086cef74246d6a329a0b87ec585ffd5cd57be16f4a873"
+    },
+    {
+      "source": "src/features/mowing/state/mowingBackendRegistry.ts",
+      "dest": "src/sim/fsm-mirror/features/mowing/state/mowingBackendRegistry.ts",
+      "sha256": "7a3932d71ae03d21e492ff5e063e1e30a75136436dcc48b9f4f0d0743d2ab23d"
+    },
+    {
+      "source": "src/services/events/Arbitrator.ts",
+      "dest": "src/sim/fsm-mirror/services/events/Arbitrator.ts",
+      "sha256": "2f9035600ea31788344478a833266ec0c514582898c0b4193014ab662a68f744"
+    },
+    {
+      "source": "src/services/events/EventAdapter.ts",
+      "dest": "src/sim/fsm-mirror/services/events/EventAdapter.ts",
+      "sha256": "1fd6717bcc9db66b2f05f1cd84840c20a005b0a502e0edfe5f1ca43b739a7f51"
+    },
+    {
+      "source": "src/features/shared/mapping/TaskEventPipeline.ts",
+      "dest": "src/sim/fsm-mirror/features/shared/mapping/TaskEventPipeline.ts",
+      "sha256": "c64ff5ee587485c3c4abdaa991db4dd8c4cc513819ec4ae9fc53e47ff8030c04"
+    }
+  ]
+}

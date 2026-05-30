@@ -1,0 +1,13 @@
+name: estop_during_working
+description: active estop freezes working state and reset resumes after hardware clear
+domain: mapping
+setup:
+  state: WORKING
+  phase: MAP_SCAN_BOUNDARY
+steps:
+  - emit: { type: DEVICE_ESTOP, active: true }
+  - expect: { state: ESTOPPED, error: { code: ESTOP_ACTIVE, recoverable: true } }
+  - emit: { type: DEVICE_ESTOP, active: false }
+  - expect: { state: ESTOPPED, error: { code: ESTOP_CLEARED, recoverable: true } }
+  - emit: { type: CMD_RESET }
+  - expect: { state: RESUMING, phase: MAP_SCAN_BOUNDARY }

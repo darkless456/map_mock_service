@@ -1,0 +1,11 @@
+name: recorder_smoke
+description: starts and stops recorder around a minimal state change
+domain: mapping
+setup:
+  state: PREPARING
+  phase: MAP_PRECHECK
+steps:
+  - record: recorder-smoke
+  - emit: { type: DEVICE_WORK_STATUS, status: mapping }
+  - expect: { state: UNDOCKING }
+  - stopRecord: true

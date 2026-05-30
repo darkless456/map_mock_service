@@ -1,0 +1,22 @@
+name: happy_mapping
+description: precheck -> boundary scan -> coverage -> completed
+domain: mapping
+setup:
+  state: PREPARING
+  phase: MAP_PRECHECK
+  capabilities: { canSwitchManual: false, canSwitchAuto: false }
+steps:
+  - emit: { type: DEVICE_WORK_STATUS, status: mapping }
+  - expect: { state: UNDOCKING }
+  - emit: { type: DEVICE_PHASE, phase: MAP_SCAN_BOUNDARY }
+  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY }
+  - emit: { type: DEVICE_PHASE, phase: MAP_FOLLOW_BOUNDARY }
+  - expect: { phase: MAP_FOLLOW_BOUNDARY }
+  - emit: { type: DEVICE_PHASE, phase: MAP_BOUNDARY_DONE }
+  - expect: { phase: MAP_BOUNDARY_DONE }
+  - emit: { type: DEVICE_PHASE, phase: MAP_COVERAGE_PROBE }
+  - emit: { type: DEVICE_PHASE, phase: MAP_COVERAGE_RUN }
+  - expect: { phase: MAP_COVERAGE_RUN }
+  - emit: { type: DEVICE_PHASE, phase: MAP_COVERAGE_DONE }
+  - emit: { type: CMD_CONFIRM }
+  - expect: { state: COMPLETED, phase: MAP_COVERAGE_DONE }
