@@ -36,6 +36,7 @@ Default URL: `http://localhost:9900`.
 | `MOCK_DATA_DIR` | `data3` | Dataset directory: `data`, `data2`, `data3`, or `data4`. |
 | `ROBOT_SN` | `MOCK:00:11:22:33:44` | Default robot SN. |
 | `PUSH_INTERVAL_MS` | `200` | Map incremental frame interval. |
+| `MAP_MOCK_SLICE_BYTES` / `MMR_SLICE_BYTES` | disabled | Force map-frame base64 slicing for RustKit fragment reassembly tests. Slice boundaries are rounded down to a 4-character base64 boundary. |
 | `JWT_SECRET` | local mock secret | JWT verification secret. |
 | `TICKET_SECRET` | local mock secret | `/acc` ticket signing secret. |
 | `SIM_PANEL` | enabled | Set `SIM_PANEL=0` to disable `/sim/*` control APIs. |
@@ -83,8 +84,12 @@ Asset URLs returned by map list currently point to `/sim/assets/full_semanticmap
 |---|---|
 | `ROBOT_STATUS` | Derived from active FSM context. Includes `mapping_phase`, `capabilities`, `estop`, `notices`, and `error`. |
 | `NOTIFY_MOW_STATUS` | Flattened mowing task status payload. |
-| `ROBOT_LOCATION` | S-pattern location stream for registered SN while mowing. |
+| `ROBOT_LOCATION` | Semantic-zero grass-route location stream for registered SN while mowing. |
 | `MAP_FIX` / `MAP_INCREMENTAL` | `data*/` XML + PNG patches encoded by protocol v2. |
+
+`MAP_FIX` is sent once on WS connection. `MAP_INCREMENTAL` is sent immediately when mapping FSM enters a streamable phase and then every `PUSH_INTERVAL_MS` while that phase remains active, so fast `/sim/scenario/run` mapping scripts still produce frames for POC debugging.
+
+For visual regression checks, run `continuous_mapping_stream` to keep `MAP_INCREMENTAL` flowing across mapping phases, or run `mowing_trajectory_stream` to keep `ROBOT_LOCATION` flowing for subscribed clients while the robot follows the semantic class `0` grass area in `full_semanticmap.png`. When a client sends `LOCATION_REGISTER` during an active mowing task, the server sends the current pose immediately and then continues the 300ms stream.
 
 ## Control API
 
@@ -110,6 +115,13 @@ Asset URLs returned by map list currently point to `/sim/assets/full_semanticmap
 
 Checked-in scenarios live in [scenarios](scenarios). `recordings/*.jsonl` is git-ignored by default; commit only curated regression recordings intentionally.
 
+Useful rendering scenarios:
+
+| Scenario | Use |
+|---|---|
+| `continuous_mapping_stream` | Incremental map rendering / atlas patch placement in the POC MapBuilder screen. |
+| `mowing_trajectory_stream` | Robot trajectory and coverage rendering in the POC Mowing screen. |
+
 ## Mower app联调
 
 1. Start this service: `npm start`.
@@ -122,4 +134,5 @@ Checked-in scenarios live in [scenarios](scenarios). `recordings/*.jsonl` is git
 
 - [docs/api.md](docs/api.md)
 - [docs/fsm-mirror.md](docs/fsm-mirror.md)
+- [docs/mowing_trajectory.md](docs/mowing_trajectory.md)
 - [docs/scenarios.md](docs/scenarios.md)

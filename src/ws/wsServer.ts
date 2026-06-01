@@ -10,16 +10,10 @@ import type { ChaosController } from '../sim/chaos';
 import type { Recorder } from '../sim/recorder';
 import { OutboundHub } from './outbound';
 import { handleInboundMessage } from './inbound';
+import { advancePose, createPoseState, currentRobotPose } from '../data/mowingTrajectory';
 
 const DEFAULT_PUSH_INTERVAL_MS = 200;
-
-const MOW_FIELD_X1 = 10.8;
-const MOW_FIELD_X2 = 14.0;
-const MOW_FIELD_Y1 = 10.0;
-const MOW_FIELD_Y2 = 14.6;
-const MOW_WIDTH_M = 0.4;
-const ROBOT_STEP_M = 0.1;
-const NO_GO_BOX = { minX: 12.0, maxX: 13.0, minY: 12.2, maxY: 13.2 };
+const WS_TERMINATE_GRACE_MS = 250;
 
 export interface WsServerRuntime {
   readonly wss: WebSocketServer;
@@ -48,6 +42,7 @@ export function createWsServer({
   const inspectWss = new WebSocketServer({ noServer: true });
   const outbound = new OutboundHub(wss, chaos, recorder);
   const pose = createPoseState();
+  let closed = false;
 
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
@@ -77,7 +72,13 @@ export function createWsServer({
     const activeTask = robot.activeTask();
     if (activeTask) outbound.sendJson(ws, buildMowStatus(activeTask));
 
-    ws.on('message', raw => handleInboundMessage(ws, raw, outbound, recorder));
+    ws.on('message', raw => handleInboundMessage(ws, raw, outbound, recorder, {
+      onLocationRegister: (client, sn) => {
+        const task = robot.activeTask();
+        if (!task || task.status !== 'ON_THE_WAY' || task.sn !== sn) return;
+        outbound.sendJson(client, buildRobotLocation(sn, currentRobotPose(pose)));
+      },
+    }));
     ws.on('close', () => outbound.disposeClient(ws));
     ws.on('error', () => outbound.disposeClient(ws));
   });
@@ -97,6 +98,9 @@ export function createWsServer({
   const onChanged = (snapshot: VirtualRobotSnapshot) => {
     for (const payload of changedPushes(robot, snapshot)) {
       outbound.broadcastJson(payload);
+    }
+    if (robot.shouldStreamMap()) {
+      outbound.broadcastRawMany(mapStream.nextFrame({ sn: robot.sn }));
     }
   };
   robot.on('changed', onChanged);
@@ -125,55 +129,28 @@ export function createWsServer({
     wss,
     outbound,
     close() {
+      if (closed) return;
+      closed = true;
       clearInterval(mapTimer);
       clearInterval(locationTimer);
       clearInterval(mowTimer);
       robot.off('changed', onChanged);
       robot.off('transcript', onTranscript);
+      closeWebSocketClients(wss);
+      closeWebSocketClients(inspectWss);
       wss.close();
       inspectWss.close();
     },
   };
 }
 
-interface PoseState {
-  x: number;
-  y: number;
-  goingRight: boolean;
-}
-
-function createPoseState(): PoseState {
-  return { x: MOW_FIELD_X1, y: MOW_FIELD_Y1, goingRight: true };
-}
-
-function advancePose(pose: PoseState): { x: number; y: number; angle: number } {
-  const dx = pose.goingRight ? ROBOT_STEP_M : -ROBOT_STEP_M;
-  pose.x += dx;
-
-  if (
-    pose.x >= NO_GO_BOX.minX &&
-    pose.x <= NO_GO_BOX.maxX &&
-    pose.y >= NO_GO_BOX.minY &&
-    pose.y <= NO_GO_BOX.maxY
-  ) {
-    pose.x = pose.goingRight ? NO_GO_BOX.maxX + ROBOT_STEP_M : NO_GO_BOX.minX - ROBOT_STEP_M;
-  }
-
-  if (pose.goingRight && pose.x >= MOW_FIELD_X2) {
-    pose.x = MOW_FIELD_X2;
-    pose.y += MOW_WIDTH_M;
-    pose.goingRight = false;
-  } else if (!pose.goingRight && pose.x <= MOW_FIELD_X1) {
-    pose.x = MOW_FIELD_X1;
-    pose.y += MOW_WIDTH_M;
-    pose.goingRight = true;
-  }
-
-  if (pose.y > MOW_FIELD_Y2) {
-    pose.x = MOW_FIELD_X1;
-    pose.y = MOW_FIELD_Y1;
-    pose.goingRight = true;
-  }
-
-  return { x: pose.x, y: pose.y, angle: pose.goingRight ? 0 : Math.PI };
+function closeWebSocketClients(server: WebSocketServer): void {
+  server.clients.forEach(client => {
+    if (client.readyState === client.CLOSED) return;
+    client.close(1001, 'simulator shutting down');
+    const terminateTimer = setTimeout(() => {
+      if (client.readyState !== client.CLOSED) client.terminate();
+    }, WS_TERMINATE_GRACE_MS);
+    terminateTimer.unref?.();
+  });
 }

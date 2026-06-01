@@ -88,7 +88,7 @@ async function setChaos() { await post('/sim/chaos', { latencyMs: Number(documen
 loadScenarios(); refresh(); setInterval(refresh, 1500);
 const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 const inspect = new WebSocket(proto + '//' + location.host + '/sim/inspect');
-inspect.onmessage = event => { const line = JSON.stringify(JSON.parse(event.data), null, 2); document.getElementById('timeline').textContent = line + '\n\n' + document.getElementById('timeline').textContent; };
+inspect.onmessage = event => { const line = JSON.stringify(JSON.parse(event.data), null, 2); document.getElementById('timeline').textContent = line + '\\n\\n' + document.getElementById('timeline').textContent; };
 </script>
 </body>
 </html>`;

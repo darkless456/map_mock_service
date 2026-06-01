@@ -1,8 +1,80 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
+import WebSocket from 'ws';
+import { generateTicket } from '../../src/auth/ticket';
 import { ChaosController } from '../../src/sim/chaos';
+import { MapStream } from '../../src/sim/mapStream';
 import { ScenarioEngine } from '../../src/sim/scenarioEngine';
 import { VirtualRobot } from '../../src/sim/virtualRobot';
+import { createWsServer } from '../../src/ws/wsServer';
+import { createPoseState, currentRobotPose } from '../../src/data/mowingTrajectory';
+
+function waitForOpen(ws: WebSocket): Promise<void> {
+  return new Promise((resolve, reject) => {
+    ws.once('open', resolve);
+    ws.once('error', reject);
+  });
+}
+
+function waitForClose(ws: WebSocket, timeoutMs = 1000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (ws.readyState === ws.CLOSED) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => reject(new Error('timed out waiting for websocket close')), timeoutMs);
+    ws.once('close', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    ws.once('error', reject);
+  });
+}
+
+function waitForCommand(ws: WebSocket, cmd: string, timeoutMs = 1000): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`timed out waiting for ${cmd}`));
+    }, timeoutMs);
+    const onMessage = (raw: WebSocket.RawData) => {
+      const parsed = JSON.parse(raw.toString()) as { cmd?: string };
+      if (parsed.cmd !== cmd) return;
+      cleanup();
+      resolve(parsed);
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      ws.off('message', onMessage);
+    };
+    ws.on('message', onMessage);
+  });
+}
+
+function waitForCommandCount(ws: WebSocket, cmd: string, minCount: number, timeoutMs = 1200): Promise<unknown[]> {
+  return new Promise((resolve, reject) => {
+    const messages: unknown[] = [];
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`timed out waiting for ${minCount} ${cmd} messages, got ${messages.length}`));
+    }, timeoutMs);
+    const onMessage = (raw: WebSocket.RawData) => {
+      const parsed = JSON.parse(raw.toString()) as { cmd?: string };
+      if (parsed.cmd !== cmd) return;
+      messages.push(parsed);
+      if (messages.length >= minCount) {
+        cleanup();
+        resolve(messages);
+      }
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      ws.off('message', onMessage);
+    };
+    ws.on('message', onMessage);
+  });
+}
 
 describe('e2e scenarios', () => {
   it('runs the checked-in happy_mapping scenario', async () => {
@@ -12,5 +84,237 @@ describe('e2e scenarios', () => {
     const result = await engine.run({ name: 'happy_mapping' });
     assert.equal(result.ok, true, result.error);
     assert.equal(robot.snapshot().mapping.state, 'COMPLETED');
+    assert.ok(engine.listScenarios().includes('continuous_mapping_stream'));
+    assert.ok(engine.listScenarios().includes('mowing_trajectory_stream'));
+  });
+
+  it('pushes MAP_INCREMENTAL during fast mapping scenarios', async () => {
+    const server = http.createServer();
+    const robot = new VirtualRobot();
+    const chaos = new ChaosController();
+    const mapStream = new MapStream([
+      {
+        id: 'unit',
+        timestampMs: 1700000000000,
+        resolution: 0.05,
+        originX: -1,
+        originY: -1,
+        mapCols: 2,
+        mapRows: 2,
+        imageData: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+        robotX: 0.5,
+        robotY: 0.5,
+        robotTheta: 0,
+      },
+    ]);
+    const wsRuntime = createWsServer({ server, robot, mapStream, chaos, pushIntervalMs: 60_000 });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+
+    const { ticket } = generateTicket({ userId: 'unit-test' });
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/acc?ticket=${ticket}`);
+    try {
+      await waitForOpen(ws);
+      const incrementalPromise = waitForCommand(ws, 'MAP_INCREMENTAL');
+      const engine = new ScenarioEngine({ robot, chaos });
+      const result = await engine.run({ name: 'happy_mapping' });
+      assert.equal(result.ok, true, result.error);
+
+      const incremental = await incrementalPromise as { data?: { map_header?: { frame_id?: number } } };
+      assert.equal(typeof incremental.data?.map_header?.frame_id, 'number');
+    } finally {
+      ws.close();
+      wsRuntime.close();
+      server.close();
+    }
+  });
+
+  it('keeps pushing MAP_INCREMENTAL while mapping remains streamable', async () => {
+    const server = http.createServer();
+    const robot = new VirtualRobot();
+    const chaos = new ChaosController();
+    const mapStream = new MapStream([
+      {
+        id: 'unit',
+        timestampMs: 1700000000000,
+        resolution: 0.05,
+        originX: -1,
+        originY: -1,
+        mapCols: 2,
+        mapRows: 2,
+        imageData: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+        robotX: 0.5,
+        robotY: 0.5,
+        robotTheta: 0,
+      },
+    ]);
+    const wsRuntime = createWsServer({ server, robot, mapStream, chaos, pushIntervalMs: 50 });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+
+    const { ticket } = generateTicket({ userId: 'unit-test' });
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/acc?ticket=${ticket}`);
+    try {
+      await waitForOpen(ws);
+      const incrementalPromise = waitForCommandCount(ws, 'MAP_INCREMENTAL', 3);
+      const engine = new ScenarioEngine({ robot, chaos });
+      const result = await engine.run({
+        inline: {
+          name: 'short_continuous_mapping_stream',
+          domain: 'mapping',
+          setup: { state: 'PREPARING', phase: 'MAP_PRECHECK' },
+          steps: [
+            { emit: { type: 'DEVICE_WORK_STATUS', status: 'mapping' } },
+            { emit: { type: 'DEVICE_PHASE', phase: 'MAP_SCAN_BOUNDARY' } },
+            { wait: '180ms' },
+          ],
+        },
+      });
+      assert.equal(result.ok, true, result.error);
+      assert.equal((await incrementalPromise).length, 3);
+    } finally {
+      ws.close();
+      wsRuntime.close();
+      server.close();
+    }
+  });
+
+  it('pushes ROBOT_LOCATION during mowing trajectory scenarios', async () => {
+    const server = http.createServer();
+    const robot = new VirtualRobot();
+    const chaos = new ChaosController();
+    const mapStream = new MapStream([
+      {
+        id: 'unit',
+        timestampMs: 1700000000000,
+        resolution: 0.05,
+        originX: -1,
+        originY: -1,
+        mapCols: 2,
+        mapRows: 2,
+        imageData: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+        robotX: 0.5,
+        robotY: 0.5,
+        robotTheta: 0,
+      },
+    ]);
+    const wsRuntime = createWsServer({ server, robot, mapStream, chaos, pushIntervalMs: 60_000 });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+
+    const { ticket } = generateTicket({ userId: 'unit-test' });
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/acc?ticket=${ticket}`);
+    try {
+      await waitForOpen(ws);
+      ws.send(JSON.stringify({ cmd: 'LOCATION_REGISTER', cmd_id: 'unit-location-register', version: 1, data: { sn: robot.sn } }));
+      const locationPromise = waitForCommandCount(ws, 'ROBOT_LOCATION', 2, 1600);
+      const engine = new ScenarioEngine({ robot, chaos });
+      const result = await engine.run({
+        inline: {
+          name: 'short_mowing_trajectory_stream',
+          domain: 'mowing',
+          setup: { state: 'IDLE', phase: null },
+          steps: [
+            { emit: { type: 'CMD_START', mode: 'auto', taskMode: 'MOW_GLOBAL' } },
+            { emit: { type: 'DEVICE_REPORT_STARTED' } },
+            { wait: '750ms' },
+          ],
+        },
+      });
+      assert.equal(result.ok, true, result.error);
+      const locations = await locationPromise as Array<{ data?: { x?: number; y?: number; angle?: number } }>;
+      assert.equal(locations.length, 2);
+      assert.equal(typeof locations[0].data?.x, 'number');
+      assert.equal(typeof locations[0].data?.y, 'number');
+      assert.equal(typeof locations[0].data?.angle, 'number');
+    } finally {
+      ws.close();
+      wsRuntime.close();
+      server.close();
+    }
+  });
+
+  it('sends current ROBOT_LOCATION immediately when registering during active mowing', async () => {
+    const server = http.createServer();
+    const robot = new VirtualRobot();
+    const chaos = new ChaosController();
+    const mapStream = new MapStream([
+      {
+        id: 'unit',
+        timestampMs: 1700000000000,
+        resolution: 0.05,
+        originX: -1,
+        originY: -1,
+        mapCols: 2,
+        mapRows: 2,
+        imageData: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+        robotX: 0.5,
+        robotY: 0.5,
+        robotTheta: 0,
+      },
+    ]);
+    robot.createMowingTask({ sn: robot.sn, task_info: { map_id: 'mock_map_001', task_mode: 'global' } });
+    const wsRuntime = createWsServer({ server, robot, mapStream, chaos, pushIntervalMs: 60_000 });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+
+    const { ticket } = generateTicket({ userId: 'unit-test' });
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/acc?ticket=${ticket}`);
+    try {
+      await waitForOpen(ws);
+      const locationPromise = waitForCommand(ws, 'ROBOT_LOCATION', 250);
+      ws.send(JSON.stringify({ cmd: 'LOCATION_REGISTER', cmd_id: 'unit-location-register-active', version: 1, data: { sn: robot.sn } }));
+      const location = await locationPromise as { data?: { x?: number; y?: number; angle?: number } };
+      const expected = currentRobotPose(createPoseState());
+      assert.equal(location.data?.x, expected.x);
+      assert.equal(location.data?.y, expected.y);
+      assert.equal(location.data?.angle, expected.angle);
+    } finally {
+      ws.close();
+      wsRuntime.close();
+      server.close();
+    }
+  });
+
+  it('closes active websocket clients during runtime shutdown', async () => {
+    const server = http.createServer();
+    const robot = new VirtualRobot();
+    const chaos = new ChaosController();
+    const mapStream = new MapStream([
+      {
+        id: 'unit',
+        timestampMs: 1700000000000,
+        resolution: 0.05,
+        originX: -1,
+        originY: -1,
+        mapCols: 2,
+        mapRows: 2,
+        imageData: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+        robotX: 0.5,
+        robotY: 0.5,
+        robotTheta: 0,
+      },
+    ]);
+    const wsRuntime = createWsServer({ server, robot, mapStream, chaos, pushIntervalMs: 60_000 });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+
+    const { ticket } = generateTicket({ userId: 'unit-test' });
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/acc?ticket=${ticket}`);
+    try {
+      await waitForOpen(ws);
+      wsRuntime.close();
+      await waitForClose(ws);
+      assert.equal(ws.readyState, ws.CLOSED);
+    } finally {
+      ws.terminate();
+      wsRuntime.close();
+      server.close();
+    }
   });
 });

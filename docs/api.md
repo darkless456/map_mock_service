@@ -61,7 +61,11 @@ All JSON WS messages use:
 | `NOTIFY_MOW_STATUS` | Flattened `task_id`, `task_status`, `task_type`, `task_message`, `task_error_code`, `mow_area`, `mow_progress`, `estimated_time`; also duplicated under `payload`. |
 | `ROBOT_LOCATION` | `sn`, `mac`, `map_id`, `x`, `y`, `yaw`, `angle`, `timestamp`, `notify_time` |
 | `MAP_FIX` | Full map frame on WS connection. |
-| `MAP_INCREMENTAL` | Incremental map patches while mapping FSM is in a streaming phase. |
+| `MAP_INCREMENTAL` | Incremental map patches while mapping FSM is in a streaming phase. A frame is pushed immediately on streaming-state transitions, then continuously by `PUSH_INTERVAL_MS` while the phase remains streamable. |
+
+`MAP_MOCK_SLICE_BYTES` / `MMR_SLICE_BYTES` can force `MAP_FIX` and `MAP_INCREMENTAL` frame slicing. The simulator splits the gzip+base64 payload on base64-safe 4-character boundaries so each slice remains decodable by RustKit before fragment reassembly.
+
+`ROBOT_LOCATION` is sent every 300ms only to sockets that sent `LOCATION_REGISTER` for the robot SN and while an active mowing task is `ON_THE_WAY`. If the task is already active when the client registers, the server also sends the current pose immediately so mobile clients can bind the first trajectory point without waiting for the next timer tick. Scenario-based mowing `CMD_START` creates a mock active task automatically so `mowing_trajectory_stream` can drive trajectory rendering without going through the REST create-task API. The pose route is generated from the semantic class `0` grass pixels in `full_semanticmap.png`; see [mowing_trajectory.md](mowing_trajectory.md) for the artifact design.
 
 ## Control API
 

@@ -86,11 +86,12 @@ export function encodeMapMessage({
   });
 }
 
-function sliceBase64(base64: string, chunkChars: number): string[] {
-  if (chunkChars <= 0 || base64.length <= chunkChars) return [base64];
+export function splitBase64IntoDecodableChunks(base64: string, chunkChars: number): string[] {
+  const safeChunkChars = Math.max(4, Math.floor(chunkChars / 4) * 4);
+  if (chunkChars <= 0 || base64.length <= safeChunkChars) return [base64];
   const out: string[] = [];
-  for (let i = 0; i < base64.length; i += chunkChars) {
-    out.push(base64.slice(i, i + chunkChars));
+  for (let i = 0; i < base64.length; i += safeChunkChars) {
+    out.push(base64.slice(i, i + safeChunkChars));
   }
   return out;
 }
@@ -105,7 +106,7 @@ export function encodeMapMessageSliced(opts: EncodeMapMessageOptions): string[] 
   const cmdId = opts.cmdId ?? createId();
   const cmd = opts.cmd ?? 'MAP_INCREMENTAL';
   const mapData = encodeMapData(opts.imageBytes);
-  const chunks = sliceBase64(mapData, FORCE_SLICE_BYTES);
+  const chunks = splitBase64IntoDecodableChunks(mapData, FORCE_SLICE_BYTES);
   if (chunks.length <= 1) return [encodeMapMessage({ ...opts, cmdId, cmd })];
 
   const header = baseHeader(opts.headerFields, opts.imageBytes);

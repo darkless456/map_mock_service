@@ -10,6 +10,13 @@ Phase S2 is implemented: YAML scenarios under [scenarios](../scenarios) can be r
 4. Inspect live state with `GET /sim/state`.
 5. Watch reducer transcript events through `WS /sim/inspect` or the panel timeline.
 
+Mapping scenarios that pass through streamable phases such as `MAP_SCAN_BOUNDARY`, `MAP_FOLLOW_BOUNDARY`, and `MAP_COVERAGE_RUN` push at least one `MAP_INCREMENTAL` frame as soon as the FSM enters the phase. If a scenario also waits in a streamable phase, additional frames are pushed at `PUSH_INTERVAL_MS`.
+
+For rendering checks, use these long-running scenarios from `/sim/panel`:
+
+- `continuous_mapping_stream`: holds boundary scan, boundary follow, and coverage run for 30s each. Use it with the POC MapBuilder screen to inspect incremental map patch rendering.
+- `mowing_trajectory_stream`: holds mowing in `MOW_RUNNING` for 60s. Use it with the POC Mowing screen after `LOCATION_REGISTER` to inspect robot trajectory and coverage rendering over the semantic class `0` grass route generated from `full_semanticmap.png`.
+
 ## Run by API
 
 ```bash
@@ -59,7 +66,9 @@ steps:
 | File | Coverage |
 |---|---|
 | `happy_mapping.yaml` | precheck -> scan -> follow -> coverage -> completed |
+| `continuous_mapping_stream.yaml` | long-running streamable mapping phases for incremental rendering checks |
 | `happy_mowing.yaml` | mowing start -> running -> completed |
+| `mowing_trajectory_stream.yaml` | long-running mowing task for semantic-zero `ROBOT_LOCATION` trajectory checks |
 | `precheck_failed_then_retry.yaml` | recoverable precheck failure |
 | `scan_boundary_failed_then_pause_and_manual.yaml` | pause and remote/manual switch capability |
 | `boundary_close_failed_then_retry.yaml` | boundary closing failure retry |

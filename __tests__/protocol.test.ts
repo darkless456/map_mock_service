@@ -1,7 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
-import { encodeMapData, encodeMapMessage, isClientFrameAck } from '../src/ws/protocol';
+import {
+  encodeMapData,
+  encodeMapMessage,
+  isClientFrameAck,
+  splitBase64IntoDecodableChunks,
+} from '../src/ws/protocol';
 
 const imageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const sampleFields = {
@@ -28,6 +33,15 @@ describe('encodeMapData', () => {
     const encoded = encodeMapData(imageBytes);
     const decompressed = zlib.gunzipSync(Buffer.from(encoded, 'base64'));
     assert.deepEqual(decompressed, imageBytes);
+  });
+
+  it('splits base64 only on decodable chunk boundaries', () => {
+    const encoded = encodeMapData(Buffer.from('mock incremental frame payload'));
+    const chunks = splitBase64IntoDecodableChunks(encoded, 7);
+    assert.ok(chunks.length > 1);
+    assert.ok(chunks.slice(0, -1).every(chunk => chunk.length % 4 === 0));
+    const compressed = Buffer.concat(chunks.map(chunk => Buffer.from(chunk, 'base64')));
+    assert.equal(zlib.gunzipSync(compressed).toString(), 'mock incremental frame payload');
   });
 });
 

@@ -3,7 +3,17 @@ import { isClientFrameAck } from './protocol';
 import type { OutboundHub } from './outbound';
 import type { Recorder } from '../sim/recorder';
 
-export function handleInboundMessage(ws: WebSocket, raw: WebSocket.RawData, outbound: OutboundHub, recorder?: Recorder): void {
+export interface InboundCallbacks {
+  onLocationRegister?: (ws: WebSocket, sn: string) => void;
+}
+
+export function handleInboundMessage(
+  ws: WebSocket,
+  raw: WebSocket.RawData,
+  outbound: OutboundHub,
+  recorder?: Recorder,
+  callbacks: InboundCallbacks = {},
+): void {
   let msg: Record<string, unknown>;
   try {
     msg = JSON.parse(raw.toString()) as Record<string, unknown>;
@@ -48,7 +58,11 @@ export function handleInboundMessage(ws: WebSocket, raw: WebSocket.RawData, outb
       ? (data as { sn?: unknown }).sn
       : undefined;
     if (typeof sn !== 'string' || !sn) return;
-    if (msg.cmd === 'LOCATION_REGISTER') outbound.registerLocation(ws, sn);
-    else outbound.unregisterLocation(ws, sn);
+    if (msg.cmd === 'LOCATION_REGISTER') {
+      outbound.registerLocation(ws, sn);
+      callbacks.onLocationRegister?.(ws, sn);
+    } else {
+      outbound.unregisterLocation(ws, sn);
+    }
   }
 }

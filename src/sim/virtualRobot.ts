@@ -356,6 +356,18 @@ export class VirtualRobot extends EventEmitter {
     return task;
   }
 
+  private ensureScenarioMowingTask(event: MowingEvent): void {
+    if (event.type !== 'CMD_START' || this.activeTask()) return;
+    const taskMode = 'taskMode' in event && typeof event.taskMode === 'string'
+      ? event.taskMode
+      : 'MOW_GLOBAL';
+    this.createTask(this.sn, {
+      map_id: 'mock_map_001',
+      task_mode: taskMode === 'MOW_REGION' ? 'area' : taskMode === 'MOW_EDGE' ? 'edge' : 'global',
+      source: 'scenario',
+    });
+  }
+
   private dispatchMapping(event: MappingEvent): void {
     const before = this.snapshot();
     const prev = this.mapping;
@@ -369,6 +381,7 @@ export class VirtualRobot extends EventEmitter {
   private dispatchMowing(event: MowingEvent): void {
     const before = this.snapshot();
     const prev = this.mowing;
+    this.ensureScenarioMowingTask(event);
     this.mowing = mowingReducer(this.mowing, event);
     this.record('mowing', event);
     this.syncActiveTaskFromContext();

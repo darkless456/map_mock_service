@@ -39,11 +39,34 @@ const server = http.createServer(createHttpHandler({
 }));
 
 const wsRuntime = createWsServer({ server, robot, mapStream, chaos, recorder });
+let shutdownStarted = false;
 
-function shutdown(): void {
-  logger.info('Shutting down simulator');
+function shutdown(signal: NodeJS.Signals = 'SIGTERM'): void {
+  if (shutdownStarted) {
+    logger.warn(`Forced shutdown after repeated ${signal}`);
+    process.exit(130);
+  }
+
+  shutdownStarted = true;
+  logger.info(`Shutting down simulator (${signal})`);
   wsRuntime.close();
-  server.close(() => process.exit(0));
+
+  const forceExitTimer = setTimeout(() => {
+    logger.warn('Forcing simulator shutdown after timeout');
+    process.exit(1);
+  }, 2000);
+  forceExitTimer.unref?.();
+
+  server.close(err => {
+    clearTimeout(forceExitTimer);
+    if (err) {
+      logger.error(`HTTP server close failed: ${err.message}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  });
+
+  server.closeAllConnections?.();
 }
 
 process.on('SIGINT', shutdown);
