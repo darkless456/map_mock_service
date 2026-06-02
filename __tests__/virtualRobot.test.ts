@@ -5,17 +5,19 @@ import { buildMowStatus, buildRobotStatus } from '../src/sim/pushChannels';
 import { buildTaskListData } from '../src/sim/taskBridge';
 
 describe('VirtualRobot mapping domain', () => {
-  it('starts mapping in PREPARING / MAP_PRECHECK and can be advanced to streaming phase', () => {
+  it('starts mapping in PREPARING and reaches a streamable phase via sub_status notify', () => {
     const robot = new VirtualRobot({ sn: 'SN-1' });
     robot.startMapping({ sn: 'SN-1', mode: 'auto' });
     assert.equal(robot.snapshot().activeDomain, 'mapping');
     assert.equal(robot.snapshot().mapping.state, 'PREPARING');
-    assert.equal(robot.snapshot().mapping.phase, 'MAP_PRECHECK');
+    assert.equal(robot.snapshot().mapping.phase, null);
     assert.equal(robot.shouldStreamMap(), false);
 
-    robot.dispatchRaw({ type: 'DEVICE_WORK_STATUS', status: 'mapping', source: 'ws', ts: Date.now() }, 'mapping');
-    robot.dispatchRaw({ type: 'DEVICE_PHASE', phase: 'MAP_SCAN_BOUNDARY', source: 'ws', ts: Date.now() }, 'mapping');
+    robot.dispatchRatelNotify({ work_status: 'mapping', sub_status: 'leave_dock' });
+    assert.equal(robot.snapshot().mapping.state, 'UNDOCKING');
+    robot.dispatchRatelNotify({ work_status: 'mapping', sub_status: 'find_boundary' });
     assert.equal(robot.snapshot().mapping.state, 'WORKING');
+    assert.equal(robot.snapshot().mapping.phase, 'MAP_SCAN_BOUNDARY');
     assert.equal(robot.shouldStreamMap(), true);
   });
 

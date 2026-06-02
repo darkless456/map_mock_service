@@ -1,9 +1,0 @@
-name: boundary_wait_continue
-description: boundary wait continues into coverage probe
-domain: mapping
-setup:
-  state: WORKING
-  phase: MAP_BOUNDARY_WAIT
-steps:
-  - emit: { type: CMD_CONTINUE_COVERAGE }
-  - expect: { state: WORKING, phase: MAP_COVERAGE_PROBE }

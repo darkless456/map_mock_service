@@ -54,8 +54,13 @@ The service only registers the mower API paths below. For app compatibility, dev
 | `GET/POST` | `/ratel/map-service/api/v1/ratel/map/list` | Return semantic basemap URL and annotation increments. |
 | `POST` | `/ratel/map-service/api/v1/ratel/semantic/save` | Save annotation increment package in memory and dispatch `CMD_SAVE`. |
 | `POST` | `/ratel/api/v1/map/delete` | Delete an in-memory map package. |
-| `POST` | `/ratel/api/v1/mapping/start` | Dispatch mapping `CMD_START` and `MAP_PRECHECK`. |
+| `POST` | `/ratel/api/v1/robot/self_check` | 通知机器开始自检（建图前置第一步） |
+| `POST` | `/ratel/api/v1/mapping/check` | 建图条件检测 → 轮询直至六项齐全（mock 每次多返回一项） |
+| `POST` | `/ratel/api/v1/mapping/start` | Dispatch mapping `CMD_START` → `PREPARING`. |
 | `POST` | `/ratel/api/v1/mapping/pause` | Dispatch mapping `CMD_PAUSE`. |
+| `POST` | `/ratel/api/v1/mapping/resume` | Dispatch mapping `CMD_RESUME`. |
+| `POST` | `/ratel/api/v1/mapping/stop` | `CMD_CANCEL` or `CMD_CONFIRM` when `save: true`. |
+| `POST` | `/ratel/api/v1/mapping/mode` | `CMD_SWITCH_MANUAL` / `CMD_EXIT_MANUAL` for `remote` / `auto`. |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/create` | Create mowing task, dispatch mowing `CMD_START` + `DEVICE_REPORT_STARTED`. |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/action` | Handle `PAUSE`, `RESUME`, `CANCEL`, and `FINISH_AND_RETURN_DOCK`. |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/list` | Return task list and active `task_notify`. |
@@ -89,7 +94,7 @@ Asset URLs returned by map list currently point to `/sim/assets/full_semanticmap
 
 `MAP_FIX` is sent once on WS connection. `MAP_INCREMENTAL` is sent immediately when mapping FSM enters a streamable phase and then every `PUSH_INTERVAL_MS` while that phase remains active, so fast `/sim/scenario/run` mapping scripts still produce frames for POC debugging.
 
-For visual regression checks, run `continuous_mapping_stream` to keep `MAP_INCREMENTAL` flowing across mapping phases, or run `mowing_trajectory_stream` to keep `ROBOT_LOCATION` flowing for subscribed clients while the robot follows the semantic class `0` grass area in `full_semanticmap.png`. When a client sends `LOCATION_REGISTER` during an active mowing task, the server sends the current pose immediately and then continues the 300ms stream.
+For visual regression checks, run `mapping_stream_incremental` to keep `MAP_INCREMENTAL` flowing across mapping phases. Mowing `ROBOT_LOCATION` can still be exercised via inline mowing scenarios or `POST /ratel/api/v1/mowing/task/create`; see [docs/mowing_trajectory.md](docs/mowing_trajectory.md).
 
 ## Control API
 
@@ -101,7 +106,7 @@ For visual regression checks, run `continuous_mapping_stream` to keep `MAP_INCRE
 | `GET` | `/sim/panel` | htmx control panel for scenarios, event buttons, chaos, and recorder. |
 | `GET` | `/sim/scenarios` | List checked-in YAML scenarios. |
 | `POST` | `/sim/event` | Dispatch raw FSM event. Optional body field: `domain`. |
-| `POST` | `/sim/scenario/run` | Run `{ "name": "happy_mapping" }` or `{ "inline": "...yaml" }`. |
+| `POST` | `/sim/scenario/run` | Run `{ "name": "mapping_happy_auto" }` or `{ "inline": "...yaml" }`. |
 | `POST` | `/sim/scenario/stop` | Stop the active scenario. |
 | `POST` | `/sim/recorder/start` | Start writing `recordings/<timestamp>.jsonl`. |
 | `POST` | `/sim/recorder/stop` | Stop the active recording. |
@@ -119,8 +124,11 @@ Useful rendering scenarios:
 
 | Scenario | Use |
 |---|---|
-| `continuous_mapping_stream` | Incremental map rendering / atlas patch placement in the POC MapBuilder screen. |
-| `mowing_trajectory_stream` | Robot trajectory and coverage rendering in the POC Mowing screen. |
+| `mapping_happy_auto` | Full `NOTIFY_RATEL_STATUS` chain → DeviceStart / CreateMap navigation → `COMPLETED` |
+| `mapping_stream_incremental` | Long holds in streamable phases for `MAP_INCREMENTAL` / MapBuilder POC |
+| `mapping_pause_resume` | Pause / resume during coverage |
+| `mapping_scan_failed_manual` | Scan failure → remote control |
+| `mapping_cancel_during_work` | Cancel during boundary follow |
 
 ## Mower app联调
 

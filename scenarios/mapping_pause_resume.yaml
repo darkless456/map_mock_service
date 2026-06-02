@@ -1,0 +1,27 @@
+name: mapping_pause_resume
+description: Pause/resume during bow_cover via CMD + NOTIFY_RATEL_STATUS
+domain: mapping
+setup:
+  state: UNDOCKING
+  phase: null
+steps:
+  - notify: { work_status: mapping, sub_status: find_boundary }
+  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY }
+  - wait: 8s
+  - notify: { work_status: mapping, sub_status: edge_mapping }
+  - wait: 10s
+  - notify: { work_status: mapping, sub_status: map_edge_finish }
+  - wait: 6s
+  - notify: { work_status: mapping, sub_status: bow_cover }
+  - expect: { phase: MAP_COVERAGE_RUN }
+  - wait: 8s
+  - emit: { type: CMD_PAUSE }
+  - expect: { state: PAUSED, phase: MAP_COVERAGE_RUN }
+  - wait: 5s
+  - emit: { type: CMD_RESUME }
+  - expect: { state: WORKING, phase: MAP_COVERAGE_RUN }
+  - wait: 10s
+  - notify: { work_status: mapping, sub_status: exit_mapping }
+  - wait: 5s
+  - notify: { work_status: idle, sub_status: none }
+  - expect: { state: COMPLETED }

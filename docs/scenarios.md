@@ -1,114 +1,62 @@
 # Scenario scripts guide
 
-Phase S2 is implemented: YAML scenarios under [scenarios](../scenarios) can be run from `/sim/panel`, `/sim/scenario/run`, or tests through `ScenarioEngine`.
+YAML scenarios drive **cloud-accurate** `NOTIFY_RATEL_STATUS` pushes over WebSocket so the mower App FSM and navigation match production.
 
-## Five-minute flow
+## How it works
 
-1. Start the simulator with `npm start`.
-2. Open `http://localhost:9900/sim/panel`.
-3. Select `happy_mapping` and click **Run scenario**.
-4. Inspect live state with `GET /sim/state`.
-5. Watch reducer transcript events through `WS /sim/inspect` or the panel timeline.
+| Layer | Behavior |
+|-------|----------|
+| `notify` step | Updates mock FSM **and** broadcasts `NOTIFY_RATEL_STATUS` with `work_status` + `sub_status` |
+| App (`useWsDeviceListener`) | Parses same payload → `TaskEventPipeline` → panel / navigation |
+| `POST /mapping/start` | Mock FSM `CMD_START` + WS `mapping` + `precondition` |
+| Dedup | Identical `(work_status, sub_status)` is not pushed twice |
 
-Mapping scenarios that pass through streamable phases such as `MAP_SCAN_BOUNDARY`, `MAP_FOLLOW_BOUNDARY`, and `MAP_COVERAGE_RUN` push at least one `MAP_INCREMENTAL` frame as soon as the FSM enters the phase. If a scenario also waits in a streamable phase, additional frames are pushed at `PUSH_INTERVAL_MS`.
+**Important:** Scenarios assume the App has already started mapping (`POST /mapping/start` or `session.cmdStart`) and is on **CreateMap** with `PREPARING`. Setup `state: PREPARING` matches that. Running a scenario alone does not replace HTTP start on the phone.
 
-For rendering checks, use these long-running scenarios from `/sim/panel`:
+## Mapping `sub_status` sequence (§5.1)
 
-- `continuous_mapping_stream`: holds boundary scan, boundary follow, and coverage run for 30s each. Use it with the POC MapBuilder screen to inspect incremental map patch rendering.
-- `mowing_trajectory_stream`: holds mowing in `MOW_RUNNING` for 60s. Use it with the POC Mowing screen after `LOCATION_REGISTER` to inspect robot trajectory and coverage rendering over the semantic class `0` grass route generated from `full_semanticmap.png`.
+| Step `sub_status` | App FSM / navigation |
+|-------------------|----------------------|
+| `precondition` | Stay `PREPARING`（设备自检，不跳屏） |
+| `leave_dock` | `UNDOCKING` → **DeviceStart** |
+| `find_boundary` | `WORKING` + `MAP_SCAN_BOUNDARY` → **CreateMap** |
+| `edge_mapping` | `MAP_FOLLOW_BOUNDARY` |
+| `map_edge_finish` | `MAP_BOUNDARY_DONE` |
+| `bow_cover` | `MAP_COVERAGE_RUN` |
+| `exit_mapping` | `MAP_COVERAGE_DONE` |
+| `work_status: idle` + `sub_status: none` | `mapping→idle` → **COMPLETED** |
 
-## Run by API
+Between steps, scenarios use `wait: 5s`–`20s` (stream scenario holds 30s in streamable phases).
+
+## Run
+
+1. `npm start` mock service; App `mock/config.local.ts` → mock base URL.
+2. On device: Prepare → Select mode → **CreateMap** (HTTP start).
+3. `/sim/panel` → run `mapping_happy_auto` **or** rely on HTTP start + manual NOTIFY from firmware.
 
 ```bash
 curl -s -X POST http://localhost:9900/sim/scenario/run \
-    -H 'Content-Type: application/json' \
-    -d '{"name":"precheck_failed_then_retry"}'
+  -H 'Content-Type: application/json' \
+  -d '{"name":"mapping_happy_auto"}'
 ```
 
-Inline YAML is also supported:
+## Checked-in scenarios
 
-```json
-{
-    "inline": "name: smoke\ndomain: mapping\nsetup: { state: PREPARING, phase: MAP_PRECHECK }\nsteps:\n  - emit: { type: DEVICE_WORK_STATUS, status: mapping }\n  - expect: { state: UNDOCKING }\n"
-}
-```
-
-## YAML shape
-
-```yaml
-name: precheck_failed_then_retry
-domain: mapping
-setup:
-    state: PREPARING
-    phase: MAP_PRECHECK
-steps:
-    - emit: { type: DEVICE_ERROR, code: PRECHECK_FAILED, recoverable: true }
-    - expect: { state: PREPARING, phase: MAP_PRECHECK_FAILED }
-    - emit: { type: CMD_RETRY }
-    - expect: { phase: MAP_PRECHECK }
-```
+| File | Use |
+|------|-----|
+| `mapping_happy_auto.yaml` | Full NOTIFY flow → COMPLETED |
+| `mapping_stream_incremental.yaml` | Long holds for `MAP_INCREMENTAL` |
+| `mapping_pause_resume.yaml` | Pause / resume during cover |
+| `mapping_scan_failed_manual.yaml` | Scan fail → remote |
+| `mapping_cancel_during_work.yaml` | Cancel on edge |
 
 ## Supported steps
 
 | Step | Purpose |
-|---|---|
-| `emit` | Dispatch a real FSM `TaskEvent`. Optional `domain`. |
-| `expect` | Deep-partial assertion against active ctx plus snapshot fields. |
-| `wait` | Wait `Nms`, `Ns`, or `{ until, timeout }`. |
-| `chaos` | Apply `{ latencyMs?, dropRate?, reorderWindowMs? }`. |
-| `note` | Add a human-readable marker to recorder output. |
-| `include` | Include another scenario by name. |
-| `record` | Start JSONL recording, optionally with a label. |
-| `stopRecord` | Stop JSONL recording. |
+|------|---------|
+| `notify` | `NOTIFY_RATEL_STATUS` (+ mock FSM via EventAdapter mirror) |
+| `emit` | Raw FSM event (`CMD_*`, `DEVICE_ERROR`, …) |
+| `expect` | Assert mock FSM snapshot |
+| `wait` | Delay between WS pushes |
 
-## Checked-in scenarios
-
-| File | Coverage |
-|---|---|
-| `happy_mapping.yaml` | precheck -> scan -> follow -> coverage -> completed |
-| `continuous_mapping_stream.yaml` | long-running streamable mapping phases for incremental rendering checks |
-| `happy_mowing.yaml` | mowing start -> running -> completed |
-| `mowing_trajectory_stream.yaml` | long-running mowing task for semantic-zero `ROBOT_LOCATION` trajectory checks |
-| `precheck_failed_then_retry.yaml` | recoverable precheck failure |
-| `scan_boundary_failed_then_pause_and_manual.yaml` | pause and remote/manual switch capability |
-| `boundary_close_failed_then_retry.yaml` | boundary closing failure retry |
-| `boundary_close_failed_then_retry_remote.yaml` | remote mode boundary retry |
-| `boundary_wait_continue.yaml` | boundary wait -> coverage probe |
-| `coverage_wait_save.yaml` | coverage wait -> save -> completed |
-| `notice_new_area_auto_and_remote.yaml` | new-area notices in auto and remote flows |
-| `estop_during_working.yaml` | ESTOPPED, hardware clear, reset/resume |
-| `finish_and_return_dock.yaml` | mowing early finish and return dock |
-| `capabilities_toggle.yaml` | capability flag updates |
-| `error_kind_stuck.yaml` | `error.kind` projection |
-| `low_battery_recharge_resume.yaml` | recharge and resume |
-| `network_chaos.yaml` | latency/drop/reorder smoke path |
-| `recorder_smoke.yaml` | scenario-level record/stopRecord |
-
-## Recorder and replay
-
-Start recording:
-
-```bash
-curl -s -X POST http://localhost:9900/sim/recorder/start \
-    -H 'Content-Type: application/json' \
-    -d '{"label":"bug-repro"}'
-```
-
-Stop and replay:
-
-```bash
-curl -s -X POST http://localhost:9900/sim/recorder/stop
-curl -s -X POST http://localhost:9900/sim/recorder/replay \
-    -H 'Content-Type: application/json' \
-    -d '{"file":"<recording>.jsonl"}'
-```
-
-`recordings/*.jsonl` is git-ignored. Convert useful recordings into YAML scenarios before review whenever possible.
-
-## Authoring rules
-
-- One file should stay under 50 steps.
-- `setup` must explicitly declare `state` and `phase`.
-- `emit` must use real `TaskEvent` fields only.
-- Every scenario needs at least one `expect`.
-- File names should describe phenomenon, trigger, and expected result, such as `boundary_close_failed_then_retry.yaml`.
+See [backend-status-mapper-update.md](../../pudu_ratel_app_mower/build-docs/backend-status-mapper-update.md) and APP 端接口文档 §WS接收机器状态变化.

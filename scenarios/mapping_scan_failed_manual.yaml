@@ -1,0 +1,21 @@
+name: mapping_scan_failed_manual
+description: Scan failure at find_boundary + switch manual (WS phase + CMD)
+domain: mapping
+setup:
+  state: UNDOCKING
+  phase: null
+steps:
+  - notify: { work_status: mapping, sub_status: leave_dock }
+  - expect: { state: UNDOCKING }
+  - wait: 6s
+  - notify: { work_status: mapping, sub_status: find_boundary }
+  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY }
+  - wait: 12s
+  - emit: { type: DEVICE_ERROR, code: SCAN_BOUNDARY_FAILED, recoverable: true }
+  - expect:
+      state: WORKING
+      phase: MAP_SCAN_BOUNDARY_FAILED
+      error: { code: SCAN_BOUNDARY_FAILED, recoverable: true }
+  - wait: 8s
+  - emit: { type: CMD_SWITCH_MANUAL }
+  - expect: { state: REMOTE_CONTROL, phase: MAP_SCAN_BOUNDARY_FAILED }

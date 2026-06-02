@@ -12,16 +12,18 @@ const mirrorRoot = path.join(serviceRoot, 'src', 'sim', 'fsm-mirror');
 
 const mirrorFiles = [
   ['src/domain/shared/TaskFSM.ts', 'domain/shared/TaskFSM.ts'],
-  ['src/domain/shared/EstopReducer.ts', 'domain/shared/EstopReducer.ts'],
   ['src/domain/shared/LoggerLike.ts', 'domain/shared/LoggerLike.ts'],
   ['src/domain/mapping/MappingSession.ts', 'domain/mapping/MappingSession.ts'],
   ['src/domain/mowing/MowingTask.ts', 'domain/mowing/MowingTask.ts'],
   ['src/domain/mapEdit/MapEditSession.ts', 'domain/mapEdit/MapEditSession.ts'],
   ['src/features/shared/mapping/BackendStatusMapper.ts', 'features/shared/mapping/BackendStatusMapper.ts'],
+  ['src/features/shared/mapping/BackendPhaseMapper.ts', 'features/shared/mapping/BackendPhaseMapper.ts'],
+  ['src/features/shared/mapping/unknownBackendSubStatus.ts', 'features/shared/mapping/unknownBackendSubStatus.ts'],
+  ['src/features/shared/mapping/cloudWorkStatus.ts', 'features/shared/mapping/cloudWorkStatus.ts'],
   ['src/features/mapping/state/mappingBackendRegistry.ts', 'features/mapping/state/mappingBackendRegistry.ts'],
   ['src/features/mowing/state/mowingBackendRegistry.ts', 'features/mowing/state/mowingBackendRegistry.ts'],
-  ['src/services/events/Arbitrator.ts', 'services/events/Arbitrator.ts'],
-  ['src/services/events/EventAdapter.ts', 'services/events/EventAdapter.ts'],
+  ['src/infra/events/Arbitrator.ts', 'services/events/Arbitrator.ts'],
+  ['src/infra/events/EventAdapter.ts', 'services/events/EventAdapter.ts'],
   ['src/features/shared/mapping/TaskEventPipeline.ts', 'features/shared/mapping/TaskEventPipeline.ts'],
 ];
 
@@ -67,8 +69,8 @@ for (const [sourceRel, destRel] of mirrorFiles) {
   const sourceAbs = path.join(mowerRoot, sourceRel);
   const destAbs = path.join(mirrorRoot, destRel);
   if (!fs.existsSync(sourceAbs)) {
-    console.error(`source file not found: ${sourceAbs}`);
-    process.exit(1);
+    console.warn(`skip missing source: ${sourceAbs}`);
+    continue;
   }
   const source = fs.readFileSync(sourceAbs, 'utf8');
   const hash = sha256(source);

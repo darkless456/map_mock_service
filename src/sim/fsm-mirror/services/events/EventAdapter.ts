@@ -1,35 +1,58 @@
 /* eslint-disable */
 // @ts-nocheck
-// !!! AUTO-GENERATED FROM mower/src/services/events/EventAdapter.ts. DO NOT EDIT. !!!
-// Source SHA-256: 1fd6717bcc9db66b2f05f1cd84840c20a005b0a502e0edfe5f1ca43b739a7f51
-// Synced at: 2026-05-30T08:44:44.301Z
+// !!! AUTO-GENERATED FROM mower/src/infra/events/EventAdapter.ts. DO NOT EDIT. !!!
+// Source SHA-256: c2551d8b7b06602ade6389486a402bd3ac053c117d8d3e578d638c4381d4ada1
+// Synced at: 2026-06-02T09:43:38.803Z
 import type {
   DeviceEventSource,
   RobotWorkStatus,
   TaskEvent,
 } from '../../domain/shared/TaskFSM';
+import {
+  mapBackendSubStatus,
+  normalizeLegacyPhase,
+} from '../../features/shared/mapping/BackendPhaseMapper';
+import { isCloudWsWorkStatus } from '../../features/shared/mapping/cloudWorkStatus';
 
 type RawRecord = Record<string, unknown>;
 
+/** Cloud WS: idle | mowing | charging | mapping | error — see `cloudWorkStatus.ts`. */
 const ROBOT_WORK_STATUSES: ReadonlySet<string> = new Set([
   'idle',
   'mowing',
   'charging',
   'mapping',
-  'mapping_completed',
   'error',
+  /** BLE / local only; not in cloud NOTIFY_RATEL_STATUS. */
+  'mapping_completed',
 ]);
+
+/** Reads `sub_status` from WS/BLE notify roots (`data` / `payload` nested). */
+export function readDeviceSubStatus(raw: unknown): string | null {
+  const read = devicePayloadReader(raw);
+  return read ? readString(read('sub_status')) : null;
+}
+
+/** Reads coarse `work_status` / `running_status` from the same notify roots. */
+export function readDeviceWorkStatus(raw: unknown): RobotWorkStatus | string | null {
+  const read = devicePayloadReader(raw);
+  if (!read) return null;
+  const status =
+    readString(read('work_status')) ??
+    readString(read('workStatus')) ??
+    readString(read('running_status')) ??
+    readString(read('status')) ??
+    workStatusFromTaskStatus(readString(read('task_status')));
+  return status;
+}
 
 export function normalizeDeviceEvent<P extends string>(
   raw: unknown,
   source: DeviceEventSource,
   now: () => number = Date.now,
 ): ReadonlyArray<TaskEvent<P>> {
-  const root = asRecord(raw);
-  if (!root) return [];
-
-  const payload = asRecord(root.payload) ?? asRecord(root.data) ?? {};
-  const read = (key: string): unknown => root[key] ?? payload[key];
+  const read = devicePayloadReader(raw);
+  if (!read) return [];
   const type = readString(read('type')) ?? readString(read('event')) ?? readString(read('msg'));
   const ts = readNumber(read('ts')) ?? readNumber(read('timestamp')) ?? now();
   const events: TaskEvent<P>[] = [];
@@ -40,22 +63,20 @@ export function normalizeDeviceEvent<P extends string>(
     readString(read('work_status')) ??
     readString(read('running_status')) ??
     workStatusFromTaskStatus(readString(read('task_status')));
-  if (status && isRobotWorkStatus(status)) {
+  if (status && isRobotWorkStatus(status) && acceptsWorkStatusForSource(status, source)) {
     events.push({ type: 'DEVICE_WORK_STATUS', status, source, ts });
   }
 
-  const phase =
-    readString(read('phase')) ??
-    readString(read('mappingPhase')) ??
-    readString(read('step'));
-  if (phase) {
-    const mappedPhase = normalizePhase(phase);
-    if (mappedPhase === 'DEVICE_UNDOCKED') {
-      events.push({ type: 'DEVICE_UNDOCKED' });
-    } else {
-      events.push({ type: 'DEVICE_PHASE', phase: mappedPhase as P, source, ts });
-    }
-  }
+  appendPhaseEvents(events, {
+    subStatus: readString(read('sub_status')),
+    legacyPhase:
+      readString(read('phase')) ??
+      readString(read('mappingPhase')) ??
+      readString(read('step')),
+    workStatus: status,
+    source,
+    ts,
+  });
 
   const area = readNumber(read('area')) ?? readNumber(read('area_m2'));
   if (area !== null) {
@@ -100,6 +121,13 @@ export function normalizeDeviceEvents<P extends string>(
   now: () => number = Date.now,
 ): ReadonlyArray<TaskEvent<P>> {
   return rawEvents.flatMap(raw => normalizeDeviceEvent<P>(raw, source, now));
+}
+
+function devicePayloadReader(raw: unknown): ((key: string) => unknown) | null {
+  const root = asRecord(raw);
+  if (!root) return null;
+  const payload = asRecord(root.payload) ?? asRecord(root.data) ?? {};
+  return (key: string) => root[key] ?? payload[key];
 }
 
 function asRecord(value: unknown): RawRecord | null {
@@ -147,32 +175,74 @@ function errorCodeFromTaskStatus(raw: RawRecord): string | null {
   return code === null ? null : `mowing.failed.${code}`;
 }
 
-function normalizePhase(phase: string): string {
-  switch (phase) {
-    case 'leaving':
-      return 'DEVICE_UNDOCKED';
-    case 'scanning':
-      return 'MAP_SCAN_BOUNDARY';
-    case 'scanningError':
-    case 'hasBorderError':
-      return 'MAP_SCAN_BOUNDARY_FAILED';
-    case 'hasBorder':
-      return 'MAP_BOUNDARY_FOUND';
-    case 'fullBorder':
-      return 'MAP_BOUNDARY_DONE';
-    case 'newAreaChecking':
-      return 'MAP_COVERAGE_PROBE';
-    case 'newArea':
-      return 'MAP_COVERAGE_NEW_AREA';
-    case 'zigzagging':
-      return 'MAP_COVERAGE_RUN';
-    case 'zigzagged':
-      return 'MAP_COVERAGE_DONE';
-    default:
-      return phase;
+function appendPhaseEvents<P extends string>(
+  events: TaskEvent<P>[],
+  input: {
+    readonly subStatus: string | null;
+    readonly legacyPhase: string | null;
+    readonly workStatus: RobotWorkStatus | null;
+    readonly source: DeviceEventSource;
+    readonly ts: number;
+  },
+): void {
+  if (input.subStatus) {
+    const mapped = mapBackendSubStatus({
+      workStatus: input.workStatus ?? 'idle',
+      subStatus: input.subStatus,
+    });
+    pushPhaseMapResult(events, mapped, input.source, input.ts);
+    return;
+  }
+
+  if (input.legacyPhase) {
+    const mappedPhase = normalizeLegacyPhase(input.legacyPhase);
+    if (mappedPhase === 'DEVICE_UNDOCKED') {
+      events.push({ type: 'DEVICE_UNDOCKED' });
+    } else {
+      events.push({
+        type: 'DEVICE_PHASE',
+        phase: mappedPhase as P,
+        source: input.source,
+        ts: input.ts,
+      });
+    }
+  }
+}
+
+function pushPhaseMapResult<P extends string>(
+  events: TaskEvent<P>[],
+  mapped: ReturnType<typeof mapBackendSubStatus>,
+  source: DeviceEventSource,
+  ts: number,
+): void {
+  switch (mapped.kind) {
+    case 'undocked':
+      events.push({ type: 'DEVICE_UNDOCKED' });
+      break;
+    case 'phase':
+      events.push({ type: 'DEVICE_PHASE', phase: mapped.phase as P, source, ts });
+      break;
+    case 'skip':
+    case 'unknown':
+      break;
+    default: {
+      const _exhaustive: never = mapped;
+      return _exhaustive;
+    }
   }
 }
 
 function isRobotWorkStatus(value: string): value is RobotWorkStatus {
   return ROBOT_WORK_STATUSES.has(value);
+}
+
+/** Cloud WS only exposes five coarse statuses; BLE may still send `mapping_completed`. */
+function acceptsWorkStatusForSource(
+  status: RobotWorkStatus,
+  source: DeviceEventSource,
+): boolean {
+  if (source !== 'ws') {
+    return true;
+  }
+  return isCloudWsWorkStatus(status);
 }

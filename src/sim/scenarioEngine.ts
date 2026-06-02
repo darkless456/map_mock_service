@@ -10,6 +10,7 @@ const SCENARIO_ROOT = path.join(SERVICE_ROOT, 'scenarios');
 
 export type ScenarioStep =
   | { readonly emit: Record<string, unknown> }
+  | { readonly notify: Record<string, unknown> }
   | { readonly expect: Record<string, unknown> }
   | { readonly wait: string | number | { readonly until?: Record<string, unknown>; readonly timeout?: string | number } }
   | { readonly chaos: ChaosConfig }
@@ -164,6 +165,21 @@ export class ScenarioEngine {
       const eventDomain = readDomain(step.emit.domain, domain);
       this.robot.dispatchRaw(event as never, eventDomain);
       logs.push({ index, kind: 'emit', ok: true, detail: { domain: eventDomain, event } });
+      return;
+    }
+
+    if ('notify' in step) {
+      if (domain !== 'mapping') {
+        throw new Error(`step ${index}: notify is only supported for mapping scenarios`);
+      }
+      const body = step.notify;
+      this.robot.pushRatelStatus({
+        work_status: typeof body.work_status === 'string' ? body.work_status : undefined,
+        sub_status: typeof body.sub_status === 'string' ? body.sub_status : undefined,
+        battery_level: typeof body.battery_level === 'number' ? body.battery_level : undefined,
+        sn: typeof body.sn === 'string' ? body.sn : undefined,
+      });
+      logs.push({ index, kind: 'notify', ok: true, detail: body });
       return;
     }
 

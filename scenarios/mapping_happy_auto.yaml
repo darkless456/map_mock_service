@@ -1,0 +1,32 @@
+name: mapping_happy_auto
+description: >-
+  WS NOTIFY_RATEL_STATUS flow (align backend-status-mapper §5).
+  Assumes App already called mapping/start (PREPARING). Drives CreateMap ↔ DeviceStart navigation.
+domain: mapping
+setup:
+  state: PREPARING
+  phase: null
+steps:
+  - notify: { work_status: mapping, sub_status: precondition }
+  - expect: { state: PREPARING }
+  - wait: 5s
+  - notify: { work_status: mapping, sub_status: leave_dock }
+  - expect: { state: UNDOCKING }
+  - wait: 6s
+  - notify: { work_status: mapping, sub_status: find_boundary }
+  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY }
+  - wait: 18s
+  - notify: { work_status: mapping, sub_status: edge_mapping }
+  - expect: { phase: MAP_FOLLOW_BOUNDARY }
+  - wait: 20s
+  - notify: { work_status: mapping, sub_status: map_edge_finish }
+  - expect: { phase: MAP_BOUNDARY_DONE }
+  - wait: 10s
+  - notify: { work_status: mapping, sub_status: bow_cover }
+  - expect: { phase: MAP_COVERAGE_RUN }
+  - wait: 16s
+  - notify: { work_status: mapping, sub_status: exit_mapping }
+  - expect: { phase: MAP_COVERAGE_DONE }
+  - wait: 7s
+  - notify: { work_status: idle, sub_status: none }
+  - expect: { state: COMPLETED, phase: MAP_COVERAGE_DONE }

@@ -1,53 +1,16 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/mowing/state/mowingBackendRegistry.ts. DO NOT EDIT. !!!
-// Source SHA-256: 7a3932d71ae03d21e492ff5e063e1e30a75136436dcc48b9f4f0d0743d2ab23d
-// Synced at: 2026-05-30T08:44:44.301Z
+// Source SHA-256: 0bd7f50dcb264b7fc758632798a413ef099eecb73af0a7db7b2564f704e6f56f
+// Synced at: 2026-06-02T09:43:38.803Z
 import type { MowingPhase } from '../../../domain/mowing/MowingTask';
-import type { ErrorKind } from '../../../domain/shared/TaskFSM';
 import type { BackendStatusRegistry } from '../../shared/mapping/BackendStatusMapper';
 
 const now = () => Date.now();
-const wsTs = () => ({ source: 'ws' as const, ts: now() });
 
+/** `work_status` 边沿表；`sub_status`（`mowing` / `edge` / `return_dock`）见 `BackendPhaseMapper`。 */
 export const MOWING_BACKEND_REGISTRY: BackendStatusRegistry<MowingPhase> = {
   edges: {
-    '*->estop': {
-      events: () => [{ type: 'DEVICE_ESTOP', active: true, ...wsTs() }],
-    },
-    'estop->*': {
-      events: () => [{ type: 'DEVICE_ESTOP', active: false, ...wsTs() }],
-    },
-    capabilities: {
-      events: (_ctx, input) => [
-        {
-          type: 'DEVICE_CAPABILITIES',
-          canSwitchManual: readBoolean(input.raw?.can_switch_manual) ?? readBoolean(input.raw?.canSwitchManual) ?? false,
-          canSwitchAuto: readBoolean(input.raw?.can_switch_auto) ?? readBoolean(input.raw?.canSwitchAuto) ?? false,
-          ...wsTs(),
-        },
-      ],
-    },
-    'error.subcode': {
-      events: (_ctx, input) => [
-        {
-          type: 'DEVICE_ERROR',
-          code: readString(input.raw?.code) ?? 'DEVICE_ERROR',
-          recoverable: readBoolean(input.raw?.recoverable) ?? false,
-          kind: errorKindFromSubcode(readString(input.raw?.subcode)),
-        },
-      ],
-    },
-    '*->error': {
-      events: (_ctx, input) => [
-        {
-          type: 'DEVICE_ERROR',
-          code: readString(input.raw?.code) ?? 'DEVICE_ERROR',
-          recoverable: readBoolean(input.raw?.recoverable) ?? false,
-          kind: errorKindFromSubcode(readNestedErrorSubcode(input.raw)),
-        },
-      ],
-    },
     'null->mowing': {
       guard: ctx => ctx.state === 'IDLE' || ctx.state === 'PREPARING',
       events: () => [
@@ -109,34 +72,3 @@ export const MOWING_BACKEND_REGISTRY: BackendStatusRegistry<MowingPhase> = {
     mowing: { events: () => [] },
   },
 };
-
-function errorKindFromSubcode(value: string | null): ErrorKind {
-  switch (value) {
-    case 'stuck':
-    case 'lifted':
-    case 'tilted':
-    case 'flipped':
-      return value;
-    default:
-      return 'other';
-  }
-}
-
-function readNestedErrorSubcode(raw: Record<string, unknown> | undefined): string | null {
-  const error = raw?.error;
-  if (typeof error !== 'object' || error === null || Array.isArray(error)) {
-    return readString(raw?.subcode);
-  }
-  return readString((error as { readonly subcode?: unknown }).subcode) ?? readString(raw?.subcode);
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null;
-}
-
-function readBoolean(value: unknown): boolean | null {
-  if (typeof value === 'boolean') return value;
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  return null;
-}

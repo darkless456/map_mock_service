@@ -21,8 +21,30 @@ import type {
   TaskState,
 } from './fsm-mirror/domain/shared/TaskFSM';
 import { createCompactId } from '../shared/ids';
+import type { RatelNotifyPayload } from './mappingNotify';
+import { applyRatelStatusPush, type RatelStatusPushPayload } from './ratelStatusPush';
 
 export type RobotDomain = 'mapping' | 'mowing' | 'mapEdit' | null;
+
+const DEFAULT_SIM_CAPABILITIES = {
+  canSwitchManual: false,
+  canSwitchAuto: false,
+} as const;
+
+function withSimulatorDefaults<P extends string>(
+  ctx: TaskContext<P>,
+  battery: number,
+): TaskContext<P> & {
+  readonly capabilities: typeof DEFAULT_SIM_CAPABILITIES;
+  readonly notices: readonly TaskNotice[];
+} {
+  return {
+    ...ctx,
+    battery,
+    capabilities: DEFAULT_SIM_CAPABILITIES,
+    notices: [],
+  };
+}
 export type AnyTaskEvent = TaskEvent<MappingPhase> | TaskEvent<MowingPhase> | MappingEvent | MowingEvent;
 
 export interface MowingTaskRecord {
@@ -118,6 +140,12 @@ export class VirtualRobot extends EventEmitter {
   mapping: MappingContext;
   mowing: MowingContext;
   activeDomain: RobotDomain = null;
+  /** Set by `POST /robot/self_check`; drives progressive `mapping/check` in mock. */
+  mappingPrepareSelfCheckAt: number | null = null;
+  mappingCheckPollCount = 0;
+  /** Last WS `NOTIFY_RATEL_STATUS` fields (for dedupe + ROBOT_STATUS projection). */
+  lastNotifyWorkStatus: string | null = null;
+  lastNotifySubStatus: string | null = null;
   private readonly maxEvents: number;
   private readonly events: RecordedEvent[] = [];
   private readonly tasks = new Map<string, MowingTaskRecord>();
@@ -128,8 +156,8 @@ export class VirtualRobot extends EventEmitter {
     this.sn = options.sn || process.env.ROBOT_SN || 'MOCK:00:11:22:33:44';
     this.nickname = options.nickname || 'Mower Dev Simulator';
     const battery = options.battery ?? 80;
-    this.mapping = { ...initialMappingState, battery };
-    this.mowing = { ...initialMowingState, battery };
+    this.mapping = withSimulatorDefaults(initialMappingState, battery);
+    this.mowing = withSimulatorDefaults(initialMowingState, battery);
     this.maxEvents = options.maxEvents ?? 50;
   }
 
@@ -153,11 +181,20 @@ export class VirtualRobot extends EventEmitter {
     };
   }
 
+  beginMappingPrepareSelfCheck(): void {
+    this.mappingPrepareSelfCheckAt = Date.now();
+    this.mappingCheckPollCount = 0;
+  }
+
   reset(): void {
     const battery = this.activeContext.battery || 80;
-    this.mapping = { ...initialMappingState, battery };
-    this.mowing = { ...initialMowingState, battery };
+    this.mapping = withSimulatorDefaults(initialMappingState, battery);
+    this.mowing = withSimulatorDefaults(initialMowingState, battery);
     this.activeDomain = null;
+    this.mappingPrepareSelfCheckAt = null;
+    this.mappingCheckPollCount = 0;
+    this.lastNotifyWorkStatus = null;
+    this.lastNotifySubStatus = null;
     this.tasks.clear();
     this.latestTaskBySn.clear();
     this.record(null, { type: 'SIM_RESET' });
@@ -208,7 +245,6 @@ export class VirtualRobot extends EventEmitter {
     this.activeDomain = 'mapping';
     const mode = input.mode === 'remote' ? 'remote' : 'auto';
     this.dispatchMapping({ type: 'CMD_START', mode, taskMode: 'MAP_BUILD' });
-    this.dispatchMapping({ type: 'DEVICE_PHASE', phase: 'MAP_PRECHECK', ...nowEvent() });
   }
 
   pauseMapping(): void {
@@ -224,7 +260,19 @@ export class VirtualRobot extends EventEmitter {
       mode: 'auto',
       taskMode: taskModeFromCreateInfo(input.task_info),
     });
-    this.dispatchMowing({ type: 'DEVICE_REPORT_STARTED' });
+    const ts = Date.now();
+    this.dispatchMowing({
+      type: 'DEVICE_WORK_STATUS',
+      status: 'mowing',
+      source: 'ws',
+      ts,
+    });
+    this.dispatchMowing({
+      type: 'DEVICE_PHASE',
+      phase: 'MOW_RUNNING',
+      source: 'ws',
+      ts,
+    });
     this.syncActiveTaskFromContext();
     return task;
   }
@@ -239,7 +287,21 @@ export class VirtualRobot extends EventEmitter {
         break;
       case 'RESUME':
         this.dispatchMowing({ type: 'CMD_RESUME' });
-        this.dispatchMowing({ type: 'DEVICE_REPORT_STARTED' });
+        {
+          const ts = Date.now();
+          this.dispatchMowing({
+            type: 'DEVICE_WORK_STATUS',
+            status: 'mowing',
+            source: 'ws',
+            ts,
+          });
+          this.dispatchMowing({
+            type: 'DEVICE_PHASE',
+            phase: 'MOW_RUNNING',
+            source: 'ws',
+            ts,
+          });
+        }
         break;
       case 'CANCEL':
         this.dispatchMowing({ type: 'CMD_CANCEL' });
@@ -257,6 +319,27 @@ export class VirtualRobot extends EventEmitter {
   dispatchRaw(event: AnyTaskEvent, domain: RobotDomain = this.activeDomain): void {
     if (domain === 'mowing') this.dispatchMowing(event as MowingEvent);
     else this.dispatchMapping(event as MappingEvent);
+  }
+
+  /** Used by {@link applyRatelStatusPush} and scenario `emit`. */
+  dispatchMappingEvent(event: MappingEvent): void {
+    this.dispatchMapping(event);
+  }
+
+  /**
+   * Simulates cloud `NOTIFY_RATEL_STATUS`: updates mock FSM and emits `ratelStatus` for WS broadcast.
+   * @returns false when `(work_status, sub_status)` unchanged (deduped).
+   */
+  pushRatelStatus(payload: RatelNotifyPayload = {}): boolean {
+    const applied = applyRatelStatusPush(this, payload);
+    if (!applied) return false;
+    this.emit('ratelStatus', applied);
+    return true;
+  }
+
+  /** @deprecated Use {@link pushRatelStatus} */
+  dispatchRatelNotify(payload: RatelNotifyPayload): void {
+    this.pushRatelStatus(payload);
   }
 
   progressMowing(delta = 2): void {

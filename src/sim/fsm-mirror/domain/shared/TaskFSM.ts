@@ -1,9 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/shared/TaskFSM.ts. DO NOT EDIT. !!!
-// Source SHA-256: c575fc47ef9331cd53790961a48f7eae5a4566e244c0418cfeb4bb7e6c90fd79
-// Synced at: 2026-05-30T08:44:44.301Z
-import { applyEstopTransition } from './EstopReducer';
+// Source SHA-256: a4d2ecf3f4524b146de88f89d3f69d178324f971149467de84d532bfe53c2c21
+// Synced at: 2026-06-02T09:43:38.803Z
 import { safeLog, type LoggerLike } from './LoggerLike';
 
 export type TaskState =
@@ -18,13 +17,11 @@ export type TaskState =
   | 'RETURNING_DOCK'
   | 'COMPLETED'
   | 'CANCELLED'
-  | 'ERRORED'
-  | 'ESTOPPED';
+  | 'ERRORED';
 
 export type TaskSource = 'cmd' | 'ble' | 'ws' | 'timeout';
 export type DeviceEventSource = Extract<TaskSource, 'ble' | 'ws'>;
 export type TaskMode = 'auto' | 'remote';
-export type IdlePhase = 'IDLE_DOCKED_FULL' | 'IDLE_OFF_DOCK' | null;
 
 export type RobotWorkStatus =
   | 'idle'
@@ -45,29 +42,9 @@ export interface TaskResumeTarget<P extends string> {
   readonly phase: P | null;
 }
 
-export interface TaskCapabilities {
-  readonly canSwitchManual: boolean;
-  readonly canSwitchAuto: boolean;
-}
-
-export const DEFAULT_CAPABILITIES: TaskCapabilities = {
-  canSwitchManual: false,
-  canSwitchAuto: false,
-};
-
-export type ErrorKind = 'stuck' | 'lifted' | 'tilted' | 'flipped' | 'other';
-
-export type TaskNotice = {
-  readonly id: string;
-  readonly kind: 'new_area_available';
-  readonly mode: TaskMode;
-  readonly ts: number;
-};
-
 export interface TaskError {
   readonly code: string;
   readonly recoverable: boolean;
-  readonly kind?: ErrorKind;
 }
 
 export interface TaskContext<P extends string> {
@@ -79,8 +56,6 @@ export interface TaskContext<P extends string> {
   readonly battery: number;
   readonly resumeTo: TaskResumeTarget<P> | null;
   readonly error: TaskError | null;
-  readonly capabilities: TaskCapabilities;
-  readonly notices: ReadonlyArray<TaskNotice>;
   readonly lastSource: TaskSource;
   readonly lastSourceTs: number;
 }
@@ -94,14 +69,7 @@ export type TaskEvent<P extends string> =
   | { readonly type: 'CMD_EXIT_MANUAL' }
   | { readonly type: 'CMD_CONFIRM' }
   | { readonly type: 'CMD_RETURN_DOCK' }
-  | { readonly type: 'CMD_FINISH_AND_RETURN_DOCK' }
   | { readonly type: 'CMD_RESET' }
-  | { readonly type: 'CMD_RETRY' }
-  | { readonly type: 'CMD_ADD_NEW_AREA'; readonly mode: TaskMode }
-  | { readonly type: 'CMD_DISMISS_NOTICE'; readonly id: string }
-  | { readonly type: 'CMD_CONTINUE_COVERAGE' }
-  | { readonly type: 'CMD_GOTO_EDIT' }
-  | { readonly type: 'CMD_SAVE' }
   | {
       readonly type: 'DEVICE_PHASE';
       readonly phase: P;
@@ -129,31 +97,7 @@ export type TaskEvent<P extends string> =
   | { readonly type: 'DEVICE_LOW_BATTERY' }
   | { readonly type: 'DEVICE_DOCKED' }
   | { readonly type: 'DEVICE_UNDOCKED' }
-  | {
-      readonly type: 'DEVICE_ERROR';
-      readonly code: string;
-      readonly recoverable: boolean;
-      readonly kind?: ErrorKind;
-    }
-  | {
-      readonly type: 'DEVICE_CAPABILITIES';
-      readonly canSwitchManual: boolean;
-      readonly canSwitchAuto: boolean;
-      readonly source: DeviceEventSource;
-      readonly ts: number;
-    }
-  | {
-      readonly type: 'DEVICE_NOTICE';
-      readonly notice: TaskNotice;
-      readonly source: DeviceEventSource;
-      readonly ts: number;
-    }
-  | {
-      readonly type: 'DEVICE_ESTOP';
-      readonly active: boolean;
-      readonly source: DeviceEventSource;
-      readonly ts: number;
-    }
+  | { readonly type: 'DEVICE_ERROR'; readonly code: string; readonly recoverable: boolean }
   | { readonly type: 'LINK_BLE_UP' }
   | { readonly type: 'LINK_BLE_DOWN' }
   | { readonly type: 'LINK_WS_UP' }
@@ -180,7 +124,6 @@ export const TASK_STATES: readonly TaskState[] = [
   'COMPLETED',
   'CANCELLED',
   'ERRORED',
-  'ESTOPPED',
 ] as const;
 
 export const TERMINAL_TASK_STATES: ReadonlySet<TaskState> = new Set([
@@ -200,7 +143,6 @@ export interface TaskReducerOptions<P extends string> {
   readonly terminalPhases?: readonly P[];
   readonly isTerminalPhase?: (phase: P | null, ctx: TaskContext<P>) => boolean;
   readonly canSwitchManual?: (ctx: TaskContext<P>) => boolean;
-  readonly canSwitchAuto?: (ctx: TaskContext<P>) => boolean;
 }
 
 export function createInitialTaskContext<P extends string>(
@@ -215,8 +157,6 @@ export function createInitialTaskContext<P extends string>(
     battery: 0,
     resumeTo: null,
     error: null,
-    capabilities: DEFAULT_CAPABILITIES,
-    notices: [],
     lastSource: 'cmd',
     lastSourceTs: 0,
     ...overrides,
@@ -259,9 +199,6 @@ function transition<P extends string>(
   event: TaskEvent<P>,
   options: TaskReducerOptions<P>,
 ): TaskContext<P> {
-  const estopNext = applyEstopTransition(ctx, event, options.now?.() ?? Date.now());
-  if (estopNext !== null) return estopNext;
-
   if (event.type === 'CMD_RESET') {
     if (!TERMINAL_TASK_STATES.has(ctx.state)) return ctx;
     return withMeta(
@@ -285,7 +222,6 @@ function transition<P extends string>(
           phase: null,
           resumeTo: null,
           error: null,
-          notices: [],
         },
         event,
         options,
@@ -339,7 +275,7 @@ function transition<P extends string>(
     }
 
     case 'CMD_PAUSE': {
-      if (ctx.state !== 'WORKING' && ctx.state !== 'UNDOCKING') return ctx;
+      if (ctx.state !== 'WORKING') return ctx;
       return withMeta(
         { ...ctx, state: 'PAUSED', resumeTo: snapshot(ctx) },
         event,
@@ -368,8 +304,8 @@ function transition<P extends string>(
 
     case 'CMD_SWITCH_MANUAL': {
       const allowedByState = ctx.state === 'PAUSED';
-      const allowedByCapability = options.canSwitchManual?.(ctx) ?? ctx.capabilities.canSwitchManual;
-      if (!allowedByState || !allowedByCapability) return ctx;
+      const allowedByDomain = options.canSwitchManual?.(ctx) ?? false;
+      if (!allowedByState && !allowedByDomain) return ctx;
       return withMeta(
         {
           ...ctx,
@@ -385,8 +321,6 @@ function transition<P extends string>(
 
     case 'CMD_EXIT_MANUAL': {
       if (ctx.state !== 'REMOTE_CONTROL') return ctx;
-      const allowedByCapability = options.canSwitchAuto?.(ctx) ?? ctx.capabilities.canSwitchAuto;
-      if (!allowedByCapability) return ctx;
       return withMeta(
         {
           ...ctx,
@@ -408,38 +342,6 @@ function transition<P extends string>(
         event,
         options,
       );
-    }
-
-    case 'DEVICE_CAPABILITIES': {
-      if (
-        ctx.capabilities.canSwitchManual === event.canSwitchManual &&
-        ctx.capabilities.canSwitchAuto === event.canSwitchAuto
-      ) {
-        return ctx;
-      }
-      return withMeta(
-        {
-          ...ctx,
-          capabilities: {
-            canSwitchManual: event.canSwitchManual,
-            canSwitchAuto: event.canSwitchAuto,
-          },
-        },
-        event,
-        options,
-      );
-    }
-
-    case 'DEVICE_NOTICE': {
-      const notices = upsertNotice(ctx.notices, event.notice);
-      if (notices === ctx.notices) return ctx;
-      return withMeta({ ...ctx, notices }, event, options);
-    }
-
-    case 'CMD_DISMISS_NOTICE': {
-      const notices = ctx.notices.filter(notice => notice.id !== event.id);
-      if (notices.length === ctx.notices.length) return ctx;
-      return withMeta({ ...ctx, notices }, event, options);
     }
 
     case 'CMD_RETURN_DOCK':
@@ -475,9 +377,9 @@ function transition<P extends string>(
 
     case 'DEVICE_ERROR': {
       if (event.recoverable) {
-        if (sameError(ctx.error, event.code, true, event.kind)) return ctx;
+        if (ctx.error?.code === event.code && ctx.error.recoverable) return ctx;
         return withMeta(
-          { ...ctx, error: createTaskError(event.code, true, event.kind) },
+          { ...ctx, error: { code: event.code, recoverable: true } },
           event,
           options,
         );
@@ -515,15 +417,6 @@ function transition<P extends string>(
     case 'LINK_WS_UP':
     case 'LINK_WS_DOWN': {
       return withMeta(ctx, event, options);
-    }
-
-    case 'CMD_RETRY':
-    case 'CMD_ADD_NEW_AREA':
-    case 'CMD_CONTINUE_COVERAGE':
-    case 'CMD_GOTO_EDIT':
-    case 'CMD_SAVE':
-    case 'CMD_FINISH_AND_RETURN_DOCK': {
-      return ctx;
     }
 
     default: {
@@ -569,11 +462,7 @@ function withError<P extends string>(
     {
       ...ctx,
       state: 'ERRORED',
-      error: createTaskError(
-        code,
-        recoverable,
-        event.type === 'DEVICE_ERROR' ? event.kind : undefined,
-      ),
+      error: { code, recoverable },
       resumeTo: null,
     },
     event,
@@ -588,48 +477,9 @@ function withMeta<P extends string>(
 ): TaskContext<P> {
   return {
     ...ctx,
-    notices: TERMINAL_TASK_STATES.has(ctx.state) ? [] : ctx.notices,
     lastSource: sourceFromEvent(event),
     lastSourceTs: tsFromEvent(event, options.now?.() ?? Date.now()),
   };
-}
-
-function upsertNotice(
-  notices: ReadonlyArray<TaskNotice>,
-  next: TaskNotice,
-): ReadonlyArray<TaskNotice> {
-  const existing = notices.findIndex(notice => notice.id === next.id);
-  if (existing < 0) return [...notices, next];
-  const current = notices[existing];
-  if (
-    current.kind === next.kind &&
-    current.mode === next.mode &&
-    current.ts === next.ts
-  ) {
-    return notices;
-  }
-  return notices.map((notice, index) => (index === existing ? next : notice));
-}
-
-function sameError(
-  error: TaskError | null,
-  code: string,
-  recoverable: boolean,
-  kind: ErrorKind | undefined,
-): boolean {
-  return (
-    error?.code === code &&
-    error.recoverable === recoverable &&
-    error.kind === kind
-  );
-}
-
-function createTaskError(
-  code: string,
-  recoverable: boolean,
-  kind: ErrorKind | undefined,
-): TaskError {
-  return kind ? { code, recoverable, kind } : { code, recoverable };
 }
 
 function sourceFromEvent<P extends string>(event: TaskEvent<P>): TaskSource {

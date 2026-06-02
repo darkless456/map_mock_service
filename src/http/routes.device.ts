@@ -1,5 +1,5 @@
 import type { RouteHandler } from '../shared/http';
-import { methodIs, readJsonBody, sendJson, sendOk } from '../shared/http';
+import { methodIs, readJsonBody, sendJson, sendOk, stringBodyField } from '../shared/http';
 import type { AppRouteContext } from './router';
 
 export const handleDeviceRoutes: RouteHandler<AppRouteContext> = async (req, res, url, ctx) => {
@@ -12,6 +12,29 @@ export const handleDeviceRoutes: RouteHandler<AppRouteContext> = async (req, res
     const body = await readJsonBody(req);
     ctx.robot.updateDevice(body);
     sendOk(res, ctx.robot.buildDeviceInfo());
+    return true;
+  }
+
+  if (url.pathname === '/ratel/api/v1/robot/self_check' && methodIs(req, 'POST')) {
+    const body = await readJsonBody(req);
+    const sn = typeof body.sn === 'string' ? body.sn.trim() : '';
+    if (sn) {
+      ctx.robot.updateDevice({ sn });
+    }
+    ctx.robot.beginMappingPrepareSelfCheck();
+    sendJson(res, 200, {
+      code: 200,
+      message: 'Success',
+      data: {
+        checked_at: Date.now(),
+        blade: 'normal',
+        wheel: 'normal',
+        sensor: 'normal',
+        motor: 'normal',
+        gps: 'normal',
+        overall: 'ok',
+      },
+    });
     return true;
   }
 

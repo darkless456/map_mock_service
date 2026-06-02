@@ -1,0 +1,12 @@
+name: mapping_cancel_during_work
+description: Cancel during edge_mapping (user CMD_CANCEL)
+domain: mapping
+setup:
+  state: WORKING
+  phase: MAP_FOLLOW_BOUNDARY
+steps:
+  - notify: { work_status: mapping, sub_status: edge_mapping }
+  - expect: { phase: MAP_FOLLOW_BOUNDARY }
+  - wait: 10s
+  - emit: { type: CMD_CANCEL }
+  - expect: { state: CANCELLED }

@@ -1,9 +1,0 @@
-name: error_kind_stuck
-description: recoverable error.kind is exposed in ctx and ROBOT_STATUS
-domain: mapping
-setup:
-  state: WORKING
-  phase: MAP_SCAN_BOUNDARY
-steps:
-  - emit: { type: DEVICE_ERROR, code: E_STUCK, recoverable: true, kind: stuck }
-  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY_FAILED, error: { code: E_STUCK, kind: stuck, recoverable: true } }

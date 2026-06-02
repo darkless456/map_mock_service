@@ -1,4 +1,5 @@
 import type { VirtualRobot, MowingTaskRecord, VirtualRobotSnapshot } from './virtualRobot';
+import type { RatelStatusPushPayload } from './ratelStatusPush';
 import { createId } from '../shared/ids';
 
 export interface WsEnvelope<TData = Record<string, unknown>> {
@@ -6,25 +7,6 @@ export interface WsEnvelope<TData = Record<string, unknown>> {
   readonly cmd_id: string;
   readonly version: number;
   readonly data: TData;
-}
-
-function mappingPhaseToBackendPhase(phase: string | null): string | null {
-  switch (phase) {
-    case 'MAP_PRECHECK':
-      return 'precheck';
-    case 'MAP_PRECHECK_FAILED':
-      return 'precheck_failed';
-    case 'MAP_BOUNDARY_CLOSING':
-      return 'boundary_closing';
-    case 'MAP_BOUNDARY_CLOSE_FAILED':
-      return 'boundary_close_failed';
-    case 'MAP_BOUNDARY_WAIT':
-      return 'boundary_wait';
-    case 'MAP_COVERAGE_WAIT':
-      return 'coverage_wait';
-    default:
-      return phase;
-  }
 }
 
 function batteryPayload(level: number, charging: boolean) {
@@ -44,10 +26,44 @@ function signalPayload() {
   };
 }
 
+/** Cloud `NOTIFY_RATEL_STATUS` — primary driver for App FSM (`useWsDeviceListener`). */
+export function buildNotifyRatelStatus(
+  robot: VirtualRobot,
+  payload: RatelStatusPushPayload,
+): WsEnvelope<Record<string, unknown>> {
+  const snapshot = robot.snapshot();
+  const ctx = snapshot.mapping;
+  const workStatus = payload.work_status;
+  const subStatus = payload.sub_status;
+  const batteryLevel = payload.battery_level ?? ctx.battery ?? 80;
+  return {
+    cmd: 'NOTIFY_RATEL_STATUS',
+    cmd_id: createId(),
+    version: 1,
+    data: {
+      sn: payload.sn,
+      work_status: workStatus,
+      sub_status: subStatus,
+      work_msg: '',
+      battery_level: batteryLevel,
+      battery: batteryPayload(batteryLevel, workStatus === 'charging'),
+      signals: signalPayload(),
+      state: ctx.state,
+      phase: ctx.phase,
+    },
+  };
+}
+
+/** Legacy/auxiliary status frame; includes `sub_status` when known. */
 export function buildRobotStatus(robot: VirtualRobot): WsEnvelope<Record<string, unknown>> {
   const snapshot = robot.snapshot();
   const ctx = snapshot.activeDomain === 'mowing' ? snapshot.mowing : snapshot.mapping;
-  const workStatus = robot.workStatus();
+  const capabilities = (ctx as { capabilities?: { canSwitchManual: boolean; canSwitchAuto: boolean } }).capabilities ?? {
+    canSwitchManual: false,
+    canSwitchAuto: false,
+  };
+  const workStatus = robot.lastNotifyWorkStatus ?? robot.workStatus();
+  const subStatus = robot.lastNotifySubStatus ?? 'none';
   const isEstop = ctx.state === 'ESTOPPED' || workStatus === 'estop';
   return {
     cmd: 'ROBOT_STATUS',
@@ -56,19 +72,19 @@ export function buildRobotStatus(robot: VirtualRobot): WsEnvelope<Record<string,
     data: {
       sn: snapshot.sn,
       work_status: isEstop ? 'estop' : workStatus,
+      sub_status: subStatus,
       work_msg: ctx.error?.code ?? '',
       battery: batteryPayload(ctx.battery || 80, workStatus === 'charging'),
       signals: signalPayload(),
-      mapping_phase: snapshot.activeDomain === 'mapping' ? mappingPhaseToBackendPhase(snapshot.mapping.phase) : null,
       phase: ctx.phase,
       capabilities: {
-        can_switch_manual: ctx.capabilities.canSwitchManual,
-        can_switch_auto: ctx.capabilities.canSwitchAuto,
-        canSwitchManual: ctx.capabilities.canSwitchManual,
-        canSwitchAuto: ctx.capabilities.canSwitchAuto,
+        can_switch_manual: capabilities.canSwitchManual,
+        can_switch_auto: capabilities.canSwitchAuto,
+        canSwitchManual: capabilities.canSwitchManual,
+        canSwitchAuto: capabilities.canSwitchAuto,
       },
-      can_switch_manual: ctx.capabilities.canSwitchManual,
-      can_switch_auto: ctx.capabilities.canSwitchAuto,
+      can_switch_manual: capabilities.canSwitchManual,
+      can_switch_auto: capabilities.canSwitchAuto,
       estop: { active: isEstop },
       notices: ctx.notices,
       error: ctx.error
@@ -134,6 +150,7 @@ export function buildRobotLocation(sn: string, pose: RobotPose): WsEnvelope<Reco
   };
 }
 
+/** On FSM change: ROBOT_STATUS (+ mow). NOTIFY_RATEL_STATUS is sent via `ratelStatus` event. */
 export function changedPushes(robot: VirtualRobot, snapshot?: VirtualRobotSnapshot): WsEnvelope[] {
   const pushes: WsEnvelope[] = [buildRobotStatus(robot)];
   const activeTask = snapshot?.activeTask ?? robot.activeTask();

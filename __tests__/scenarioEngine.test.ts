@@ -13,11 +13,11 @@ describe('ScenarioEngine', () => {
       inline: `
 name: inline mapping smoke
 domain: mapping
-setup: { state: PREPARING, phase: MAP_PRECHECK }
+setup: { state: PREPARING, phase: null }
 steps:
-  - emit: { type: DEVICE_WORK_STATUS, status: mapping }
+  - notify: { work_status: mapping, sub_status: leave_dock }
   - expect: { state: UNDOCKING }
-  - emit: { type: DEVICE_PHASE, phase: MAP_SCAN_BOUNDARY }
+  - notify: { work_status: mapping, sub_status: find_boundary }
   - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY }
 `,
     });
@@ -32,7 +32,7 @@ steps:
       inline: {
         name: 'bad expectation',
         domain: 'mapping',
-        setup: { state: 'PREPARING', phase: 'MAP_PRECHECK' },
+        setup: { state: 'IDLE', phase: null },
         steps: [{ expect: { state: 'WORKING' } }],
       },
     });

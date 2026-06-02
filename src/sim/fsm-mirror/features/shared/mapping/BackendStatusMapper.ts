@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/shared/mapping/BackendStatusMapper.ts. DO NOT EDIT. !!!
-// Source SHA-256: 402b65536a4f93eccfbd2d0eebcfdad7d5a279e4e8b27278a8736b37bc8eb668
-// Synced at: 2026-05-30T08:44:44.301Z
+// Source SHA-256: 7b275f9b7e7e14733986bc3ed5be0b9d4231888c84955897e724167cc39e3f87
+// Synced at: 2026-06-02T09:43:38.803Z
 import type {
   RobotWorkStatus,
   TaskContext,
@@ -22,17 +22,16 @@ export type BackendMapperEvent<P extends string> =
   | UnknownBackendStatusEvent;
 
 export interface MapperInput<P extends string> {
-  readonly prev: BackendStatus | null;
+  readonly prev: RobotWorkStatus | null;
   readonly curr: BackendStatus;
   readonly ctx: TaskContext<P>;
-  readonly raw?: Record<string, unknown>;
 }
 
 export type MapperOutput<P extends string> = ReadonlyArray<BackendMapperEvent<P>>;
 
 export interface EdgeHandler<P extends string> {
   readonly guard?: (ctx: TaskContext<P>) => boolean;
-  readonly events: (ctx: TaskContext<P>, input: MapperInput<P>) => MapperOutput<P>;
+  readonly events: (ctx: TaskContext<P>) => MapperOutput<P>;
 }
 
 export interface BackendStatusRegistry<P extends string> {
@@ -47,38 +46,21 @@ export function mapBackendStatus<P extends string>(
 ): MapperOutput<P> {
   if (input.prev === input.curr) {
     const stable = isRobotWorkStatus(input.curr) ? registry.stable?.[input.curr] : undefined;
-    return stable && matches(stable, input.ctx) ? stable.events(input.ctx, input) : [];
+    return stable && matches(stable, input.ctx) ? stable.events(input.ctx) : [];
   }
 
-  const handlers = lookupHandlers(input, registry);
+  const key = edgeKey(input.prev, input.curr);
+  const handlers = toHandlers(registry.edges[key]);
   for (const handler of handlers) {
     if (matches(handler, input.ctx)) {
-      return handler.events(input.ctx, input);
+      return handler.events(input.ctx);
     }
   }
 
   return registry.fallback?.(input) ?? fallbackUnknown(input.curr);
 }
 
-function lookupHandlers<P extends string>(
-  input: MapperInput<P>,
-  registry: BackendStatusRegistry<P>,
-): readonly EdgeHandler<P>[] {
-  const key = edgeKey(input.prev, input.curr);
-  const candidates = [
-    key,
-    `${input.prev ?? 'null'}->*`,
-    `*->${input.curr}`,
-    String(input.curr),
-  ];
-  for (const candidate of candidates) {
-    const handlers = toHandlers(registry.edges[candidate]);
-    if (handlers.length > 0) return handlers;
-  }
-  return [];
-}
-
-export function edgeKey(prev: BackendStatus | null, curr: BackendStatus): BackendEdge {
+export function edgeKey(prev: RobotWorkStatus | null, curr: BackendStatus): BackendEdge {
   return `${prev ?? 'null'}->${curr}`;
 }
 

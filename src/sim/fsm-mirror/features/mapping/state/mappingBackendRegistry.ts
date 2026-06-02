@@ -1,81 +1,24 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/mapping/state/mappingBackendRegistry.ts. DO NOT EDIT. !!!
-// Source SHA-256: e51c43c03a760a42927086cef74246d6a329a0b87ec585ffd5cd57be16f4a873
-// Synced at: 2026-05-30T08:44:44.301Z
+// Source SHA-256: c0d7269211b356df2f59ee89f38590e643d292aa71e359e6a58db5e34da1e4bb
+// Synced at: 2026-06-02T09:43:38.803Z
 import type { MappingPhase } from '../../../domain/mapping/MappingSession';
-import type { ErrorKind, TaskNotice } from '../../../domain/shared/TaskFSM';
 import type { BackendStatusRegistry } from '../../shared/mapping/BackendStatusMapper';
 
 const now = () => Date.now();
 
-const wsTs = () => ({ source: 'ws' as const, ts: now() });
-
+/**
+ * `work_status` 边沿 → 复合 FSM 事件。`sub_status` → phase 由 `BackendPhaseMapper` 处理。
+ *
+ * 建图完成（云端 WS，§5.4）：
+ * 1. `sub_status: exit_mapping` → `MAP_COVERAGE_DONE`
+ * 2. `work_status: mapping → idle` → 本表 `mapping→idle`（`MAP_COVERAGE_DONE` + `CMD_CONFIRM`）→ `COMPLETED`
+ *
+ * `mapping→mapping_completed` 仅 BLE/遗留协议；云端不推送 `mapping_completed`。
+ */
 export const MAPPING_BACKEND_REGISTRY: BackendStatusRegistry<MappingPhase> = {
   edges: {
-    '*->estop': {
-      events: () => [{ type: 'DEVICE_ESTOP', active: true, ...wsTs() }],
-    },
-    'estop->*': {
-      events: () => [{ type: 'DEVICE_ESTOP', active: false, ...wsTs() }],
-    },
-    'mapping.phase=precheck': {
-      events: () => [{ type: 'DEVICE_PHASE', phase: 'MAP_PRECHECK', ...wsTs() }],
-    },
-    'mapping.phase=precheck_failed': {
-      events: () => [
-        { type: 'DEVICE_ERROR', code: 'PRECHECK_FAILED', recoverable: true },
-      ],
-    },
-    'mapping.phase=boundary_closing': {
-      events: () => [{ type: 'DEVICE_PHASE', phase: 'MAP_BOUNDARY_CLOSING', ...wsTs() }],
-    },
-    'mapping.phase=boundary_close_failed': {
-      events: () => [
-        { type: 'DEVICE_ERROR', code: 'BOUNDARY_CLOSE_FAILED', recoverable: true },
-      ],
-    },
-    'mapping.phase=boundary_wait': {
-      events: () => [{ type: 'DEVICE_PHASE', phase: 'MAP_BOUNDARY_WAIT', ...wsTs() }],
-    },
-    'mapping.phase=coverage_wait': {
-      events: () => [{ type: 'DEVICE_PHASE', phase: 'MAP_COVERAGE_WAIT', ...wsTs() }],
-    },
-    'mapping.notice.new_area_available': {
-      events: (_ctx, input) => [
-        { type: 'DEVICE_NOTICE', notice: noticeFromRaw(input.raw), ...wsTs() },
-      ],
-    },
-    capabilities: {
-      events: (_ctx, input) => [
-        {
-          type: 'DEVICE_CAPABILITIES',
-          canSwitchManual: readBoolean(input.raw?.can_switch_manual) ?? readBoolean(input.raw?.canSwitchManual) ?? false,
-          canSwitchAuto: readBoolean(input.raw?.can_switch_auto) ?? readBoolean(input.raw?.canSwitchAuto) ?? false,
-          ...wsTs(),
-        },
-      ],
-    },
-    'error.subcode': {
-      events: (_ctx, input) => [
-        {
-          type: 'DEVICE_ERROR',
-          code: readString(input.raw?.code) ?? 'DEVICE_ERROR',
-          recoverable: readBoolean(input.raw?.recoverable) ?? false,
-          kind: errorKindFromSubcode(readString(input.raw?.subcode)),
-        },
-      ],
-    },
-    '*->error': {
-      events: (_ctx, input) => [
-        {
-          type: 'DEVICE_ERROR',
-          code: readString(input.raw?.code) ?? 'DEVICE_ERROR',
-          recoverable: readBoolean(input.raw?.recoverable) ?? false,
-          kind: errorKindFromSubcode(readNestedErrorSubcode(input.raw)),
-        },
-      ],
-    },
     'null->mapping': {
       guard: ctx => ctx.state === 'IDLE' || ctx.state === 'PREPARING',
       events: () => [
@@ -158,44 +101,3 @@ export const MAPPING_BACKEND_REGISTRY: BackendStatusRegistry<MappingPhase> = {
     return [];
   },
 };
-
-function noticeFromRaw(raw: Record<string, unknown> | undefined): TaskNotice {
-  const mode = raw?.mode === 'remote' ? 'remote' : 'auto';
-  return {
-    id: readString(raw?.id) ?? `new_area_available:${mode}`,
-    kind: 'new_area_available',
-    mode,
-    ts: now(),
-  };
-}
-
-function errorKindFromSubcode(value: string | null): ErrorKind {
-  switch (value) {
-    case 'stuck':
-    case 'lifted':
-    case 'tilted':
-    case 'flipped':
-      return value;
-    default:
-      return 'other';
-  }
-}
-
-function readNestedErrorSubcode(raw: Record<string, unknown> | undefined): string | null {
-  const error = raw?.error;
-  if (typeof error !== 'object' || error === null || Array.isArray(error)) {
-    return readString(raw?.subcode);
-  }
-  return readString((error as { readonly subcode?: unknown }).subcode) ?? readString(raw?.subcode);
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null;
-}
-
-function readBoolean(value: unknown): boolean | null {
-  if (typeof value === 'boolean') return value;
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  return null;
-}

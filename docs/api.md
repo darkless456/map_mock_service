@@ -13,8 +13,13 @@ This document is the S0-S3 API contract for Mower Dev Simulator. Business API pa
 | `GET/POST` | `/ratel/map-service/api/v1/ratel/map/list` | `{ code, data: { total, items } }` |
 | `POST` | `/ratel/map-service/api/v1/ratel/semantic/save` | `{ code, data: { base_version } }` |
 | `POST` | `/ratel/api/v1/map/delete` | `{ code, data: { deleted, map_id } }` |
+| `POST` | `/ratel/api/v1/robot/self_check` | `{ code, data: { checked_at, overall, … } }` — 建图前置触发机器自检 |
+| `POST` | `/ratel/api/v1/mapping/check` | `{ code, data: { all_ok, conditions } }` — 建图条件检测（须先 self_check；mock 渐进返回） |
 | `POST` | `/ratel/api/v1/mapping/start` | `{ code, data: { robot_code, robot_message, map_id } }` |
 | `POST` | `/ratel/api/v1/mapping/pause` | `{ code, data: { robot_code, robot_message } }` |
+| `POST` | `/ratel/api/v1/mapping/resume` | `{ code, data: { robot_code, robot_message } }` |
+| `POST` | `/ratel/api/v1/mapping/stop` | `{ code, data: { robot_code, robot_message } }` — body `{ sn, save }` |
+| `POST` | `/ratel/api/v1/mapping/mode` | `{ code, data: { robot_code, robot_message } }` — body `{ sn, mode }` |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/create` | `{ code, data: { task_id, robot_code, robot_message } }` |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/action` | `{ code, data: { robot_code, robot_message } }` |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/list` | `{ code, data: { total, list, task_info, task_notify } }` |

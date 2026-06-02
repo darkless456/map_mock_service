@@ -1,14 +1,13 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/mowing/MowingTask.ts. DO NOT EDIT. !!!
-// Source SHA-256: b9313fb48211674295adbf40f50354cc4091877bcdbfc995a2db899c5d1cd0b0
-// Synced at: 2026-05-30T08:44:44.301Z
+// Source SHA-256: 139e5c66dc54e6c262f43b925032a9f186047fc5f40b35a7cc152208518e79e2
+// Synced at: 2026-06-02T09:43:38.803Z
 /**
- * MowingTask FSM — Phase 3 generalized task model.
+ * MowingTask FSM — generalized `TaskState` + `MowingPhase` tuple from TaskFSM.
  *
- * Mowing has one business phase (`MOW_RUNNING`); global / region / edge are
- * carried by `taskMode`. UI-facing hooks still use the legacy `MowingMode`
- * values (`global | region | edge`) and translate them at this boundary.
+ * UI `MowingMode` (`global | region | edge`) is translated to `taskMode` at
+ * `CMD_START`; all runtime events use standard `TaskEvent<MowingPhase>`.
  */
 
 import {
@@ -21,7 +20,6 @@ import {
   type TaskState,
 } from '../shared/TaskFSM';
 import { safeLog, type LoggerLike } from '../shared/LoggerLike';
-import type { AppError } from '../shared/AppError';
 
 export type MowingMode = 'global' | 'region' | 'edge';
 export type MowingTaskMode = 'MOW_GLOBAL' | 'MOW_REGION' | 'MOW_EDGE';
@@ -41,17 +39,8 @@ export type MowingEvent =
       readonly mode: MowingMode | 'auto' | 'remote';
       readonly taskMode?: string;
     }
-  | { readonly type: 'CMD_RETURN_CHARGE' }
-  | { readonly type: 'DEVICE_REPORT_STARTED' }
-  | { readonly type: 'DEVICE_REPORT_FINISHED' }
-  | { readonly type: 'DEVICE_REPORT_CHARGING' }
-  | { readonly type: 'DEVICE_AREA_UPDATE'; readonly area: number }
-  | { readonly type: 'ERROR'; readonly code?: string; readonly error?: AppError }
   | { readonly type: 'RECONCILE_STARTED' }
-  | { readonly type: 'RECONCILE_PAUSED' }
-  | { readonly type: 'WS_DISCONNECTED' }
-  | { readonly type: 'BLE_DISCONNECTED' }
-  | { readonly type: 'NETWORK_LOST' };
+  | { readonly type: 'RECONCILE_PAUSED' };
 
 export const initialMowingState: MowingContext =
   createInitialTaskContext<MowingPhase>();
@@ -84,51 +73,14 @@ export function mowingReducer(
         { type: 'CMD_START', mode: 'auto', taskMode: taskModeFromMowingMode(event.mode) },
         logger,
       );
-    case 'CMD_RETURN_CHARGE':
-      return baseReducer(ctx, { type: 'CMD_RETURN_DOCK' }, logger);
-    case 'CMD_FINISH_AND_RETURN_DOCK':
-      if (ctx.state !== 'WORKING' || ctx.phase !== 'MOW_RUNNING') return ctx;
-      return commit(
-        ctx,
-        { ...ctx, state: 'RETURNING_DOCK', phase: 'returning', resumeTo: null, error: null },
-        event,
-        logger,
-      );
-    case 'DEVICE_REPORT_STARTED':
-      return markRunning(ctx, { type: event.type }, logger);
-    case 'DEVICE_REPORT_FINISHED':
-      return complete(ctx, { type: event.type }, logger);
-    case 'DEVICE_REPORT_CHARGING':
-      return markCharging(ctx, { type: event.type }, logger);
-    case 'DEVICE_DOCKED':
-      if (ctx.state === 'RETURNING_DOCK') {
-        return complete(ctx, event, logger);
-      }
-      return baseReducer(ctx, event, logger);
     case 'CMD_CONFIRM':
       if (
         (ctx.state === 'PAUSED' || ctx.state === 'RESUMING') &&
         ctx.phase === 'MOW_RUNNING'
       ) {
-        return complete(ctx, { type: event.type }, logger);
+        return complete(ctx, event, logger);
       }
       return baseReducer(ctx, event, logger);
-    case 'DEVICE_AREA_UPDATE':
-      return baseReducer(
-        ctx,
-        { type: 'DEVICE_AREA', area: event.area, source: 'ws', ts: Date.now() },
-        logger,
-      );
-    case 'ERROR':
-      return baseReducer(
-        ctx,
-        {
-          type: 'DEVICE_ERROR',
-          code: event.code ?? event.error?.code ?? 'UNKNOWN_ERROR',
-          recoverable: false,
-        },
-        logger,
-      );
     case 'RECONCILE_STARTED':
       if (ctx.state !== 'IDLE') return ctx;
       return commit(
@@ -140,7 +92,7 @@ export function mowingReducer(
           taskMode: ctx.taskMode ?? 'MOW_GLOBAL',
           error: null,
         },
-        { type: event.type },
+        event,
         logger,
       );
     case 'RECONCILE_PAUSED':
@@ -155,15 +107,9 @@ export function mowingReducer(
           resumeTo: { state: 'WORKING', phase: 'MOW_RUNNING' },
           error: null,
         },
-        { type: event.type },
+        event,
         logger,
       );
-    case 'WS_DISCONNECTED':
-      return baseReducer(ctx, { type: 'LINK_WS_DOWN' }, logger);
-    case 'BLE_DISCONNECTED':
-      return baseReducer(ctx, { type: 'LINK_BLE_DOWN' }, logger);
-    case 'NETWORK_LOST':
-      return baseReducer(ctx, { type: 'LINK_NET_LOST' }, logger);
     case 'DEVICE_WORK_STATUS':
       if (event.status === 'mowing') {
         return markRunning(ctx, event, logger);
@@ -216,6 +162,9 @@ function markRunning(
   if (ctx.state === 'COMPLETED' || ctx.state === 'CANCELLED' || ctx.state === 'ERRORED') {
     return ctx;
   }
+  if (ctx.state === 'PREPARING' || ctx.state === 'UNDOCKING') {
+    return baseReducer(ctx, event as Extract<MowingEvent, { type: 'DEVICE_WORK_STATUS' }>, logger);
+  }
   if (ctx.state === 'WORKING' && ctx.phase === 'MOW_RUNNING') return ctx;
   return commit(
     ctx,
@@ -230,9 +179,6 @@ function markCharging(
   event: { readonly type: string; readonly source?: DeviceEventSource; readonly ts?: number },
   logger?: LoggerLike,
 ): MowingContext {
-  if (ctx.state === 'RETURNING_DOCK') {
-    return complete(ctx, event, logger);
-  }
   if (ctx.state === 'IDLE') {
     return commit(ctx, { ...ctx, state: 'RECHARGING', phase: 'charging' }, event, logger);
   }
@@ -275,10 +221,6 @@ function commit(
 ): MowingContext {
   const stamped = {
     ...next,
-    notices:
-      next.state === 'COMPLETED' || next.state === 'CANCELLED' || next.state === 'ERRORED'
-        ? []
-        : next.notices,
     lastSource: sourceFromEvent(event),
     lastSourceTs: typeof event.ts === 'number' ? event.ts : Date.now(),
   };
@@ -309,9 +251,7 @@ function sameContext(a: MowingContext, b: MowingContext): boolean {
     a.area === b.area &&
     a.battery === b.battery &&
     a.resumeTo === b.resumeTo &&
-    a.error === b.error &&
-    a.capabilities === b.capabilities &&
-    a.notices === b.notices
+    a.error === b.error
   );
 }
 
@@ -319,7 +259,7 @@ function sourceFromEvent(event: { readonly type: string; readonly source?: Devic
   if (event.type.startsWith('CMD_')) return 'cmd';
   if (event.type === 'TIMEOUT') return 'timeout';
   if (event.source) return event.source;
-  if (event.type.startsWith('LINK_WS') || event.type === 'WS_DISCONNECTED') return 'ws';
-  if (event.type.startsWith('LINK_BLE') || event.type === 'BLE_DISCONNECTED') return 'ble';
+  if (event.type.startsWith('LINK_WS')) return 'ws';
+  if (event.type.startsWith('LINK_BLE')) return 'ble';
   return 'ws';
 }

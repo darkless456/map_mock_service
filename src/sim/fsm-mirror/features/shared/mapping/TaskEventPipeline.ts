@@ -1,22 +1,28 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/shared/mapping/TaskEventPipeline.ts. DO NOT EDIT. !!!
-// Source SHA-256: c64ff5ee587485c3c4abdaa991db4dd8c4cc513819ec4ae9fc53e47ff8030c04
-// Synced at: 2026-05-30T08:44:44.301Z
+// Source SHA-256: 3b03b5917642d2ce58c5fa5118b0b94f69d9550188d85fc02f062edb5f11f6c2
+// Synced at: 2026-06-02T09:43:38.803Z
 import type {
   DeviceEventSource,
   RobotWorkStatus,
   TaskContext,
   TaskEvent,
 } from '../../../domain/shared/TaskFSM';
-import { Arbitrator, type ArbitratedEvent } from '../../../services/events/Arbitrator';
-import { normalizeDeviceEvent } from '../../../services/events/EventAdapter';
+import { Arbitrator, type ArbitratedEvent } from '../../../infra/events/Arbitrator';
+import {
+  normalizeDeviceEvent,
+  readDeviceSubStatus,
+  readDeviceWorkStatus,
+} from '../../../infra/events/EventAdapter';
+import { mapBackendSubStatus } from './BackendPhaseMapper';
 import {
   mapBackendStatus,
   type BackendMapperEvent,
   type BackendStatusRegistry,
   type UnknownBackendStatusEvent,
 } from './BackendStatusMapper';
+import type { UnknownBackendSubStatusEvent } from './unknownBackendSubStatus';
 
 export interface TaskEventPipelineOptions<P extends string> {
   readonly getContext: () => TaskContext<P>;
@@ -27,6 +33,7 @@ export interface TaskEventPipelineOptions<P extends string> {
     ctx: TaskContext<P>,
   ) => boolean;
   readonly onUnknownBackendStatus?: (event: UnknownBackendStatusEvent) => void;
+  readonly onUnknownBackendSubStatus?: (event: UnknownBackendSubStatusEvent) => void;
   readonly now?: () => number;
   readonly staleWindowMs?: number;
   readonly ackTimeoutMs?: number;
@@ -45,8 +52,10 @@ export class TaskEventPipeline<P extends string> {
     ctx: TaskContext<P>,
   ) => boolean;
   private readonly onUnknownBackendStatus?: (event: UnknownBackendStatusEvent) => void;
+  private readonly onUnknownBackendSubStatus?: (event: UnknownBackendSubStatusEvent) => void;
   private readonly arbitrator: Arbitrator<P>;
   private prevBackendStatus: RobotWorkStatus | null = null;
+  private prevSubStatus: string | null = null;
 
   constructor(options: TaskEventPipelineOptions<P>) {
     this.getContext = options.getContext;
@@ -54,6 +63,7 @@ export class TaskEventPipeline<P extends string> {
     this.backendRegistry = options.backendRegistry;
     this.acceptBackendStatus = options.acceptBackendStatus;
     this.onUnknownBackendStatus = options.onUnknownBackendStatus;
+    this.onUnknownBackendSubStatus = options.onUnknownBackendSubStatus;
     this.arbitrator = new Arbitrator<P>({
       now: options.now,
       staleWindowMs: options.staleWindowMs,
@@ -64,14 +74,37 @@ export class TaskEventPipeline<P extends string> {
 
   dispatch(event: TaskEvent<P>): void {
     if (event.type === 'DEVICE_WORK_STATUS' && this.backendRegistry) {
-      this.dispatchBackendStatus(event.status);
+      this.dispatchBackendStatus(event.status, {
+        source: event.source,
+        ts: event.ts,
+      });
       return;
     }
     this.arbitrator.dispatch(event);
   }
 
   dispatchRaw(raw: unknown, source: DeviceEventSource): void {
+    const subStatus = readDeviceSubStatus(raw);
+    const workStatus = readDeviceWorkStatus(raw) ?? 'idle';
+    const skipPhaseEvents =
+      subStatus !== null && subStatus === this.prevSubStatus;
+
+    if (subStatus !== null) {
+      const mapped = mapBackendSubStatus({ workStatus, subStatus });
+      if (mapped.kind === 'unknown') {
+        this.onUnknownBackendSubStatus?.({
+          type: 'LOG_UNKNOWN_BACKEND_SUB_STATUS',
+          subStatus: mapped.subStatus,
+          workStatus: String(workStatus),
+        });
+      }
+      this.prevSubStatus = subStatus;
+    }
+
     for (const event of normalizeDeviceEvent<P>(raw, source)) {
+      if (skipPhaseEvents && isSubStatusPhaseEvent(event)) {
+        continue;
+      }
       this.dispatch(event);
     }
   }
@@ -80,11 +113,20 @@ export class TaskEventPipeline<P extends string> {
     this.prevBackendStatus = status;
   }
 
+  /** Clears `work_status` and `sub_status` edge memory (e.g. new task start). */
+  resetDevicePayloadTracking(status: RobotWorkStatus | null = null): void {
+    this.prevBackendStatus = status;
+    this.prevSubStatus = null;
+  }
+
   destroy(): void {
     this.arbitrator.destroy();
   }
 
-  private dispatchBackendStatus(status: RobotWorkStatus): void {
+  private dispatchBackendStatus(
+    status: RobotWorkStatus,
+    meta: { readonly source: DeviceEventSource; readonly ts: number },
+  ): void {
     const ctx = this.getContext();
     if (this.acceptBackendStatus && !this.acceptBackendStatus(status, ctx)) {
       return;
@@ -95,6 +137,15 @@ export class TaskEventPipeline<P extends string> {
       this.backendRegistry!,
     );
     this.prevBackendStatus = status;
+    if (events.length === 0) {
+      this.arbitrator.dispatch({
+        type: 'DEVICE_WORK_STATUS',
+        status,
+        source: meta.source,
+        ts: meta.ts,
+      });
+      return;
+    }
     events.forEach(event => this.forwardMapped(event));
   }
 
@@ -125,14 +176,7 @@ export function isTaskEvent<P extends string>(
     case 'CMD_EXIT_MANUAL':
     case 'CMD_CONFIRM':
     case 'CMD_RETURN_DOCK':
-    case 'CMD_FINISH_AND_RETURN_DOCK':
     case 'CMD_RESET':
-    case 'CMD_RETRY':
-    case 'CMD_ADD_NEW_AREA':
-    case 'CMD_DISMISS_NOTICE':
-    case 'CMD_CONTINUE_COVERAGE':
-    case 'CMD_GOTO_EDIT':
-    case 'CMD_SAVE':
     case 'DEVICE_PHASE':
     case 'DEVICE_WORK_STATUS':
     case 'DEVICE_AREA':
@@ -141,9 +185,6 @@ export function isTaskEvent<P extends string>(
     case 'DEVICE_DOCKED':
     case 'DEVICE_UNDOCKED':
     case 'DEVICE_ERROR':
-    case 'DEVICE_CAPABILITIES':
-    case 'DEVICE_NOTICE':
-    case 'DEVICE_ESTOP':
     case 'LINK_BLE_UP':
     case 'LINK_BLE_DOWN':
     case 'LINK_WS_UP':
@@ -160,4 +201,10 @@ function isUnknownBackendStatusEvent(
   event: BackendMapperEvent<string>,
 ): event is UnknownBackendStatusEvent {
   return event.type === 'LOG_UNKNOWN_BACKEND_STATUS';
+}
+
+function isSubStatusPhaseEvent<P extends string>(
+  event: TaskEvent<P>,
+): boolean {
+  return event.type === 'DEVICE_PHASE' || event.type === 'DEVICE_UNDOCKED';
 }

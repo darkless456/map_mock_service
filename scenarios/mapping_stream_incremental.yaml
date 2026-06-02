@@ -1,0 +1,24 @@
+name: mapping_stream_incremental
+description: NOTIFY_RATEL streamable phases with 30s holds (scan / follow / cover)
+domain: mapping
+setup:
+  state: PREPARING
+  phase: null
+steps:
+  - notify: { work_status: mapping, sub_status: precondition }
+  - wait: 5s
+  - notify: { work_status: mapping, sub_status: leave_dock }
+  - wait: 8s
+  - notify: { work_status: mapping, sub_status: find_boundary }
+  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY }
+  - wait: 30s
+  - notify: { work_status: mapping, sub_status: edge_mapping }
+  - expect: { phase: MAP_FOLLOW_BOUNDARY }
+  - wait: 30s
+  - notify: { work_status: mapping, sub_status: bow_cover }
+  - expect: { phase: MAP_COVERAGE_RUN }
+  - wait: 30s
+  - notify: { work_status: mapping, sub_status: exit_mapping }
+  - wait: 5s
+  - notify: { work_status: idle, sub_status: none }
+  - expect: { state: COMPLETED }

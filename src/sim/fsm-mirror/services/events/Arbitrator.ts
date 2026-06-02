@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
-// !!! AUTO-GENERATED FROM mower/src/services/events/Arbitrator.ts. DO NOT EDIT. !!!
-// Source SHA-256: 2f9035600ea31788344478a833266ec0c514582898c0b4193014ab662a68f744
-// Synced at: 2026-05-30T08:44:44.301Z
+// !!! AUTO-GENERATED FROM mower/src/infra/events/Arbitrator.ts. DO NOT EDIT. !!!
+// Source SHA-256: 5e8551b2d610b6c816ac3e5172f8f64146b93d800645c2e37a9d7156b41b1848
+// Synced at: 2026-06-02T09:43:38.803Z
 import type { TaskEvent, TaskSource } from '../../domain/shared/TaskFSM';
 
 export type UnknownArbitratedEvent = {
@@ -144,12 +144,6 @@ export function fieldForEvent<P extends string>(
       return 'battery';
     case 'DEVICE_ERROR':
       return 'error';
-    case 'DEVICE_CAPABILITIES':
-      return 'capabilities';
-    case 'DEVICE_ESTOP':
-      return 'estop';
-    case 'DEVICE_NOTICE':
-      return `notice:${noticeIdForEvent(event)}`;
     case 'LINK_BLE_UP':
     case 'LINK_BLE_DOWN':
       return 'bleLink';
@@ -199,17 +193,6 @@ function isAckEvent<P extends string>(event: ArbitratedEvent<P>): boolean {
     event.type === 'DEVICE_WORK_STATUS' ||
     event.type === 'DEVICE_DOCKED' ||
     event.type === 'DEVICE_UNDOCKED' ||
-    event.type === 'DEVICE_ERROR' ||
-    event.type === 'DEVICE_ESTOP'
+    event.type === 'DEVICE_ERROR'
   );
-}
-
-function noticeIdForEvent<P extends string>(event: ArbitratedEvent<P>): string {
-  if (!('notice' in event)) return 'unknown';
-  const notice = event.notice;
-  if (typeof notice !== 'object' || notice === null || Array.isArray(notice)) {
-    return 'unknown';
-  }
-  const id = (notice as { readonly id?: unknown }).id;
-  return typeof id === 'string' && id.length > 0 ? id : 'unknown';
 }

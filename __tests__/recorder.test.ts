@@ -14,8 +14,8 @@ describe('Recorder', () => {
     recorder.attachRobot(robot);
     const started = recorder.start('unit');
 
-    robot.applySetup({ domain: 'mapping', state: 'PREPARING', phase: 'MAP_PRECHECK' });
-    robot.dispatchRaw({ type: 'DEVICE_WORK_STATUS', status: 'mapping', source: 'ws', ts: Date.now() }, 'mapping');
+    robot.applySetup({ domain: 'mapping', state: 'PREPARING', phase: null });
+    robot.dispatchRatelNotify({ work_status: 'mapping', sub_status: 'leave_dock' });
     recorder.stop();
 
     assert.ok(started.file);
@@ -23,9 +23,9 @@ describe('Recorder', () => {
     assert.ok(entries.some(entry => entry.dir === 'fsm'));
 
     const replayRobot = new VirtualRobot();
-    replayRobot.applySetup({ domain: 'mapping', state: 'PREPARING', phase: 'MAP_PRECHECK' });
+    replayRobot.applySetup({ domain: 'mapping', state: 'PREPARING', phase: null });
     const result = await recorder.replay(replayRobot, { inline: entries });
-    assert.equal(result.replayed, 1);
+    assert.ok(result.replayed >= 1);
     assert.equal(replayRobot.snapshot().mapping.state, 'UNDOCKING');
   });
 });

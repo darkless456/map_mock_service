@@ -3,7 +3,14 @@ import { URL } from 'node:url';
 import { WebSocketServer } from 'ws';
 import type WebSocket from 'ws';
 import { verifyTicket } from '../auth/ticket';
-import { buildMowStatus, buildRobotLocation, buildRobotStatus, changedPushes } from '../sim/pushChannels';
+import {
+  buildMowStatus,
+  buildNotifyRatelStatus,
+  buildRobotLocation,
+  buildRobotStatus,
+  changedPushes,
+} from '../sim/pushChannels';
+import type { RatelStatusPushPayload } from '../sim/ratelStatusPush';
 import type { VirtualRobot, VirtualRobotSnapshot } from '../sim/virtualRobot';
 import { MapStream } from '../sim/mapStream';
 import type { ChaosController } from '../sim/chaos';
@@ -95,6 +102,11 @@ export function createWsServer({
   };
   robot.on('transcript', onTranscript);
 
+  const onRatelStatus = (payload: RatelStatusPushPayload) => {
+    outbound.broadcastJson(buildNotifyRatelStatus(robot, payload));
+  };
+  robot.on('ratelStatus', onRatelStatus);
+
   const onChanged = (snapshot: VirtualRobotSnapshot) => {
     for (const payload of changedPushes(robot, snapshot)) {
       outbound.broadcastJson(payload);
@@ -136,6 +148,7 @@ export function createWsServer({
       clearInterval(mowTimer);
       robot.off('changed', onChanged);
       robot.off('transcript', onTranscript);
+      robot.off('ratelStatus', onRatelStatus);
       closeWebSocketClients(wss);
       closeWebSocketClients(inspectWss);
       wss.close();

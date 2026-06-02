@@ -77,18 +77,18 @@ function waitForCommandCount(ws: WebSocket, cmd: string, minCount: number, timeo
 }
 
 describe('e2e scenarios', () => {
-  it('runs the checked-in happy_mapping scenario', async () => {
+  it('runs the checked-in mapping_happy_auto scenario', { timeout: 150_000 }, async () => {
     const robot = new VirtualRobot();
     const engine = new ScenarioEngine({ robot, chaos: new ChaosController() });
-    assert.ok(engine.listScenarios().includes('happy_mapping'));
-    const result = await engine.run({ name: 'happy_mapping' });
+    assert.ok(engine.listScenarios().includes('mapping_happy_auto'));
+    const result = await engine.run({ name: 'mapping_happy_auto' });
     assert.equal(result.ok, true, result.error);
     assert.equal(robot.snapshot().mapping.state, 'COMPLETED');
-    assert.ok(engine.listScenarios().includes('continuous_mapping_stream'));
-    assert.ok(engine.listScenarios().includes('mowing_trajectory_stream'));
+    assert.ok(engine.listScenarios().includes('mapping_stream_incremental'));
+    assert.equal(engine.listScenarios().length, 5);
   });
 
-  it('pushes MAP_INCREMENTAL during fast mapping scenarios', async () => {
+  it('pushes MAP_INCREMENTAL when entering a streamable mapping phase', async () => {
     const server = http.createServer();
     const robot = new VirtualRobot();
     const chaos = new ChaosController();
@@ -116,9 +116,20 @@ describe('e2e scenarios', () => {
     const ws = new WebSocket(`ws://127.0.0.1:${address.port}/acc?ticket=${ticket}`);
     try {
       await waitForOpen(ws);
-      const incrementalPromise = waitForCommand(ws, 'MAP_INCREMENTAL');
+      const incrementalPromise = waitForCommand(ws, 'MAP_INCREMENTAL', 5000);
       const engine = new ScenarioEngine({ robot, chaos });
-      const result = await engine.run({ name: 'happy_mapping' });
+      const result = await engine.run({
+        inline: {
+          name: 'fast_streamable_mapping',
+          domain: 'mapping',
+          setup: { state: 'IDLE', phase: null },
+          steps: [
+            { emit: { type: 'CMD_START', mode: 'auto', taskMode: 'MAP_BUILD' } },
+            { notify: { work_status: 'mapping', sub_status: 'leave_dock' } },
+            { notify: { work_status: 'mapping', sub_status: 'find_boundary' } },
+          ],
+        },
+      });
       assert.equal(result.ok, true, result.error);
 
       const incremental = await incrementalPromise as { data?: { map_header?: { frame_id?: number } } };
@@ -164,10 +175,10 @@ describe('e2e scenarios', () => {
         inline: {
           name: 'short_continuous_mapping_stream',
           domain: 'mapping',
-          setup: { state: 'PREPARING', phase: 'MAP_PRECHECK' },
+          setup: { state: 'PREPARING', phase: null },
           steps: [
-            { emit: { type: 'DEVICE_WORK_STATUS', status: 'mapping' } },
-            { emit: { type: 'DEVICE_PHASE', phase: 'MAP_SCAN_BOUNDARY' } },
+            { notify: { work_status: 'mapping', sub_status: 'leave_dock' } },
+            { notify: { work_status: 'mapping', sub_status: 'find_boundary' } },
             { wait: '180ms' },
           ],
         },
