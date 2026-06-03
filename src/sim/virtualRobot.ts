@@ -143,7 +143,7 @@ export class VirtualRobot extends EventEmitter {
   /** Set by `POST /robot/self_check`; drives progressive `mapping/check` in mock. */
   mappingPrepareSelfCheckAt: number | null = null;
   mappingCheckPollCount = 0;
-  /** Last WS `NOTIFY_RATEL_STATUS` fields (for dedupe + ROBOT_STATUS projection). */
+  /** Last WS `NOTIFY_RATEL_STATUS` fields (for dedupe + status projection). */
   lastNotifyWorkStatus: string | null = null;
   lastNotifySubStatus: string | null = null;
   private readonly maxEvents: number;
@@ -260,19 +260,11 @@ export class VirtualRobot extends EventEmitter {
       mode: 'auto',
       taskMode: taskModeFromCreateInfo(input.task_info),
     });
-    const ts = Date.now();
-    this.dispatchMowing({
-      type: 'DEVICE_WORK_STATUS',
-      status: 'mowing',
-      source: 'ws',
-      ts,
-    });
-    this.dispatchMowing({
-      type: 'DEVICE_PHASE',
-      phase: 'MOW_RUNNING',
-      source: 'ws',
-      ts,
-    });
+    const mowingSub =
+      taskModeFromCreateInfo(input.task_info) === 'MOW_EDGE' ? 'edge' : 'mowing';
+    this.pushRatelStatus({ work_status: 'mowing', sub_status: 'map_check' });
+    this.pushRatelStatus({ work_status: 'mowing', sub_status: 'leave_dock' });
+    this.pushRatelStatus({ work_status: 'mowing', sub_status: mowingSub });
     this.syncActiveTaskFromContext();
     return task;
   }
@@ -287,21 +279,10 @@ export class VirtualRobot extends EventEmitter {
         break;
       case 'RESUME':
         this.dispatchMowing({ type: 'CMD_RESUME' });
-        {
-          const ts = Date.now();
-          this.dispatchMowing({
-            type: 'DEVICE_WORK_STATUS',
-            status: 'mowing',
-            source: 'ws',
-            ts,
-          });
-          this.dispatchMowing({
-            type: 'DEVICE_PHASE',
-            phase: 'MOW_RUNNING',
-            source: 'ws',
-            ts,
-          });
-        }
+        this.pushRatelStatus({
+          work_status: 'mowing',
+          sub_status: task.task_info.task_mode === 'edge' ? 'edge' : 'mowing',
+        });
         break;
       case 'CANCEL':
         this.dispatchMowing({ type: 'CMD_CANCEL' });
@@ -324,6 +305,11 @@ export class VirtualRobot extends EventEmitter {
   /** Used by {@link applyRatelStatusPush} and scenario `emit`. */
   dispatchMappingEvent(event: MappingEvent): void {
     this.dispatchMapping(event);
+  }
+
+  /** Used by {@link applyRatelStatusPush} for mowing-domain notify. */
+  dispatchMowingEvent(event: MowingEvent): void {
+    this.dispatchMowing(event);
   }
 
   /**

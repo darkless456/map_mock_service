@@ -25,6 +25,26 @@ steps:
     assert.equal(robot.snapshot().mapping.state, 'WORKING');
   });
 
+  it('runs an inline mowing scenario with notify steps', async () => {
+    const robot = new VirtualRobot({ sn: 'SN-MOW-SCENARIO' });
+    const engine = new ScenarioEngine({ robot, chaos: new ChaosController() });
+    const result = await engine.run({
+      inline: {
+        name: 'inline mowing smoke',
+        domain: 'mowing',
+        setup: { state: 'PREPARING', phase: null },
+        steps: [
+          { notify: { work_status: 'mowing', sub_status: 'leave_dock' } },
+          { expect: { state: 'UNDOCKING' } },
+          { notify: { work_status: 'mowing', sub_status: 'mowing' } },
+          { expect: { state: 'WORKING', phase: 'MOW_RUNNING' } },
+        ],
+      },
+    });
+    assert.equal(result.ok, true, result.error);
+    assert.equal(robot.snapshot().activeDomain, 'mowing');
+  });
+
   it('reports expectation mismatches', async () => {
     const robot = new VirtualRobot();
     const engine = new ScenarioEngine({ robot, chaos: new ChaosController() });

@@ -1,0 +1,15 @@
+name: mowing_trajectory_stream
+description: >-
+  Starts mowing and holds ON_THE_WAY so LOCATION_REGISTER clients receive
+  semantic-zero ROBOT_LOCATION every 300ms.
+domain: mowing
+setup:
+  state: IDLE
+  phase: null
+steps:
+  - emit: { type: CMD_START, mode: auto, taskMode: MOW_GLOBAL }
+  - notify: { work_status: mowing, sub_status: map_check }
+  - notify: { work_status: mowing, sub_status: leave_dock }
+  - notify: { work_status: mowing, sub_status: mowing }
+  - expect: { state: WORKING, phase: MOW_RUNNING, task_status: ON_THE_WAY }
+  - wait: 5s

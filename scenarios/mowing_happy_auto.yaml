@@ -1,0 +1,17 @@
+name: mowing_happy_auto
+description: >-
+  WS NOTIFY_RATEL_STATUS mowing flow (align backend-status-mapper §5.2).
+  Assumes App already called ratel_task/create (PREPARING). Drives home mowing UI.
+domain: mowing
+setup:
+  state: PREPARING
+  phase: null
+steps:
+  - notify: { work_status: mowing, sub_status: map_check }
+  - wait: 3s
+  - notify: { work_status: mowing, sub_status: leave_dock }
+  - expect: { state: UNDOCKING }
+  - wait: 5s
+  - notify: { work_status: mowing, sub_status: mowing }
+  - expect: { state: WORKING, phase: MOW_RUNNING }
+  - wait: 10s

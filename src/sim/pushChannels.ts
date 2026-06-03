@@ -26,16 +26,77 @@ function signalPayload() {
   };
 }
 
+function activeContext(snapshot: VirtualRobotSnapshot) {
+  return snapshot.activeDomain === 'mowing' ? snapshot.mowing : snapshot.mapping;
+}
+
+/** Derives `sub_status` from mock FSM when no prior NOTIFY was recorded. */
+function deriveSubStatus(robot: VirtualRobot): string {
+  const snapshot = robot.snapshot();
+  if (snapshot.activeDomain === 'mapping') {
+    const ctx = snapshot.mapping;
+    if (ctx.state === 'PREPARING') return 'precondition';
+    if (ctx.state === 'UNDOCKING') return 'leave_dock';
+    switch (ctx.phase) {
+      case 'MAP_SCAN_BOUNDARY':
+        return 'find_boundary';
+      case 'MAP_FOLLOW_BOUNDARY':
+      case 'MAP_FOLLOW_BOUNDARY_MANUAL':
+        return 'edge_mapping';
+      case 'MAP_BOUNDARY_DONE':
+        return 'map_edge_finish';
+      case 'MAP_COVERAGE_RUN':
+        return 'bow_cover';
+      case 'MAP_COVERAGE_DONE':
+        return 'exit_mapping';
+      case 'returning':
+        return 'return_dock';
+      default:
+        return 'none';
+    }
+  }
+  if (snapshot.activeDomain === 'mowing') {
+    const ctx = snapshot.mowing;
+    if (ctx.state === 'PREPARING') return 'map_check';
+    if (ctx.state === 'UNDOCKING') return 'leave_dock';
+    if (ctx.phase === 'MOW_RUNNING') {
+      return ctx.taskMode === 'MOW_EDGE' ? 'edge' : 'mowing';
+    }
+    if (ctx.phase === 'returning') return 'return_dock';
+    return 'none';
+  }
+  return 'none';
+}
+
+/** Builds NOTIFY payload from robot snapshot (last notify or FSM-derived fallback). */
+export function buildCurrentRatelStatusPayload(robot: VirtualRobot): RatelStatusPushPayload {
+  const snapshot = robot.snapshot();
+  const ctx = activeContext(snapshot);
+  const rawWork = robot.lastNotifyWorkStatus ?? robot.workStatus();
+  const workStatus = rawWork === 'estop' ? 'error' : rawWork;
+  return {
+    sn: snapshot.sn,
+    work_status: workStatus,
+    sub_status: robot.lastNotifySubStatus ?? deriveSubStatus(robot),
+    battery_level: ctx.battery ?? 80,
+  };
+}
+
 /** Cloud `NOTIFY_RATEL_STATUS` — primary driver for App FSM (`useWsDeviceListener`). */
 export function buildNotifyRatelStatus(
   robot: VirtualRobot,
   payload: RatelStatusPushPayload,
 ): WsEnvelope<Record<string, unknown>> {
   const snapshot = robot.snapshot();
-  const ctx = snapshot.mapping;
+  const ctx = activeContext(snapshot);
+  const capabilities = (ctx as { capabilities?: { canSwitchManual: boolean; canSwitchAuto: boolean } }).capabilities ?? {
+    canSwitchManual: false,
+    canSwitchAuto: false,
+  };
   const workStatus = payload.work_status;
   const subStatus = payload.sub_status;
   const batteryLevel = payload.battery_level ?? ctx.battery ?? 80;
+  const isEstop = ctx.state === 'ESTOPPED';
   return {
     cmd: 'NOTIFY_RATEL_STATUS',
     cmd_id: createId(),
@@ -44,38 +105,11 @@ export function buildNotifyRatelStatus(
       sn: payload.sn,
       work_status: workStatus,
       sub_status: subStatus,
-      work_msg: '',
+      work_msg: ctx.error?.code ?? '',
       battery_level: batteryLevel,
       battery: batteryPayload(batteryLevel, workStatus === 'charging'),
       signals: signalPayload(),
       state: ctx.state,
-      phase: ctx.phase,
-    },
-  };
-}
-
-/** Legacy/auxiliary status frame; includes `sub_status` when known. */
-export function buildRobotStatus(robot: VirtualRobot): WsEnvelope<Record<string, unknown>> {
-  const snapshot = robot.snapshot();
-  const ctx = snapshot.activeDomain === 'mowing' ? snapshot.mowing : snapshot.mapping;
-  const capabilities = (ctx as { capabilities?: { canSwitchManual: boolean; canSwitchAuto: boolean } }).capabilities ?? {
-    canSwitchManual: false,
-    canSwitchAuto: false,
-  };
-  const workStatus = robot.lastNotifyWorkStatus ?? robot.workStatus();
-  const subStatus = robot.lastNotifySubStatus ?? 'none';
-  const isEstop = ctx.state === 'ESTOPPED' || workStatus === 'estop';
-  return {
-    cmd: 'ROBOT_STATUS',
-    cmd_id: createId(),
-    version: 1,
-    data: {
-      sn: snapshot.sn,
-      work_status: isEstop ? 'estop' : workStatus,
-      sub_status: subStatus,
-      work_msg: ctx.error?.code ?? '',
-      battery: batteryPayload(ctx.battery || 80, workStatus === 'charging'),
-      signals: signalPayload(),
       phase: ctx.phase,
       capabilities: {
         can_switch_manual: capabilities.canSwitchManual,
@@ -94,7 +128,6 @@ export function buildRobotStatus(robot: VirtualRobot): WsEnvelope<Record<string,
             recoverable: ctx.error.recoverable,
           }
         : null,
-      state: ctx.state,
     },
   };
 }
@@ -150,9 +183,9 @@ export function buildRobotLocation(sn: string, pose: RobotPose): WsEnvelope<Reco
   };
 }
 
-/** On FSM change: ROBOT_STATUS (+ mow). NOTIFY_RATEL_STATUS is sent via `ratelStatus` event. */
+/** On FSM change: NOTIFY_RATEL_STATUS (+ mow when active). */
 export function changedPushes(robot: VirtualRobot, snapshot?: VirtualRobotSnapshot): WsEnvelope[] {
-  const pushes: WsEnvelope[] = [buildRobotStatus(robot)];
+  const pushes: WsEnvelope[] = [buildNotifyRatelStatus(robot, buildCurrentRatelStatusPayload(robot))];
   const activeTask = snapshot?.activeTask ?? robot.activeTask();
   if (activeTask) pushes.push(buildMowStatus(activeTask));
   return pushes;

@@ -4,10 +4,10 @@ import { WebSocketServer } from 'ws';
 import type WebSocket from 'ws';
 import { verifyTicket } from '../auth/ticket';
 import {
+  buildCurrentRatelStatusPayload,
   buildMowStatus,
   buildNotifyRatelStatus,
   buildRobotLocation,
-  buildRobotStatus,
   changedPushes,
 } from '../sim/pushChannels';
 import type { RatelStatusPushPayload } from '../sim/ratelStatusPush';
@@ -75,7 +75,7 @@ export function createWsServer({
   wss.on('connection', (ws: WebSocket) => {
     outbound.initClient(ws);
     mapStream.fullFrame(robot.sn).forEach(message => outbound.sendRaw(ws, message));
-    outbound.sendJson(ws, buildRobotStatus(robot));
+    outbound.sendJson(ws, buildNotifyRatelStatus(robot, buildCurrentRatelStatusPayload(robot)));
     const activeTask = robot.activeTask();
     if (activeTask) outbound.sendJson(ws, buildMowStatus(activeTask));
 

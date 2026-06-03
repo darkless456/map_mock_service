@@ -85,7 +85,9 @@ describe('e2e scenarios', () => {
     assert.equal(result.ok, true, result.error);
     assert.equal(robot.snapshot().mapping.state, 'COMPLETED');
     assert.ok(engine.listScenarios().includes('mapping_stream_incremental'));
-    assert.equal(engine.listScenarios().length, 5);
+    assert.ok(engine.listScenarios().includes('mowing_happy_auto'));
+    assert.ok(engine.listScenarios().includes('mowing_trajectory_stream'));
+    assert.equal(engine.listScenarios().length, 7);
   });
 
   it('pushes MAP_INCREMENTAL when entering a streamable mapping phase', async () => {
@@ -192,7 +194,7 @@ describe('e2e scenarios', () => {
     }
   });
 
-  it('pushes ROBOT_LOCATION during mowing trajectory scenarios', async () => {
+  it('pushes ROBOT_LOCATION during mowing trajectory scenarios', { timeout: 15_000 }, async () => {
     const server = http.createServer();
     const robot = new VirtualRobot();
     const chaos = new ChaosController();
@@ -223,18 +225,7 @@ describe('e2e scenarios', () => {
       ws.send(JSON.stringify({ cmd: 'LOCATION_REGISTER', cmd_id: 'unit-location-register', version: 1, data: { sn: robot.sn } }));
       const locationPromise = waitForCommandCount(ws, 'ROBOT_LOCATION', 2, 1600);
       const engine = new ScenarioEngine({ robot, chaos });
-      const result = await engine.run({
-        inline: {
-          name: 'short_mowing_trajectory_stream',
-          domain: 'mowing',
-          setup: { state: 'IDLE', phase: null },
-          steps: [
-            { emit: { type: 'CMD_START', mode: 'auto', taskMode: 'MOW_GLOBAL' } },
-            { emit: { type: 'DEVICE_REPORT_STARTED' } },
-            { wait: '750ms' },
-          ],
-        },
-      });
+      const result = await engine.run({ name: 'mowing_trajectory_stream' });
       assert.equal(result.ok, true, result.error);
       const locations = await locationPromise as Array<{ data?: { x?: number; y?: number; angle?: number } }>;
       assert.equal(locations.length, 2);

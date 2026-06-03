@@ -28,6 +28,18 @@ YAML scenarios drive **cloud-accurate** `NOTIFY_RATEL_STATUS` pushes over WebSoc
 
 Between steps, scenarios use `wait: 5s`–`20s` (stream scenario holds 30s in streamable phases).
 
+## Mowing `sub_status` sequence (§5.2)
+
+| Step `sub_status` | Mock FSM |
+|-------------------|----------|
+| `map_check` | Stay in early prepare / accept `work_status: mowing` |
+| `leave_dock` | `UNDOCKING` |
+| `mowing` / `edge` | `WORKING` + `MOW_RUNNING` |
+| `return_dock` | `returning` phase |
+| `work_status: idle` + `sub_status: none` | Task completion edge |
+
+Mowing scenarios use `domain: mowing` and assume the App has already called `POST /ratel/central-control-service/api/v1/ratel_task/create` (mock FSM `PREPARING`) unless the scenario emits `CMD_START` itself.
+
 ## Run
 
 1. `npm start` mock service; App `mock/config.local.ts` → mock base URL.
@@ -49,6 +61,8 @@ curl -s -X POST http://localhost:9900/sim/scenario/run \
 | `mapping_pause_resume.yaml` | Pause / resume during cover |
 | `mapping_scan_failed_manual.yaml` | Scan fail → remote |
 | `mapping_cancel_during_work.yaml` | Cancel on edge |
+| `mowing_happy_auto.yaml` | Mowing NOTIFY flow → `WORKING` / `MOW_RUNNING` |
+| `mowing_trajectory_stream.yaml` | Hold `ON_THE_WAY` for `ROBOT_LOCATION` debugging |
 
 ## Supported steps
 

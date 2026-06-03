@@ -27,7 +27,7 @@ This document is the S0-S3 API contract for Mower Dev Simulator. Business API pa
 
 ### Notes
 
-- `mowing_api.md` examples that use `/ratel/open-platform-service/api/v1/ratel_task/{action,list}` are not implemented. The mower app calls `/ratel/central-control-service/api/v1/...` and the simulator follows that path.
+- `ratel_backend_api.md`（`pudu_ratel_app_mower/build-docs/`）中若示例使用 `/ratel/open-platform-service/api/v1/ratel_task/{action,list}`，模拟器不实现该路径。Mower App 实际调用 `/ratel/central-control-service/api/v1/...`，模拟器与之对齐。
 - Device detail and map list support `POST` because the mower app's HTTP bridge currently posts to these constants.
 - Unknown routes return `404 { code: 404, message: 'deprecated; removed in simulator v1' }`.
 
@@ -62,7 +62,7 @@ All JSON WS messages use:
 
 | `cmd` | Data fields |
 |---|---|
-| `ROBOT_STATUS` | `sn`, `work_status`, `battery`, `signals`, `mapping_phase`, `phase`, `capabilities`, `estop`, `notices`, `error`, `state` |
+| `NOTIFY_RATEL_STATUS` | `sn`, `work_status`, `sub_status`, `work_msg`, `battery_level`, `battery`, `signals`, `phase`, `state`; simulator also adds `capabilities`, `estop`, `notices`, `error` for dev parity. |
 | `NOTIFY_MOW_STATUS` | Flattened `task_id`, `task_status`, `task_type`, `task_message`, `task_error_code`, `mow_area`, `mow_progress`, `estimated_time`; also duplicated under `payload`. |
 | `ROBOT_LOCATION` | `sn`, `mac`, `map_id`, `x`, `y`, `yaw`, `angle`, `timestamp`, `notify_time` |
 | `MAP_FIX` | Full map frame on WS connection. |
@@ -70,7 +70,9 @@ All JSON WS messages use:
 
 `MAP_MOCK_SLICE_BYTES` / `MMR_SLICE_BYTES` can force `MAP_FIX` and `MAP_INCREMENTAL` frame slicing. The simulator splits the gzip+base64 payload on base64-safe 4-character boundaries so each slice remains decodable by RustKit before fragment reassembly.
 
-`ROBOT_LOCATION` is sent every 300ms only to sockets that sent `LOCATION_REGISTER` for the robot SN and while an active mowing task is `ON_THE_WAY`. If the task is already active when the client registers, the server also sends the current pose immediately so mobile clients can bind the first trajectory point without waiting for the next timer tick. Scenario-based mowing `CMD_START` creates a mock active task automatically so `mowing_trajectory_stream` can drive trajectory rendering without going through the REST create-task API. The pose route is generated from the semantic class `0` grass pixels in `full_semanticmap.png`; see [mowing_trajectory.md](mowing_trajectory.md) for the artifact design.
+`ROBOT_LOCATION` is sent every 300ms only to sockets that sent `LOCATION_REGISTER` for the robot SN and while an active mowing task is `ON_THE_WAY`. If the task is already active when the client registers, the server also sends the current pose immediately so mobile clients can bind the first trajectory point without waiting for the next timer tick. Scenario `mowing_trajectory_stream` (or `POST /ratel/central-control-service/api/v1/ratel_task/create`) creates a mock active task so trajectory rendering can be exercised without a real backend. The pose route is generated from the semantic class `0` grass pixels in `full_semanticmap.png`; see [mowing_trajectory.md](mowing_trajectory.md) for the artifact design.
+
+On WS connect the simulator sends `MAP_FIX` and an initial `NOTIFY_RATEL_STATUS` snapshot derived from the virtual robot FSM. Further status pushes use the same `cmd` on FSM changes and after each distinct `(work_status, sub_status)` notify.
 
 ## Control API
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- WS status pushes now use **`NOTIFY_RATEL_STATUS`** only (removed `ROBOT_STATUS` broadcasts).
+- Mowing task create / resume drive FSM via `sub_status` notify sequence (`map_check` → `leave_dock` → `mowing`).
+- Scenario `notify` steps work for both `mapping` and `mowing` domains.
+
+### Added
+
+- Checked-in scenarios: `mowing_happy_auto.yaml`, `mowing_trajectory_stream.yaml`.
+- Docs updated for canonical WS status cmd and correct `ratel_task/create` path.
+
 ## v1.0.0 - 2026-05-30
 
 ### Breaking changes

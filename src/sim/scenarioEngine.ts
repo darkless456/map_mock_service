@@ -169,9 +169,6 @@ export class ScenarioEngine {
     }
 
     if ('notify' in step) {
-      if (domain !== 'mapping') {
-        throw new Error(`step ${index}: notify is only supported for mapping scenarios`);
-      }
       const body = step.notify;
       this.robot.pushRatelStatus({
         work_status: typeof body.work_status === 'string' ? body.work_status : undefined,

@@ -35,4 +35,15 @@ describe('pushRatelStatus / NOTIFY_RATEL_STATUS', () => {
     robot.pushRatelStatus({ work_status: 'idle', sub_status: 'none' });
     assert.equal(robot.snapshot().mapping.state, 'COMPLETED');
   });
+
+  it('mowing notify sequence reaches WORKING via sub_status', () => {
+    const robot = new VirtualRobot({ sn: 'SN-MOW-N' });
+    robot.applySetup({ domain: 'mowing', state: 'PREPARING', phase: null });
+    assert.equal(robot.pushRatelStatus({ work_status: 'mowing', sub_status: 'map_check' }), true);
+    assert.equal(robot.snapshot().activeDomain, 'mowing');
+    robot.pushRatelStatus({ work_status: 'mowing', sub_status: 'leave_dock' });
+    robot.pushRatelStatus({ work_status: 'mowing', sub_status: 'mowing' });
+    assert.equal(robot.snapshot().mowing.state, 'WORKING');
+    assert.equal(robot.snapshot().mowing.phase, 'MOW_RUNNING');
+  });
 });

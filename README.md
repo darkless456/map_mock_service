@@ -49,7 +49,7 @@ The service only registers the mower API paths below. For app compatibility, dev
 |---|---|---|
 | `POST` | `/ratel/api/v1/wss/acc_ticket` | Validate `Authorization` + `platform`, issue one-time 120s WS ticket. |
 | `GET/POST` | `/ratel/api/v1/courtyard/robot/detail` | Return current virtual robot device info. |
-| `POST` | `/ratel/api/v1/courtyard/robot/info/update` | Update simulator nickname / SN and broadcast robot status. |
+| `POST` | `/ratel/api/v1/courtyard/robot/info/update` | Update simulator nickname / SN and broadcast `NOTIFY_RATEL_STATUS`. |
 | `POST` | `/ratel/api/v1/courtyard/robot/unbind` | Reset virtual robot state. |
 | `GET/POST` | `/ratel/map-service/api/v1/ratel/map/list` | Return semantic basemap URL and annotation increments. |
 | `POST` | `/ratel/map-service/api/v1/ratel/semantic/save` | Save annotation increment package in memory and dispatch `CMD_SAVE`. |
@@ -61,7 +61,7 @@ The service only registers the mower API paths below. For app compatibility, dev
 | `POST` | `/ratel/api/v1/mapping/resume` | Dispatch mapping `CMD_RESUME`. |
 | `POST` | `/ratel/api/v1/mapping/stop` | `CMD_CANCEL` or `CMD_CONFIRM` when `save: true`. |
 | `POST` | `/ratel/api/v1/mapping/mode` | `CMD_SWITCH_MANUAL` / `CMD_EXIT_MANUAL` for `remote` / `auto`. |
-| `POST` | `/ratel/central-control-service/api/v1/ratel_task/create` | Create mowing task, dispatch mowing `CMD_START` + `DEVICE_REPORT_STARTED`. |
+| `POST` | `/ratel/central-control-service/api/v1/ratel_task/create` | Create mowing task, dispatch `CMD_START` + `NOTIFY_RATEL_STATUS` sequence (`map_check` → `leave_dock` → `mowing`). |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/action` | Handle `PAUSE`, `RESUME`, `CANCEL`, and `FINISH_AND_RETURN_DOCK`. |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/list` | Return task list and active `task_notify`. |
 | `GET` | `/api/health` | Local health check. |
@@ -72,7 +72,7 @@ Asset URLs returned by map list currently point to `/sim/assets/full_semanticmap
 
 1. Request a ticket from `/ratel/api/v1/wss/acc_ticket`.
 2. Connect to `ws://localhost:9900/acc?ticket=<ticket>`.
-3. The simulator sends `MAP_FIX` and `ROBOT_STATUS` immediately.
+3. The simulator sends `MAP_FIX` and an initial `NOTIFY_RATEL_STATUS` snapshot immediately.
 
 ### Client to server
 
@@ -87,14 +87,14 @@ Asset URLs returned by map list currently point to `/sim/assets/full_semanticmap
 
 | `cmd` | Source |
 |---|---|
-| `ROBOT_STATUS` | Derived from active FSM context. Includes `mapping_phase`, `capabilities`, `estop`, `notices`, and `error`. |
+| `NOTIFY_RATEL_STATUS` | Primary robot status push (`work_status` + `sub_status`). Includes simulator extensions: `capabilities`, `estop`, `notices`, `error`, `phase`, `state`. |
 | `NOTIFY_MOW_STATUS` | Flattened mowing task status payload. |
 | `ROBOT_LOCATION` | Semantic-zero grass-route location stream for registered SN while mowing. |
 | `MAP_FIX` / `MAP_INCREMENTAL` | `data*/` XML + PNG patches encoded by protocol v2. |
 
 `MAP_FIX` is sent once on WS connection. `MAP_INCREMENTAL` is sent immediately when mapping FSM enters a streamable phase and then every `PUSH_INTERVAL_MS` while that phase remains active, so fast `/sim/scenario/run` mapping scripts still produce frames for POC debugging.
 
-For visual regression checks, run `mapping_stream_incremental` to keep `MAP_INCREMENTAL` flowing across mapping phases. Mowing `ROBOT_LOCATION` can still be exercised via inline mowing scenarios or `POST /ratel/api/v1/mowing/task/create`; see [docs/mowing_trajectory.md](docs/mowing_trajectory.md).
+For visual regression checks, run `mapping_stream_incremental` to keep `MAP_INCREMENTAL` flowing across mapping phases. Mowing `ROBOT_LOCATION` can be exercised via `mowing_trajectory_stream`, `POST /ratel/central-control-service/api/v1/ratel_task/create`, or inline mowing scenarios; see [docs/mowing_trajectory.md](docs/mowing_trajectory.md).
 
 ## Control API
 
@@ -129,6 +129,8 @@ Useful rendering scenarios:
 | `mapping_pause_resume` | Pause / resume during coverage |
 | `mapping_scan_failed_manual` | Scan failure → remote control |
 | `mapping_cancel_during_work` | Cancel during boundary follow |
+| `mowing_happy_auto` | Full mowing `NOTIFY_RATEL_STATUS` chain → `WORKING` / `MOW_RUNNING` |
+| `mowing_trajectory_stream` | Hold `ON_THE_WAY` for `ROBOT_LOCATION` stream debugging |
 
 ## Mower app联调
 

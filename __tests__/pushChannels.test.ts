@@ -1,10 +1,15 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMowStatus, buildRobotLocation, buildRobotStatus } from '../src/sim/pushChannels';
+import {
+  buildCurrentRatelStatusPayload,
+  buildMowStatus,
+  buildNotifyRatelStatus,
+  buildRobotLocation,
+} from '../src/sim/pushChannels';
 import { VirtualRobot } from '../src/sim/virtualRobot';
 
 describe('pushChannels', () => {
-  it('projects capabilities and sub_status into ROBOT_STATUS', () => {
+  it('projects capabilities and sub_status into NOTIFY_RATEL_STATUS', () => {
     const robot = new VirtualRobot({ sn: 'SN-PUSH' });
     robot.applySetup({
       domain: 'mapping',
@@ -13,8 +18,8 @@ describe('pushChannels', () => {
       capabilities: { canSwitchManual: true, canSwitchAuto: false },
     });
     robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'edge_mapping' });
-    const msg = buildRobotStatus(robot);
-    assert.equal(msg.cmd, 'ROBOT_STATUS');
+    const msg = buildNotifyRatelStatus(robot, buildCurrentRatelStatusPayload(robot));
+    assert.equal(msg.cmd, 'NOTIFY_RATEL_STATUS');
     assert.equal(msg.data.sn, 'SN-PUSH');
     assert.equal(msg.data.sub_status, 'edge_mapping');
     assert.equal(msg.data.phase, 'MAP_FOLLOW_BOUNDARY');

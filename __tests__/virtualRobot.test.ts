@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { VirtualRobot } from '../src/sim/virtualRobot';
-import { buildMowStatus, buildRobotStatus } from '../src/sim/pushChannels';
+import { buildMowStatus, buildNotifyRatelStatus, buildCurrentRatelStatusPayload } from '../src/sim/pushChannels';
 import { buildTaskListData } from '../src/sim/taskBridge';
 
 describe('VirtualRobot mapping domain', () => {
@@ -21,11 +21,11 @@ describe('VirtualRobot mapping domain', () => {
     assert.equal(robot.shouldStreamMap(), true);
   });
 
-  it('builds ROBOT_STATUS with simulator extension fields', () => {
+  it('builds NOTIFY_RATEL_STATUS with simulator extension fields', () => {
     const robot = new VirtualRobot({ sn: 'SN-2' });
     robot.startMapping({ sn: 'SN-2', mode: 'auto' });
-    const status = buildRobotStatus(robot);
-    assert.equal(status.cmd, 'ROBOT_STATUS');
+    const status = buildNotifyRatelStatus(robot, buildCurrentRatelStatusPayload(robot));
+    assert.equal(status.cmd, 'NOTIFY_RATEL_STATUS');
     assert.equal(status.data.sn, 'SN-2');
     assert.equal(status.data.work_status, 'mapping');
     assert.ok(status.data.capabilities);
