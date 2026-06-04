@@ -1,5 +1,25 @@
 name: mapping_pause_resume
 description: Pause/resume during bow_cover via CMD + NOTIFY_RATEL_STATUS
+guide:
+  title: 建图 — 弓字覆盖中暂停/继续
+  domain_label: 建图
+  summary: 在 MAP_COVERAGE_RUN 阶段模拟用户暂停与恢复建图。
+  when_to_use: 验证建图页暂停按钮、FSM PAUSED、恢复后继续覆盖等交互。
+  simulates:
+    - NOTIFY 推进到弓字覆盖 phase
+    - emit CMD_PAUSE / CMD_RESUME 模拟 App 下发
+    - expect 校验 PAUSED 与恢复后的 WORKING
+  prerequisites:
+    - App 已建图 start；可从 UNDOCKING 起步（场景 setup 已设）
+  user_steps:
+    - 运行前让 App 处于建图流程（或仅观察 Mock FSM）
+    - 选择 mapping_pause_resume → 运行场景
+    - 在 App 对照暂停/继续按钮是否可用（可选）
+  auto_behavior:
+    - 先 notify 到 bow_cover，再 CMD_PAUSE，等待 5s 后 CMD_RESUME，最后 exit_mapping → idle
+  duration: 约 1 分钟
+  pushes:
+    - NOTIFY_RATEL_STATUS
 domain: mapping
 setup:
   state: UNDOCKING

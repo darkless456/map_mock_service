@@ -163,7 +163,11 @@ export interface RobotPose {
   readonly angle: number;
 }
 
-export function buildRobotLocation(sn: string, pose: RobotPose): WsEnvelope<Record<string, unknown>> {
+export function buildRobotLocation(
+  sn: string,
+  pose: RobotPose,
+  options?: { readonly mapId?: string },
+): WsEnvelope<Record<string, unknown>> {
   const now = Date.now();
   return {
     cmd: 'ROBOT_LOCATION',
@@ -172,7 +176,7 @@ export function buildRobotLocation(sn: string, pose: RobotPose): WsEnvelope<Reco
     data: {
       sn,
       mac: 'D2:9C:35:EF:D1:04',
-      map_id: 'mock_map_001',
+      map_id: options?.mapId ?? 'mock_map_001',
       x: pose.x,
       y: pose.y,
       yaw: pose.angle,

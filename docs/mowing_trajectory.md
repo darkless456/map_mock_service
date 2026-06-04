@@ -27,13 +27,15 @@ If the PNG is missing or unreadable, the generator falls back to the old determi
 1. Start the simulator with `npm start`.
 2. Open the POC mowing screen and let it create a mock mowing task.
 3. The app sends `LOCATION_REGISTER`; the simulator immediately sends the current semantic-zero pose and then pushes `ROBOT_LOCATION` every 300ms while the active task is `ON_THE_WAY`.
-4. For scenario-based checks, run checked-in `mowing_trajectory_stream` from `/sim/panel` or:
+4. For scenario-based checks, run `mowing_task_normal` (full flow + 90s trajectory) or `mowing_trajectory_stream` (short hold) from `/sim/panel`:
 
 ```bash
 curl -s -X POST http://localhost:9900/sim/scenario/run \
   -H 'Content-Type: application/json' \
-  -d '{"name":"mowing_trajectory_stream"}'
+  -d '{"name":"mowing_task_normal"}'
 ```
+
+Panel-only (no App HTTP create): `mowing_task_normal_standalone`.
 
 Alternatively create a task via `POST /ratel/central-control-service/api/v1/ratel_task/create`.
 

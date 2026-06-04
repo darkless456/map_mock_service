@@ -2,6 +2,29 @@ name: mowing_trajectory_stream
 description: >-
   Starts mowing and holds ON_THE_WAY so LOCATION_REGISTER clients receive
   semantic-zero ROBOT_LOCATION every 300ms.
+guide:
+  title: 割草 — 位置流短测（5s）
+  domain_label: 割草
+  summary: 自建割草任务并进入 ON_THE_WAY，便于快速验证 LOCATION_REGISTER 后 ROBOT_LOCATION。
+  when_to_use: >-
+    调试 WS 位置登记与首帧推送；不需要完整 NOTIFY 时长时用本场景（无需 App HTTP 创建）。
+  simulates:
+    - emit CMD_START 创建 Mock 任务
+    - 快速 NOTIFY 链至 mowing / ON_THE_WAY
+    - 保持 5s（期间若已 LOCATION_REGISTER 则 300ms 推位置）
+  prerequisites:
+    - 模拟器已启动；建议先 POST /sim/reset
+    - App 或测试客户端需发送 LOCATION_REGISTER（见 ratel_backend_api §6.2）
+  user_steps:
+    - 打开 /sim/panel，选择 mowing_trajectory_stream
+    - App 连上 WS 并 LOCATION_REGISTER（或在割草任务活跃时由 App 自动登记）
+    - 点击运行，观察是否收到 ROBOT_LOCATION
+  auto_behavior:
+    - 从 IDLE emit CMD_START，连续 notify 至 ON_THE_WAY，wait 5s
+  duration: 约 10–15 秒
+  pushes:
+    - NOTIFY_RATEL_STATUS
+    - ROBOT_LOCATION（需 LOCATION_REGISTER + ON_THE_WAY）
 domain: mowing
 setup:
   state: IDLE

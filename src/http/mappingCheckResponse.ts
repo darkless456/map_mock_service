@@ -1,7 +1,7 @@
 import type { VirtualRobot } from '../sim/virtualRobot';
 
-/** Shape of `POST /ratel/api/v1/mapping/check` → `data` (see build-docs/APP端接口文档.md). */
-export interface MappingCheckConditionsPayload {
+/** `POST /ratel/api/v1/mapping/check` → `data`（扁平，见 APP端接口文档 2026-06-04） */
+export interface MappingCheckDataPayload {
   readonly bluetooth_status: string;
   readonly bluetooth_msg: string;
   readonly cellular: string;
@@ -11,12 +11,7 @@ export interface MappingCheckConditionsPayload {
   readonly light: string;
 }
 
-export interface MappingCheckDataPayload {
-  readonly all_ok: number;
-  readonly conditions: MappingCheckConditionsPayload;
-}
-
-const CONDITION_FIELDS: readonly (keyof Omit<MappingCheckConditionsPayload, 'bluetooth_msg'>)[] = [
+const CONDITION_FIELDS: readonly (keyof Omit<MappingCheckDataPayload, 'bluetooth_msg'>)[] = [
   'bluetooth_status',
   'cellular',
   'wifi',
@@ -31,7 +26,7 @@ function conditionStatus(ok: boolean, warn = false): string {
   return 'error';
 }
 
-function buildFullConditions(robot: VirtualRobot): MappingCheckConditionsPayload {
+function buildFullConditions(robot: VirtualRobot): MappingCheckDataPayload {
   const batteryLevel = robot.snapshot().mapping.battery || 80;
   const batteryOk = batteryLevel >= 20;
   const batteryWarn = batteryLevel >= 10 && batteryLevel < 20;
@@ -46,7 +41,7 @@ function buildFullConditions(robot: VirtualRobot): MappingCheckConditionsPayload
   };
 }
 
-function emptyConditions(): MappingCheckConditionsPayload {
+function emptyConditions(): MappingCheckDataPayload {
   return {
     bluetooth_status: '',
     bluetooth_msg: '',
@@ -59,38 +54,25 @@ function emptyConditions(): MappingCheckConditionsPayload {
 }
 
 /**
- * Builds mapping pre-check payload. Before `robot/self_check`, only partial data;
- * after self-check, each poll reveals one more condition (simulates robot reporting).
+ * 建图条件 mock：未 self_check 时仅部分字段；之后每次 poll 多揭示一项（模拟机器上报）。
  */
 export function buildMappingCheckData(robot: VirtualRobot): MappingCheckDataPayload {
   if (robot.mappingPrepareSelfCheckAt == null) {
     return {
-      all_ok: 0,
-      conditions: {
-        ...emptyConditions(),
-        bluetooth_status: 'ok',
-      },
+      ...emptyConditions(),
+      bluetooth_status: 'ok',
     };
   }
 
   robot.mappingCheckPollCount += 1;
   const revealed = Math.min(robot.mappingCheckPollCount, CONDITION_FIELDS.length);
   const full = buildFullConditions(robot);
-  const conditions = emptyConditions();
+  const data = emptyConditions();
   for (let i = 0; i < CONDITION_FIELDS.length; i += 1) {
     const key = CONDITION_FIELDS[i];
     if (i < revealed) {
-      conditions[key] = full[key];
+      data[key] = full[key];
     }
   }
-
-  const statusFields = CONDITION_FIELDS.map(key => conditions[key]);
-  const allPass =
-    revealed >= CONDITION_FIELDS.length &&
-    statusFields.every(value => value === 'ok' || value === 'warning');
-
-  return {
-    all_ok: allPass ? 1 : 0,
-    conditions,
-  };
+  return data;
 }

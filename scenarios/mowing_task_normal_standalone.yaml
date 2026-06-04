@@ -1,0 +1,48 @@
+name: mowing_task_normal_standalone
+description: >-
+  Same as mowing_task_normal but self-contained for /sim/panel without App HTTP
+  create: emits CMD_START, creates mock task, then NOTIFY chain + semantic-map
+  ROBOT_LOCATION hold. Use after POST reset or fresh simulator start.
+guide:
+  title: 割草 — 正常任务轨迹（仅 Panel，无需 App HTTP）
+  domain_label: 割草
+  summary: 与 mowing_task_normal 相同轨迹与时长，但由场景内 CMD_START 自建任务，不依赖 App 创建任务。
+  when_to_use: >-
+    仅开模拟器 + Panel 或脚本联调位置流；没有 Ratel App 或不想走 HTTP 创建任务时使用。
+  simulates:
+    - emit CMD_START + 完整 NOTIFY + 90s 语义地图 ROBOT_LOCATION
+  prerequisites:
+    - 模拟器运行；建议 POST /sim/reset 清空状态
+    - 仍需 WS 客户端发送 LOCATION_REGISTER（可用 App 或自写脚本）
+  user_steps:
+    - 打开 http://localhost:9900/sim/panel
+    - 点击 Reset（可选）
+    - 选择 mowing_task_normal_standalone → 阅读说明 → 运行
+    - App 连 WS 并 LOCATION_REGISTER，或用手动 ws 客户端登记 SN
+    - 观察 90s 轨迹与 State 中 task_status ON_THE_WAY
+  auto_behavior:
+    - 从 IDLE CMD_START 创建 mock_map_001 任务，notify 至 mowing，hold 90s，回充结束
+  duration: 约 2 分钟
+  pushes:
+    - NOTIFY_RATEL_STATUS
+    - ROBOT_LOCATION
+domain: mowing
+setup:
+  state: IDLE
+  phase: null
+steps:
+  - emit: { type: CMD_START, mode: auto, taskMode: MOW_GLOBAL }
+  - notify: { work_status: mowing, sub_status: map_check }
+  - wait: 2s
+  - notify: { work_status: mowing, sub_status: leave_dock }
+  - expect: { state: UNDOCKING }
+  - wait: 4s
+  - notify: { work_status: mowing, sub_status: mowing }
+  - expect: { state: WORKING, phase: MOW_RUNNING, task_status: ON_THE_WAY }
+  - note: Connect WS client, send LOCATION_REGISTER, observe map-based trajectory ~90s
+  - wait: 90s
+  - notify: { work_status: mowing, sub_status: return_dock }
+  - expect: { phase: returning }
+  - wait: 6s
+  - notify: { work_status: idle, sub_status: none }
+  - expect: { state: COMPLETED, task_status: COMPLETE }

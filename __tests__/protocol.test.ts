@@ -4,6 +4,7 @@ import zlib from 'node:zlib';
 import {
   encodeMapData,
   encodeMapMessage,
+  estimateLawnAreaM2,
   isClientFrameAck,
   splitBase64IntoDecodableChunks,
 } from '../src/ws/protocol';
@@ -54,6 +55,18 @@ describe('encodeMapMessage', () => {
     assert.equal(parsed.data.map_header.msg_type, 2);
     assert.equal(parsed.data.map_header.frame_id, 42);
     assert.equal(typeof parsed.data.map_header.crc32, 'number');
+    assert.equal(parsed.data.map_header.lawn_area, estimateLawnAreaM2(40, 40, 0.05));
+  });
+
+  it('allows explicit lawn_area override', () => {
+    const parsed = JSON.parse(
+      encodeMapMessage({
+        sn: 'SN',
+        headerFields: { ...sampleFields, lawnArea: 20.2 },
+        imageBytes,
+      }),
+    );
+    assert.equal(parsed.data.map_header.lawn_area, 20.2);
   });
 
   it('supports MAP_FIX override', () => {

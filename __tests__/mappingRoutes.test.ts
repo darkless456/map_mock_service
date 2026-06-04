@@ -60,10 +60,9 @@ describe('mapping HTTP routes', () => {
       });
       assert.equal(res.status, 200);
       assert.equal(res.json.code, 200);
-      const data = res.json.data as { all_ok: number; conditions: Record<string, string> };
-      assert.equal(data.all_ok, 0);
-      assert.equal(data.conditions.bluetooth_status, 'ok');
-      assert.equal(data.conditions.wifi, '');
+      const data = res.json.data as Record<string, string>;
+      assert.equal(data.bluetooth_status, 'ok');
+      assert.equal(data.wifi, '');
 
       const selfCheck = await postJson(address.port, '/ratel/api/v1/robot/self_check', {
         sn: 'MOCK:00:11:22:33:44',
@@ -75,14 +74,12 @@ describe('mapping HTTP routes', () => {
         const polled = await postJson(address.port, '/ratel/api/v1/mapping/check', {
           sn: 'MOCK:00:11:22:33:44',
         });
-        const polledData = polled.json.data as {
-          all_ok: number;
-          conditions: Record<string, string>;
-        };
+        const polledData = polled.json.data as Record<string, string>;
         if (
-          polledData.conditions.wifi &&
-          polledData.conditions.light &&
-          polledData.all_ok === 1
+          polledData.wifi &&
+          polledData.light &&
+          polledData.bluetooth_status === 'ok' &&
+          polledData.cellular === 'ok'
         ) {
           complete = true;
         }

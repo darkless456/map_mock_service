@@ -103,8 +103,9 @@ For visual regression checks, run `mapping_stream_incremental` to keep `MAP_INCR
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/sim/state` | Inspect current robot contexts and recent events. |
-| `GET` | `/sim/panel` | htmx control panel for scenarios, event buttons, chaos, and recorder. |
-| `GET` | `/sim/scenarios` | List checked-in YAML scenarios. |
+| `GET` | `/sim/panel` | 中文控制台：场景下拉、**阅读说明**（逐步操作）、混沌、录制。 |
+| `GET` | `/sim/scenarios` | 场景列表 + `catalog` 摘要（来自 YAML `guide`）。 |
+| `GET` | `/sim/scenario/guide?name=…` | 单个场景的完整中文说明（JSON）。 |
 | `POST` | `/sim/event` | Dispatch raw FSM event. Optional body field: `domain`. |
 | `POST` | `/sim/scenario/run` | Run `{ "name": "mapping_happy_auto" }` or `{ "inline": "...yaml" }`. |
 | `POST` | `/sim/scenario/stop` | Stop the active scenario. |
@@ -131,6 +132,8 @@ Useful rendering scenarios:
 | `mapping_cancel_during_work` | Cancel during boundary follow |
 | `mowing_happy_auto` | Full mowing `NOTIFY_RATEL_STATUS` chain → `WORKING` / `MOW_RUNNING` |
 | `mowing_trajectory_stream` | Hold `ON_THE_WAY` for `ROBOT_LOCATION` stream debugging |
+| `mowing_task_normal` | Normal mowing task + 90s map-based `ROBOT_LOCATION` (with App) |
+| `mowing_task_normal_standalone` | Same as above, self-contained for `/sim/panel` |
 
 ## Mower app联调
 
@@ -138,7 +141,7 @@ Useful rendering scenarios:
 2. Generate a local JWT using `JWT_SECRET` and set it as the mower mock `accessToken`.
 3. In mower app `mock/config.local.ts`, set `enabled: true` and `http.baseUrl: 'http://localhost:9900'`.
 4. Start the app. Business HTTP calls and WS pushes should now come from the simulator.
-5. Open `http://localhost:9900/sim/panel` to run scenarios or trigger raw FSM events.
+5. Open `http://localhost:9900/sim/panel`：先选场景并点击 **阅读说明** 查看前置条件与步骤，再运行场景或发送原始 FSM 事件。
 
 ## More docs
 

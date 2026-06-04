@@ -63,6 +63,21 @@ export const handleSimRoutes: RouteHandler<AppRouteContext> = async (req, res, u
     return true;
   }
 
+  if (url.pathname === '/sim/scenario/guide' && methodIs(req, 'GET')) {
+    const name = url.searchParams.get('name')?.trim();
+    if (!name) {
+      sendError(res, 400, 'query name is required');
+      return true;
+    }
+    const guide = ctx.scenarioEngine.getScenarioGuide(name);
+    if (!guide) {
+      sendError(res, 404, `scenario guide not found: ${name}`);
+      return true;
+    }
+    sendOk(res, guide);
+    return true;
+  }
+
   if (url.pathname === '/sim/scenario/run' && methodIs(req, 'POST')) {
     const body = await readJsonBody(req);
     const result = await ctx.scenarioEngine.run({

@@ -27,6 +27,18 @@ export interface MapHeaderFields {
   readonly frameSlicingTotal?: number;
   readonly frameSlicingId?: number;
   readonly frameSlicingIndex?: number;
+  /** 建图面积（m²）；缺省时按 `width × height × resolution²` 估算 */
+  readonly lawnArea?: number;
+}
+
+/** `ratel_backend_api.md` §3.1 `map_header.lawn_area` */
+export function estimateLawnAreaM2(
+  width: number,
+  height: number,
+  resolution: number,
+): number {
+  const area = width * height * resolution * resolution;
+  return Math.round(area * 10) / 10;
 }
 
 export interface EncodeMapMessageOptions {
@@ -64,6 +76,13 @@ function baseHeader(headerFields: MapHeaderFields, imageBytes: Buffer) {
     frame_slicing_id: headerFields.frameSlicingId ?? 0,
     frame_slicing_index: headerFields.frameSlicingIndex ?? 0,
     crc32: crc32(imageBytes),
+    lawn_area:
+      headerFields.lawnArea ??
+      estimateLawnAreaM2(
+        headerFields.width,
+        headerFields.height,
+        headerFields.resolution,
+      ),
   };
 }
 

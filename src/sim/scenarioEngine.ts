@@ -4,6 +4,11 @@ import yaml from 'js-yaml';
 import type { ChaosController, ChaosConfig } from './chaos';
 import type { Recorder } from './recorder';
 import type { RobotDomain, VirtualRobot, VirtualRobotSetup } from './virtualRobot';
+import {
+  listScenarioGuideSummaries,
+  loadScenarioGuide,
+  type ScenarioGuideDoc,
+} from './scenarioGuide';
 
 const SERVICE_ROOT = path.resolve(__dirname, '..', '..');
 const SCENARIO_ROOT = path.join(SERVICE_ROOT, 'scenarios');
@@ -83,7 +88,13 @@ export class ScenarioEngine {
     return {
       running: this.running,
       scenarios: this.listScenarios(),
+      catalog: listScenarioGuideSummaries(this.scenarioRoot),
     };
+  }
+
+  /** 读取场景 YAML 内 `guide` 块，供 Panel / API 展示。 */
+  getScenarioGuide(name: string): ScenarioGuideDoc | null {
+    return loadScenarioGuide(name, this.scenarioRoot);
   }
 
   stop(): void {

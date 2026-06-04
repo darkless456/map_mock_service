@@ -17,7 +17,15 @@ import type { ChaosController } from '../sim/chaos';
 import type { Recorder } from '../sim/recorder';
 import { OutboundHub } from './outbound';
 import { handleInboundMessage } from './inbound';
-import { advancePose, createPoseState, currentRobotPose } from '../data/mowingTrajectory';
+import {
+  advancePose,
+  createPoseState,
+  currentRobotPose,
+  getMowingTrajectoryDebugInfo,
+  resetPoseState,
+  type PoseState,
+} from '../data/mowingTrajectory';
+import { logger } from '../shared/logger';
 
 const DEFAULT_PUSH_INTERVAL_MS = 200;
 const WS_TERMINATE_GRACE_MS = 250;
@@ -48,8 +56,16 @@ export function createWsServer({
   const wss = new WebSocketServer({ noServer: true });
   const inspectWss = new WebSocketServer({ noServer: true });
   const outbound = new OutboundHub(wss, chaos, recorder);
-  const pose = createPoseState();
+  let pose: PoseState = createPoseState();
+  let lastMowingLocationStatus: string | null = null;
   let closed = false;
+
+  const trajectoryInfo = getMowingTrajectoryDebugInfo();
+  logger.info('mowing trajectory loaded', {
+    source: trajectoryInfo.source,
+    pointCount: trajectoryInfo.pointCount,
+    resolutionMPerPx: trajectoryInfo.resolutionMPerPx,
+  });
 
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
@@ -83,7 +99,8 @@ export function createWsServer({
       onLocationRegister: (client, sn) => {
         const task = robot.activeTask();
         if (!task || task.status !== 'ON_THE_WAY' || task.sn !== sn) return;
-        outbound.sendJson(client, buildRobotLocation(sn, currentRobotPose(pose)));
+        const mapId = taskMapId(task);
+        outbound.sendJson(client, buildRobotLocation(sn, currentRobotPose(pose), { mapId }));
       },
     }));
     ws.on('close', () => outbound.disposeClient(ws));
@@ -124,9 +141,21 @@ export function createWsServer({
 
   const locationTimer = setInterval(() => {
     const task = robot.activeTask();
-    if (!task || task.status !== 'ON_THE_WAY') return;
+    if (!task) {
+      lastMowingLocationStatus = null;
+      return;
+    }
+    if (task.status !== 'ON_THE_WAY') {
+      lastMowingLocationStatus = task.status;
+      return;
+    }
+    if (lastMowingLocationStatus !== 'ON_THE_WAY') {
+      resetPoseState(pose);
+    }
+    lastMowingLocationStatus = 'ON_THE_WAY';
+    const mapId = taskMapId(task);
     const current = advancePose(pose);
-    outbound.broadcastLocation(task.sn, buildRobotLocation(task.sn, current));
+    outbound.broadcastLocation(task.sn, buildRobotLocation(task.sn, current, { mapId }));
   }, 300);
 
   const mowTimer = setInterval(() => {
@@ -155,6 +184,11 @@ export function createWsServer({
       inspectWss.close();
     },
   };
+}
+
+function taskMapId(task: { task_info?: Record<string, unknown> }): string {
+  const mapId = task.task_info?.map_id;
+  return typeof mapId === 'string' && mapId.length > 0 ? mapId : 'mock_map_001';
 }
 
 function closeWebSocketClients(server: WebSocketServer): void {

@@ -91,6 +91,17 @@ export function createPoseState(): PoseState {
   };
 }
 
+/** 割草任务进入 `ON_THE_WAY` 时从语义地图路线起点重新开始。 */
+export function resetPoseState(pose: PoseState): void {
+  const fresh = createPoseState();
+  pose.points = fresh.points;
+  pose.index = fresh.index;
+  pose.direction = fresh.direction;
+  pose.x = fresh.x;
+  pose.y = fresh.y;
+  pose.angle = fresh.angle;
+}
+
 export function currentRobotPose(pose: PoseState): RobotPose {
   const point = { x: pose.x, y: pose.y };
   const target = pose.points[pose.index + pose.direction] ?? pose.points[pose.index - pose.direction] ?? point;

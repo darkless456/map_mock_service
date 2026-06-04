@@ -40,11 +40,26 @@ Between steps, scenarios use `wait: 5s`–`20s` (stream scenario holds 30s in st
 
 Mowing scenarios use `domain: mowing` and assume the App has already called `POST /ratel/central-control-service/api/v1/ratel_task/create` (mock FSM `PREPARING`) unless the scenario emits `CMD_START` itself.
 
+## 场景说明（Panel / API）
+
+每个 `scenarios/*.yaml` 可包含 `guide:` 块（中文标题、用途、前置条件、操作步骤、自动行为、耗时、推送类型）。在控制台阅读：
+
+1. 启动服务后打开 [http://localhost:9900/sim/panel](http://localhost:9900/sim/panel)
+2. 在「场景脚本」下拉框选择场景（选项显示 `[域] 标题 — 文件名`）
+3. 点击 **阅读说明** 展开/收起当前场景的逐步说明；切换场景时会自动刷新说明内容
+
+API：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/sim/scenarios` | 返回 `scenarios` 列表与 `catalog` 摘要 |
+| GET | `/sim/scenario/guide?name=<场景名>` | 返回完整 `guide` 文档（JSON） |
+
 ## Run
 
 1. `npm start` mock service; App `mock/config.local.ts` → mock base URL.
 2. On device: Prepare → Select mode → **CreateMap** (HTTP start).
-3. `/sim/panel` → run `mapping_happy_auto` **or** rely on HTTP start + manual NOTIFY from firmware.
+3. `/sim/panel` → 先 **阅读说明** 确认前置条件 → 运行 `mapping_happy_auto` **or** rely on HTTP start + manual NOTIFY from firmware.
 
 ```bash
 curl -s -X POST http://localhost:9900/sim/scenario/run \
@@ -61,8 +76,10 @@ curl -s -X POST http://localhost:9900/sim/scenario/run \
 | `mapping_pause_resume.yaml` | Pause / resume during cover |
 | `mapping_scan_failed_manual.yaml` | Scan fail → remote |
 | `mapping_cancel_during_work.yaml` | Cancel on edge |
-| `mowing_happy_auto.yaml` | Mowing NOTIFY flow → `WORKING` / `MOW_RUNNING` |
+| `mowing_happy_auto.yaml` | Mowing NOTIFY flow → `WORKING` / `MOW_RUNNING` (short hold) |
 | `mowing_trajectory_stream.yaml` | Hold `ON_THE_WAY` for `ROBOT_LOCATION` debugging |
+| `mowing_task_normal.yaml` | Full mowing flow + 90s semantic-map `ROBOT_LOCATION` (App HTTP create) |
+| `mowing_task_normal_standalone.yaml` | Same flow from `/sim/panel` without App (`CMD_START`) |
 
 ## Supported steps
 

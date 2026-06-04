@@ -1,5 +1,29 @@
 name: mapping_stream_incremental
 description: NOTIFY_RATEL streamable phases with 30s holds (scan / follow / cover)
+guide:
+  title: 建图 — 增量地图流（长时 hold）
+  domain_label: 建图
+  summary: 在可推流阶段长时间停留，持续输出 MAP_INCREMENTAL，用于 MapBuilder / 增量渲染联调。
+  when_to_use: >-
+    调试建图页增量瓦片、帧率、内存或 RustKit 帧解析；需要 WS 上持续有 MAP_INCREMENTAL 时选用。
+  simulates:
+    - NOTIFY 进入 MAP_SCAN_BOUNDARY / MAP_FOLLOW_BOUNDARY / MAP_COVERAGE_RUN
+    - 每个可推流 phase 停留 30s，期间 Mock 按 PUSH_INTERVAL_MS 广播增量帧
+  prerequisites:
+    - 同 mapping_happy_auto：App 已 HTTP mapping/start，处于 PREPARING
+    - 建议 App 停留在 CreateMap（MapBuilder 已挂载）
+  user_steps:
+    - 完成建图 HTTP start 后打开 /sim/panel
+    - 选择 mapping_stream_incremental 并运行
+    - 在 App 建图地图页观察增量 patch 是否持续刷新（约 90s+）
+    - 可在 State 面板查看 phase 是否在 scan / follow / cover 间切换
+  auto_behavior:
+    - notify 驱动 FSM 进入各 streamable phase
+    - wait 30s 让 mapTimer 持续 broadcast MAP_INCREMENTAL
+  duration: 约 2–3 分钟
+  pushes:
+    - NOTIFY_RATEL_STATUS
+    - MAP_INCREMENTAL（进入可推流 phase 后自动）
 domain: mapping
 setup:
   state: PREPARING

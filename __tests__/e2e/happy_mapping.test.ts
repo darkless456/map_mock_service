@@ -87,7 +87,9 @@ describe('e2e scenarios', () => {
     assert.ok(engine.listScenarios().includes('mapping_stream_incremental'));
     assert.ok(engine.listScenarios().includes('mowing_happy_auto'));
     assert.ok(engine.listScenarios().includes('mowing_trajectory_stream'));
-    assert.equal(engine.listScenarios().length, 7);
+    assert.ok(engine.listScenarios().includes('mowing_task_normal'));
+    assert.ok(engine.listScenarios().includes('mowing_task_normal_standalone'));
+    assert.equal(engine.listScenarios().length, 9);
   });
 
   it('pushes MAP_INCREMENTAL when entering a streamable mapping phase', async () => {

@@ -14,7 +14,7 @@ This document is the S0-S3 API contract for Mower Dev Simulator. Business API pa
 | `POST` | `/ratel/map-service/api/v1/ratel/semantic/save` | `{ code, data: { base_version } }` |
 | `POST` | `/ratel/api/v1/map/delete` | `{ code, data: { deleted, map_id } }` |
 | `POST` | `/ratel/api/v1/robot/self_check` | `{ code, data: { checked_at, overall, … } }` — 建图前置触发机器自检 |
-| `POST` | `/ratel/api/v1/mapping/check` | `{ code, data: { all_ok, conditions } }` — 建图条件检测（须先 self_check；mock 渐进返回） |
+| `POST` | `/ratel/api/v1/mapping/check` | `{ code, data: { bluetooth_status, cellular, wifi, … } }` 扁平 — 建图条件检测（须先 self_check；mock 渐进返回） |
 | `POST` | `/ratel/api/v1/mapping/start` | `{ code, data: { robot_code, robot_message, map_id } }` |
 | `POST` | `/ratel/api/v1/mapping/pause` | `{ code, data: { robot_code, robot_message } }` |
 | `POST` | `/ratel/api/v1/mapping/resume` | `{ code, data: { robot_code, robot_message } }` |
@@ -66,7 +66,7 @@ All JSON WS messages use:
 | `NOTIFY_MOW_STATUS` | Flattened `task_id`, `task_status`, `task_type`, `task_message`, `task_error_code`, `mow_area`, `mow_progress`, `estimated_time`; also duplicated under `payload`. |
 | `ROBOT_LOCATION` | `sn`, `mac`, `map_id`, `x`, `y`, `yaw`, `angle`, `timestamp`, `notify_time` |
 | `MAP_FIX` | Full map frame on WS connection. |
-| `MAP_INCREMENTAL` | Incremental map patches while mapping FSM is in a streaming phase. A frame is pushed immediately on streaming-state transitions, then continuously by `PUSH_INTERVAL_MS` while the phase remains streamable. |
+| `MAP_INCREMENTAL` | Incremental map patches while mapping FSM is in a streaming phase. `map_header` includes `lawn_area` (m², default `width×height×resolution²`). A frame is pushed immediately on streaming-state transitions, then continuously by `PUSH_INTERVAL_MS` while the phase remains streamable. |
 
 `MAP_MOCK_SLICE_BYTES` / `MMR_SLICE_BYTES` can force `MAP_FIX` and `MAP_INCREMENTAL` frame slicing. The simulator splits the gzip+base64 payload on base64-safe 4-character boundaries so each slice remains decodable by RustKit before fragment reassembly.
 

@@ -1,5 +1,23 @@
 name: mapping_cancel_during_work
 description: Cancel during edge_mapping (user CMD_CANCEL)
+guide:
+  title: 建图 — 沿边中取消
+  domain_label: 建图
+  summary: 在沿边建图阶段模拟用户取消任务。
+  when_to_use: 验证取消建图、FSM CANCELLED 与资源清理提示。
+  simulates:
+    - 初始 WORKING + MAP_FOLLOW_BOUNDARY
+    - emit CMD_CANCEL
+  prerequisites:
+    - 一般无需 App 操作；可直接在 panel 运行观察 Mock FSM
+  user_steps:
+    - 选择 mapping_cancel_during_work → 运行
+    - 确认 State 中 mapping.state 变为 CANCELLED
+  auto_behavior:
+    - 等待 10s 后下发 CMD_CANCEL
+  duration: 约 15 秒
+  pushes:
+    - NOTIFY_RATEL_STATUS（维持沿边 sub_status）
 domain: mapping
 setup:
   state: WORKING
