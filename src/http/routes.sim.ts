@@ -89,7 +89,12 @@ export const handleSimRoutes: RouteHandler<AppRouteContext> = async (req, res, u
   }
 
   if (url.pathname === '/sim/scenario/stop' && methodIs(req, 'POST')) {
+    const wasRunning = ctx.scenarioEngine.snapshot().running != null;
     ctx.scenarioEngine.stop();
+    // 中止场景仅停止脚本循环；WS 推流（mapTimer/locationTimer）由机器人 FSM 状态驱动，
+    // 若不复位机器人，停止后仍会持续广播 MAP_INCREMENTAL / ROBOT_LOCATION。
+    // 复位后 activeTask 置空、shouldStreamMap 为 false，两个推流定时器立即停止。
+    if (wasRunning) ctx.robot.reset();
     sendOk(res, ctx.scenarioEngine.snapshot());
     return true;
   }

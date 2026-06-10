@@ -84,12 +84,12 @@ describe('e2e scenarios', () => {
     const result = await engine.run({ name: 'mapping_happy_auto' });
     assert.equal(result.ok, true, result.error);
     assert.equal(robot.snapshot().mapping.state, 'COMPLETED');
-    assert.ok(engine.listScenarios().includes('mapping_stream_incremental'));
-    assert.ok(engine.listScenarios().includes('mowing_happy_auto'));
-    assert.ok(engine.listScenarios().includes('mowing_trajectory_stream'));
-    assert.ok(engine.listScenarios().includes('mowing_task_normal'));
-    assert.ok(engine.listScenarios().includes('mowing_task_normal_standalone'));
-    assert.equal(engine.listScenarios().length, 9);
+    assert.deepEqual([...engine.listScenarios()].sort(), [
+      'mapping_happy_auto',
+      'mapping_stream_incremental',
+      'mowing_happy_auto',
+      'mowing_trajectory_stream',
+    ]);
   });
 
   it('pushes MAP_INCREMENTAL when entering a streamable mapping phase', async () => {
@@ -227,13 +227,17 @@ describe('e2e scenarios', () => {
       ws.send(JSON.stringify({ cmd: 'LOCATION_REGISTER', cmd_id: 'unit-location-register', version: 1, data: { sn: robot.sn } }));
       const locationPromise = waitForCommandCount(ws, 'ROBOT_LOCATION', 2, 1600);
       const engine = new ScenarioEngine({ robot, chaos });
-      const result = await engine.run({ name: 'mowing_trajectory_stream' });
-      assert.equal(result.ok, true, result.error);
+      // mowing_trajectory_stream loops forever; run in background, assert frames, then stop.
+      const runPromise = engine.run({ name: 'mowing_trajectory_stream' });
       const locations = await locationPromise as Array<{ data?: { x?: number; y?: number; angle?: number } }>;
       assert.equal(locations.length, 2);
       assert.equal(typeof locations[0].data?.x, 'number');
       assert.equal(typeof locations[0].data?.y, 'number');
       assert.equal(typeof locations[0].data?.angle, 'number');
+      engine.stop();
+      const result = await runPromise;
+      assert.equal(result.ok, true, result.error);
+      assert.equal(result.stopped, true);
     } finally {
       ws.close();
       wsRuntime.close();

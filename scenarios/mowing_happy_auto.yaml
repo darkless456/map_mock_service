@@ -1,38 +1,50 @@
 name: mowing_happy_auto
 description: >-
-  WS NOTIFY_RATEL_STATUS mowing flow (align backend-status-mapper §5.2).
-  Assumes App already called ratel_task/create (PREPARING). Drives home mowing UI.
+  正常割草 happy flow。自建割草任务（emit CMD_START，无需 App HTTP create），按云端
+  NOTIFY_RATEL_STATUS 顺序 map_check → leave_dock → mowing → return_dock → idle，
+  走完整割草流程至 COMPLETE。期间若已 LOCATION_REGISTER 会推送 ROBOT_LOCATION。
 guide:
-  title: 割草 — NOTIFY 主流程（短）
+  title: 割草 — 正常流程（happy flow）
   domain_label: 割草
-  summary: 推送割草 NOTIFY 链至 WORKING/MOW_RUNNING，短时 ON_THE_WAY，不侧重轨迹长度。
-  when_to_use: 快速验证割草主页 FSM、按钮态与 NOTIFY_MOW_STATUS，不跑长轨迹。
+  summary: >-
+    完整割草 NOTIFY 主流程，从离桩、割草到回桩完成，验证正常割草流程的 UI、按钮态与任务完成。
+  when_to_use: 验证割草主页 FSM、按钮态、NOTIFY_MOW_STATUS 与任务完成流转是否正确。
   simulates:
-    - map_check → leave_dock → mowing 的 NOTIFY_RATEL_STATUS
-    - 任务保持 ON_THE_WAY 约 10s
+    - emit CMD_START 自建割草任务（IDLE → PREPARING）
+    - map_check → leave_dock → mowing → return_dock → idle 的 NOTIFY_RATEL_STATUS
+    - ON_THE_WAY 保持约 20s（已登记则推 ROBOT_LOCATION），最终 COMPLETE
   prerequisites:
-    - App mock 指向模拟器；WS 已连接
-    - App 已 POST 创建割草任务（PREPARING）
+    - 已启动 map_mock_service（npm start），App mock 指向模拟器；WS 已连接
+    - 如需轨迹，App 在割草活跃态发送 LOCATION_REGISTER
   user_steps:
-    - App 割草主页发起创建任务
-    - Panel 选择 mowing_happy_auto → 运行
-    - 观察割草 UI 与 mowing.state / phase
+    - 打开 /sim/panel，选择 mowing_happy_auto
+    - 点击「运行场景」，观察割草 UI 与右侧状态中 mowing.state / phase / task_status
+    - 等待场景结束（约 40 秒），确认任务 COMPLETE
   auto_behavior:
-    - setup PREPARING，按步骤 notify + expect
-  duration: 约 25 秒
+    - setup 为 IDLE，emit CMD_START 进入 PREPARING
+    - 依次 notify + expect，ON_THE_WAY 保持 20s，再 return_dock → idle 至 COMPLETED
+  duration: 约 40 秒
   pushes:
     - NOTIFY_RATEL_STATUS
     - NOTIFY_MOW_STATUS（FSM 变化时）
+    - ROBOT_LOCATION（需 LOCATION_REGISTER + ON_THE_WAY）
 domain: mowing
 setup:
-  state: PREPARING
+  state: IDLE
   phase: null
 steps:
+  - emit: { type: CMD_START, mode: auto, taskMode: MOW_GLOBAL }
+  - expect: { state: PREPARING }
   - notify: { work_status: mowing, sub_status: map_check }
   - wait: 3s
   - notify: { work_status: mowing, sub_status: leave_dock }
   - expect: { state: UNDOCKING }
   - wait: 5s
   - notify: { work_status: mowing, sub_status: mowing }
-  - expect: { state: WORKING, phase: MOW_RUNNING }
-  - wait: 10s
+  - expect: { state: WORKING, phase: MOW_RUNNING, task_status: ON_THE_WAY }
+  - wait: 20s
+  - notify: { work_status: mowing, sub_status: return_dock }
+  - expect: { phase: returning }
+  - wait: 6s
+  - notify: { work_status: idle, sub_status: none }
+  - expect: { state: COMPLETED, task_status: COMPLETE }

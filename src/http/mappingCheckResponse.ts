@@ -41,7 +41,11 @@ function buildFullConditions(robot: VirtualRobot): MappingCheckDataPayload {
   };
 }
 
-function emptyConditions(): MappingCheckDataPayload {
+type MutableMappingCheckData = {
+  -readonly [K in keyof MappingCheckDataPayload]: MappingCheckDataPayload[K];
+};
+
+function emptyConditions(): MutableMappingCheckData {
   return {
     bluetooth_status: '',
     bluetooth_msg: '',

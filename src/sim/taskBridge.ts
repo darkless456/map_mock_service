@@ -24,22 +24,34 @@ export function applyTaskAction(
   return err ? { error: err } : {};
 }
 
+function taskNotifyOf(task: MowingTaskRecord): Record<string, unknown> {
+  return {
+    task_id: task.task_id,
+    task_status: task.status,
+    task_type: task.task_type,
+    task_message: task.task_message,
+    task_error_code: task.task_error_code,
+    mow_area: task.mow_area,
+    mow_progress: task.mow_progress,
+    estimated_time: task.estimated_time,
+  };
+}
+
 export function buildTaskListData(robot: VirtualRobot, sn?: string): Record<string, unknown> {
   const tasks = robot.listTasks(sn);
   const active = tasks.find(task => task.status === 'ON_THE_WAY' || task.status === 'PAUSE') ?? null;
+  const createTimeSec = (task: MowingTaskRecord) => Math.floor(task.created_at / 1000);
   return {
     total: tasks.length,
-    list: tasks.map(task => ({ task_id: task.task_id, task_status: task.status })),
+    list: tasks.map(task => ({
+      task_id: task.task_id,
+      task_status: task.status,
+      task_info: task.task_info,
+      task_notify: taskNotifyOf(task),
+      create_time: createTimeSec(task),
+      update_time: createTimeSec(task),
+    })),
     task_info: active?.task_info ?? null,
-    task_notify: active
-      ? {
-          task_type: active.task_type,
-          task_message: active.task_message,
-          task_error_code: active.task_error_code,
-          mow_area: active.mow_area,
-          mow_progress: active.mow_progress,
-          estimated_time: active.estimated_time,
-        }
-      : null,
+    task_notify: active ? taskNotifyOf(active) : null,
   };
 }

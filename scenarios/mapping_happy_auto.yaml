@@ -1,40 +1,38 @@
 name: mapping_happy_auto
 description: >-
-  WS NOTIFY_RATEL_STATUS flow (align backend-status-mapper §5).
-  Assumes App already called mapping/start (PREPARING). Drives CreateMap ↔ DeviceStart navigation.
+  正常建图 happy flow。自建建图任务（emit CMD_START，无需 App HTTP mapping/start），
+  按云端 NOTIFY_RATEL_STATUS 顺序从自检走到 COMPLETED，驱动 App 页面跳转。
 guide:
-  title: 建图 — 完整快乐路径
+  title: 建图 — 正常流程（happy flow）
   domain_label: 建图
-  summary: 模拟云端建图 NOTIFY 全链路，从自检到 COMPLETED，驱动 App 页面跳转。
+  summary: 模拟云端建图 NOTIFY 全链路，从自检到 COMPLETED，验证正常建图主流程与页面跳转。
   when_to_use: >-
     验证建图主流程 UI、FSM 与导航（Prepare → DeviceStart → CreateMap → 完成）是否与后端 §5.1 状态机一致。
-    适合首次联调建图或回归「正常建图」。
   simulates:
+    - emit CMD_START 自建建图任务（IDLE → PREPARING）
     - 按顺序推送 NOTIFY_RATEL_STATUS（precondition → leave_dock → find_boundary → … → idle）
-    - Mock FSM 与 App TaskEventPipeline 同步迁移
-    - 各阶段之间保留数秒等待，便于观察界面
+    - Mock FSM 与 App TaskEventPipeline 同步迁移，各阶段间保留数秒便于观察
   prerequisites:
     - 已启动 map_mock_service（npm start），App mock 指向 http://localhost:9900
     - App 已登录且 WS 已连接
-    - 已在建图准备页点击开始，完成 HTTP POST /mapping/start（Mock FSM 处于 PREPARING）
   user_steps:
-    - 启动模拟器与 Mower App，确认 mock 配置 enabled
-    - 在 App 走建图准备 → 选择模式 → 进入 CreateMap（触发 mapping/start）
-    - 浏览器打开 http://localhost:9900/sim/panel，场景选择 mapping_happy_auto
-    - 点击「运行场景」，观察 App 页面与右侧 State 中 mapping.state / phase
-    - 等待场景结束（约 2 分钟），确认最终 state 为 COMPLETED
+    - 启动模拟器与 App，确认 mock 配置 enabled
+    - 浏览器打开 /sim/panel，场景选择 mapping_happy_auto
+    - 点击「运行场景」，观察 App 页面与右侧状态中 mapping.state / phase
+    - 等待场景结束（约 1.5 分钟），确认最终 state 为 COMPLETED
   auto_behavior:
-    - setup 将 Mock 机器人设为 PREPARING
-    - 依次 notify 各 sub_status，expect 校验 FSM 快照
-    - 不自动发送 MAP_INCREMENTAL（本场景侧重 NOTIFY 导航）
-  duration: 约 1.5–2 分钟
+    - setup 为 IDLE，emit CMD_START 进入 PREPARING
+    - 依次 notify 各 sub_status，expect 校验 FSM 快照，直至 COMPLETED
+    - 不自动发送 MAP_INCREMENTAL（侧重 NOTIFY 导航；如需增量帧用 mapping_stream_incremental）
+  duration: 约 1.5 分钟
   pushes:
     - NOTIFY_RATEL_STATUS（work_status=mapping / idle）
 domain: mapping
 setup:
-  state: PREPARING
+  state: IDLE
   phase: null
 steps:
+  - emit: { type: CMD_START, mode: auto, taskMode: MAP_BUILD }
   - notify: { work_status: mapping, sub_status: precondition }
   - expect: { state: PREPARING }
   - wait: 5s
@@ -43,18 +41,18 @@ steps:
   - wait: 6s
   - notify: { work_status: mapping, sub_status: find_boundary }
   - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY }
-  - wait: 18s
+  - wait: 12s
   - notify: { work_status: mapping, sub_status: edge_mapping }
   - expect: { phase: MAP_FOLLOW_BOUNDARY }
-  - wait: 20s
+  - wait: 12s
   - notify: { work_status: mapping, sub_status: map_edge_finish }
   - expect: { phase: MAP_BOUNDARY_DONE }
-  - wait: 10s
+  - wait: 8s
   - notify: { work_status: mapping, sub_status: bow_cover }
   - expect: { phase: MAP_COVERAGE_RUN }
-  - wait: 16s
+  - wait: 12s
   - notify: { work_status: mapping, sub_status: exit_mapping }
   - expect: { phase: MAP_COVERAGE_DONE }
-  - wait: 7s
+  - wait: 6s
   - notify: { work_status: idle, sub_status: none }
   - expect: { state: COMPLETED, phase: MAP_COVERAGE_DONE }

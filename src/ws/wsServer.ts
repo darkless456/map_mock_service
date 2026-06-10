@@ -90,14 +90,36 @@ export function createWsServer({
 
   wss.on('connection', (ws: WebSocket) => {
     outbound.initClient(ws);
+    // 模拟器健壮性：连接即自动订阅当前机器人 SN 的位置流。
+    // 真机 / 线上后端要求显式 LOCATION_REGISTER，但部分客户端（如本 POC 的 RN 集成）
+    // 的原生 wsSend 上行可能不可靠，导致 LOCATION_REGISTER 到不了服务端、收不到
+    // ROBOT_LOCATION。作为开发模拟器，这里默认把每个连接登记为位置订阅者，保证只要
+    // 任务 ON_THE_WAY 机器人就会动；客户端显式 LOCATION_REGISTER/UNREGISTER 仍照常生效。
+    outbound.registerLocation(ws, robot.sn);
+    logger.info('client connected → auto-subscribed location', { robotSn: robot.sn });
     mapStream.fullFrame(robot.sn).forEach(message => outbound.sendRaw(ws, message));
     outbound.sendJson(ws, buildNotifyRatelStatus(robot, buildCurrentRatelStatusPayload(robot)));
     const activeTask = robot.activeTask();
-    if (activeTask) outbound.sendJson(ws, buildMowStatus(activeTask));
+    // 仅在任务处于活跃态时向新连接补发 NOTIFY_MOW_STATUS。
+    // 终态任务（COMPLETE/CANCEL/FAILED）会让 App 割草页直接进入 finished，
+    // 阻断「底图就绪 → REST 建任务 → LOCATION_REGISTER」的自动握手，
+    // 导致重新进入割草页后收不到 ROBOT_LOCATION、机器人与轨迹都不刷新。
+    if (activeTask && (activeTask.status === 'ON_THE_WAY' || activeTask.status === 'PAUSE')) {
+      outbound.sendJson(ws, buildMowStatus(activeTask));
+    }
 
     ws.on('message', raw => handleInboundMessage(ws, raw, outbound, recorder, {
       onLocationRegister: (client, sn) => {
         const task = robot.activeTask();
+        logger.info('LOCATION_REGISTER received', {
+          registerSn: sn,
+          robotSn: robot.sn,
+          snMatchesRobot: sn === robot.sn,
+          hasActiveTask: !!task,
+          taskSn: task?.sn ?? null,
+          taskStatus: task?.status ?? null,
+          subscriberCount: outbound.locationSubscriberCount(sn),
+        });
         if (!task || task.status !== 'ON_THE_WAY' || task.sn !== sn) return;
         const mapId = taskMapId(task);
         outbound.sendJson(client, buildRobotLocation(sn, currentRobotPose(pose), { mapId }));
@@ -139,6 +161,7 @@ export function createWsServer({
     outbound.broadcastRawMany(mapStream.nextFrame({ sn: robot.sn }));
   }, pushIntervalMs);
 
+  let locationTickLogAt = 0;
   const locationTimer = setInterval(() => {
     const task = robot.activeTask();
     if (!task) {
@@ -155,6 +178,17 @@ export function createWsServer({
     lastMowingLocationStatus = 'ON_THE_WAY';
     const mapId = taskMapId(task);
     const current = advancePose(pose);
+    // 诊断：每秒最多一条，确认正在推流以及订阅者数量。
+    const now = Date.now();
+    if (now - locationTickLogAt > 1000) {
+      locationTickLogAt = now;
+      logger.info('ROBOT_LOCATION broadcast', {
+        taskSn: task.sn,
+        subscriberCount: outbound.locationSubscriberCount(task.sn),
+        x: current.x,
+        y: current.y,
+      });
+    }
     outbound.broadcastLocation(task.sn, buildRobotLocation(task.sn, current, { mapId }));
   }, 300);
 

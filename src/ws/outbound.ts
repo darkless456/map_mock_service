@@ -63,4 +63,13 @@ export class OutboundHub {
       if (subs?.has(sn)) this.sendRaw(client, message);
     });
   }
+
+  /** 诊断：当前对某 sn 已登记的订阅者数量。 */
+  locationSubscriberCount(sn: string): number {
+    let count = 0;
+    this.wss.clients.forEach(client => {
+      if (this.locationSubs.get(client)?.has(sn)) count += 1;
+    });
+    return count;
+  }
 }

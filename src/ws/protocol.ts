@@ -9,6 +9,13 @@ const FORCE_SLICE_BYTES = (() => {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 })();
 
+// 真实后端的建图增量帧只做 base64，不做 gzip 压缩。Mock 默认保持一致（不压缩），
+// 仅当显式设置 MMR_GZIP=1 / MAP_MOCK_GZIP=1 时才启用 gzip，用于回归测试压缩解码路径。
+const GZIP_MAP_DATA = (() => {
+  const raw = process.env.MMR_GZIP || process.env.MAP_MOCK_GZIP;
+  return raw === '1' || raw === 'true';
+})();
+
 export interface MapHeaderFields {
   readonly version?: number;
   readonly msgType?: number;
@@ -50,7 +57,8 @@ export interface EncodeMapMessageOptions {
 }
 
 export function encodeMapData(rawBuffer: Buffer): string {
-  return zlib.gzipSync(rawBuffer).toString('base64');
+  const payload = GZIP_MAP_DATA ? zlib.gzipSync(rawBuffer) : rawBuffer;
+  return payload.toString('base64');
 }
 
 function baseHeader(headerFields: MapHeaderFields, imageBytes: Buffer) {

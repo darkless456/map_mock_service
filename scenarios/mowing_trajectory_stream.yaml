@@ -1,38 +1,48 @@
 name: mowing_trajectory_stream
 description: >-
-  Starts mowing and holds ON_THE_WAY so LOCATION_REGISTER clients receive
-  semantic-zero ROBOT_LOCATION every 300ms.
+  无限循环割草轨迹帧。自建割草任务并保持 ON_THE_WAY，对已 LOCATION_REGISTER 的连接
+  每 300ms 推送 ROBOT_LOCATION（沿 full_semanticmap.png 草地语义区域弓字形路线移动）。
+  任务自然割完后自动重置并重新开始，实现无限循环。
 guide:
-  title: 割草 — 位置流短测（5s）
+  title: 割草 — 无限循环机器人轨迹（渲染压测）
   domain_label: 割草
-  summary: 自建割草任务并进入 ON_THE_WAY，便于快速验证 LOCATION_REGISTER 后 ROBOT_LOCATION。
+  summary: >-
+    自建割草任务并持续保持 ON_THE_WAY，沿语义地图弓字形路线无限输出 ROBOT_LOCATION（300ms/帧），
+    专用于测试机器人割草移动渲染效果。需手动点击「停止场景」结束。
   when_to_use: >-
-    调试 WS 位置登记与首帧推送；不需要完整 NOTIFY 时长时用本场景（无需 App HTTP 创建）。
+    联调割草主页地图上机器人图标、轨迹线、已割区域的渲染；希望位置流一直不停时使用。
   simulates:
-    - emit CMD_START 创建 Mock 任务
-    - 快速 NOTIFY 链至 mowing / ON_THE_WAY
-    - 保持 5s（期间若已 LOCATION_REGISTER 则 300ms 推位置）
+    - emit CMD_START 自建割草任务（无需 App HTTP create）
+    - notify 链至 mowing / ON_THE_WAY
+    - 对已 LOCATION_REGISTER 的连接按语义地图路线 300ms 推送 ROBOT_LOCATION
+    - 任务割完后自动 reset + 重新开始，循环不止
   prerequisites:
-    - 模拟器已启动；建议先 POST /sim/reset
+    - 已启动 map_mock_service（npm start）
     - App 或测试客户端需发送 LOCATION_REGISTER（见 ratel_backend_api §6.2）
   user_steps:
     - 打开 /sim/panel，选择 mowing_trajectory_stream
-    - App 连上 WS 并 LOCATION_REGISTER（或在割草任务活跃时由 App 自动登记）
-    - 点击运行，观察是否收到 ROBOT_LOCATION
+    - App 连上 WS 并 LOCATION_REGISTER（割草活跃时通常自动登记）
+    - 点击「运行场景」，在地图页观察机器人沿草地区域持续移动
+    - 测试完成后点击「停止场景」
   auto_behavior:
-    - 从 IDLE emit CMD_START，连续 notify 至 ON_THE_WAY，wait 5s
-  duration: 约 10–15 秒
+    - setup 为 IDLE
+    - loop 每轮：CMD_RESET（仅在已完成时生效）→ CMD_START → notify 至 ON_THE_WAY → 保持 5s
+    - 任务自然完成后下一轮自动重置并重建任务，轨迹从路线起点重新开始
+  duration: 无限（手动停止）
   pushes:
     - NOTIFY_RATEL_STATUS
-    - ROBOT_LOCATION（需 LOCATION_REGISTER + ON_THE_WAY）
+    - NOTIFY_MOW_STATUS
+    - ROBOT_LOCATION（300ms，需 LOCATION_REGISTER + ON_THE_WAY）
 domain: mowing
 setup:
   state: IDLE
   phase: null
 steps:
-  - emit: { type: CMD_START, mode: auto, taskMode: MOW_GLOBAL }
-  - notify: { work_status: mowing, sub_status: map_check }
-  - notify: { work_status: mowing, sub_status: leave_dock }
-  - notify: { work_status: mowing, sub_status: mowing }
-  - expect: { state: WORKING, phase: MOW_RUNNING, task_status: ON_THE_WAY }
-  - wait: 5s
+  - loop:
+      steps:
+        - emit: { type: CMD_RESET }
+        - emit: { type: CMD_START, mode: auto, taskMode: MOW_GLOBAL }
+        - notify: { work_status: mowing, sub_status: map_check }
+        - notify: { work_status: mowing, sub_status: leave_dock }
+        - notify: { work_status: mowing, sub_status: mowing }
+        - wait: 5s

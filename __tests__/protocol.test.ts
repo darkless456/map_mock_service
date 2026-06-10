@@ -1,6 +1,5 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import zlib from 'node:zlib';
 import {
   encodeMapData,
   encodeMapMessage,
@@ -30,19 +29,19 @@ const sampleFields = {
 };
 
 describe('encodeMapData', () => {
-  it('is reversible gzip+base64', () => {
+  it('is plain base64 (no gzip) to match real backend', () => {
     const encoded = encodeMapData(imageBytes);
-    const decompressed = zlib.gunzipSync(Buffer.from(encoded, 'base64'));
-    assert.deepEqual(decompressed, imageBytes);
+    assert.deepEqual(Buffer.from(encoded, 'base64'), imageBytes);
   });
 
   it('splits base64 only on decodable chunk boundaries', () => {
-    const encoded = encodeMapData(Buffer.from('mock incremental frame payload'));
+    const payload = 'mock incremental frame payload';
+    const encoded = encodeMapData(Buffer.from(payload));
     const chunks = splitBase64IntoDecodableChunks(encoded, 7);
     assert.ok(chunks.length > 1);
     assert.ok(chunks.slice(0, -1).every(chunk => chunk.length % 4 === 0));
-    const compressed = Buffer.concat(chunks.map(chunk => Buffer.from(chunk, 'base64')));
-    assert.equal(zlib.gunzipSync(compressed).toString(), 'mock incremental frame payload');
+    const reassembled = Buffer.concat(chunks.map(chunk => Buffer.from(chunk, 'base64')));
+    assert.equal(reassembled.toString(), payload);
   });
 });
 

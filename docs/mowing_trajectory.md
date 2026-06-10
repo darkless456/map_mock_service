@@ -27,15 +27,17 @@ If the PNG is missing or unreadable, the generator falls back to the old determi
 1. Start the simulator with `npm start`.
 2. Open the POC mowing screen and let it create a mock mowing task.
 3. The app sends `LOCATION_REGISTER`; the simulator immediately sends the current semantic-zero pose and then pushes `ROBOT_LOCATION` every 300ms while the active task is `ON_THE_WAY`.
-4. For scenario-based checks, run `mowing_task_normal` (full flow + 90s trajectory) or `mowing_trajectory_stream` (short hold) from `/sim/panel`:
+4. For scenario-based checks, run `mowing_trajectory_stream`（无限循环轨迹，自建任务）或 `mowing_happy_auto`（正常割草流程）from `/sim/panel`：
 
 ```bash
 curl -s -X POST http://localhost:9900/sim/scenario/run \
   -H 'Content-Type: application/json' \
-  -d '{"name":"mowing_task_normal"}'
+  -d '{"name":"mowing_trajectory_stream"}'
 ```
 
-Panel-only (no App HTTP create): `mowing_task_normal_standalone`.
+`mowing_trajectory_stream` 为无限循环，测试完成后调用 `POST /sim/scenario/stop` 或在 Panel 点击「停止场景」（停止时会一并复位机器人，立即停止推流）。两个割草场景都自带 `CMD_START`，无需 App 先 HTTP create。
+
+> **App 收不到轨迹的一个常见坑**：若上一轮场景留下终态任务（`COMPLETE`/`CANCEL`/`FAILED`），App 割草页在 WS 建连时会收到该终态 `NOTIFY_MOW_STATUS` 并直接进入 `finished`，从而不再执行「建图就绪 → REST 建任务 → `LOCATION_REGISTER`」自动握手，导致再进割草页时机器人与轨迹都不刷新。模拟器现已在连接建立时**只对活跃任务（`ON_THE_WAY`/`PAUSE`）补发** `NOTIFY_MOW_STATUS`；如仍异常，可先 `POST /sim/reset` 清理状态。
 
 Alternatively create a task via `POST /ratel/central-control-service/api/v1/ratel_task/create`.
 

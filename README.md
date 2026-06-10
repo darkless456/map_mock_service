@@ -123,17 +123,14 @@ Checked-in scenarios live in [scenarios](scenarios). `recordings/*.jsonl` is git
 
 Useful rendering scenarios:
 
-| Scenario | Use |
-|---|---|
-| `mapping_happy_auto` | Full `NOTIFY_RATEL_STATUS` chain → DeviceStart / CreateMap navigation → `COMPLETED` |
-| `mapping_stream_incremental` | Long holds in streamable phases for `MAP_INCREMENTAL` / MapBuilder POC |
-| `mapping_pause_resume` | Pause / resume during coverage |
-| `mapping_scan_failed_manual` | Scan failure → remote control |
-| `mapping_cancel_during_work` | Cancel during boundary follow |
-| `mowing_happy_auto` | Full mowing `NOTIFY_RATEL_STATUS` chain → `WORKING` / `MOW_RUNNING` |
-| `mowing_trajectory_stream` | Hold `ON_THE_WAY` for `ROBOT_LOCATION` stream debugging |
-| `mowing_task_normal` | Normal mowing task + 90s map-based `ROBOT_LOCATION` (with App) |
-| `mowing_task_normal_standalone` | Same as above, self-contained for `/sim/panel` |
+所有场景均自包含（`emit CMD_START` 自建任务），直接在 `/sim/panel` 运行。两个 `*_stream` 为无限循环，需手动「停止场景」。
+
+| Scenario | Use | 结束 |
+|---|---|---|
+| `mapping_happy_auto` | 正常建图 happy flow：完整 `NOTIFY_RATEL_STATUS` 链 → DeviceStart / CreateMap 导航 → `COMPLETED` | 自动 |
+| `mowing_happy_auto` | 正常割草 happy flow：`map_check → mowing → return_dock → idle` → `COMPLETE` | 自动 |
+| `mapping_stream_incremental` | 无限循环：可推流建图阶段间循环，持续 `MAP_INCREMENTAL`（测建图渲染） | 手动停止 |
+| `mowing_trajectory_stream` | 无限循环：保持 `ON_THE_WAY`，沿语义地图持续 `ROBOT_LOCATION`（测割草轨迹渲染） | 手动停止 |
 
 ## Mower app联调
 

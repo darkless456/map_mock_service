@@ -4,6 +4,7 @@ import yaml from 'js-yaml';
 import type { ChaosController, ChaosConfig } from './chaos';
 import type { Recorder } from './recorder';
 import type { RobotDomain, VirtualRobot, VirtualRobotSetup } from './virtualRobot';
+import type { SimView } from './simFsmTypes';
 import {
   listScenarioGuideSummaries,
   loadScenarioGuide,
@@ -13,16 +14,35 @@ import {
 const SERVICE_ROOT = path.resolve(__dirname, '..', '..');
 const SCENARIO_ROOT = path.join(SERVICE_ROOT, 'scenarios');
 
+export interface LoopStep {
+  /** Inner steps repeated each iteration. */
+  readonly steps?: readonly ScenarioStep[];
+  /** Optional cap; omit (or <= 0) for an infinite loop until the scenario is stopped. */
+  readonly maxIterations?: number;
+}
+
 export type ScenarioStep =
   | { readonly emit: Record<string, unknown> }
   | { readonly notify: Record<string, unknown> }
   | { readonly expect: Record<string, unknown> }
   | { readonly wait: string | number | { readonly until?: Record<string, unknown>; readonly timeout?: string | number } }
+  | { readonly loop: LoopStep }
   | { readonly chaos: ChaosConfig }
   | { readonly note: string }
   | { readonly include: string }
   | { readonly record: boolean | string | Record<string, unknown> }
   | { readonly stopRecord: boolean };
+
+/** Thrown to unwind the step stack when {@link ScenarioEngine.stop} is called. */
+class ScenarioStopped extends Error {
+  constructor() {
+    super('scenario stopped');
+    this.name = 'ScenarioStopped';
+  }
+}
+
+/** Keeps `logs` bounded so infinite-loop scenarios don't grow memory without limit. */
+const MAX_SCENARIO_LOGS = 500;
 
 export interface ScenarioDefinition {
   readonly name: string;
@@ -52,6 +72,8 @@ export interface ScenarioRunResult {
   readonly logs: readonly ScenarioRunLog[];
   readonly finalState: ReturnType<VirtualRobot['snapshot']>;
   readonly error?: string;
+  /** True when the run ended because {@link ScenarioEngine.stop} was called (not a failure). */
+  readonly stopped?: boolean;
 }
 
 export interface ScenarioEngineOptions {
@@ -131,6 +153,17 @@ export class ScenarioEngine {
         finalState: this.robot.snapshot(),
       };
     } catch (error) {
+      if (error instanceof ScenarioStopped) {
+        return {
+          ok: true,
+          stopped: true,
+          name: scenario.name,
+          startedAt,
+          endedAt: new Date().toISOString(),
+          logs,
+          finalState: this.robot.snapshot(),
+        };
+      }
       return {
         ok: false,
         name: scenario.name,
@@ -158,8 +191,15 @@ export class ScenarioEngine {
     }
 
     for (const step of scenario.steps) {
-      if (this.abortRequested) throw new Error('scenario stopped');
+      if (this.abortRequested) throw new ScenarioStopped();
       await this.executeStep(step, domain, logs, includeStack);
+    }
+  }
+
+  private pushLog(logs: ScenarioRunLog[], entry: ScenarioRunLog): void {
+    logs.push(entry);
+    if (logs.length > MAX_SCENARIO_LOGS) {
+      logs.splice(0, logs.length - MAX_SCENARIO_LOGS);
     }
   }
 
@@ -200,7 +240,23 @@ export class ScenarioEngine {
 
     if ('wait' in step) {
       await this.executeWait(step.wait, domain);
-      logs.push({ index, kind: 'wait', ok: true, detail: step.wait });
+      this.pushLog(logs, { index, kind: 'wait', ok: true, detail: step.wait });
+      return;
+    }
+
+    if ('loop' in step) {
+      const inner = Array.isArray(step.loop?.steps) ? step.loop.steps : [];
+      if (inner.length === 0) throw new Error(`step ${index}: loop.steps must be a non-empty array`);
+      const rawMax = step.loop?.maxIterations;
+      const maxIterations = typeof rawMax === 'number' && rawMax > 0 ? Math.floor(rawMax) : Infinity;
+      this.pushLog(logs, { index, kind: 'loop', ok: true, detail: { maxIterations: rawMax ?? 'infinite', steps: inner.length } });
+      for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+        if (this.abortRequested) throw new ScenarioStopped();
+        for (const child of inner) {
+          if (this.abortRequested) throw new ScenarioStopped();
+          await this.executeStep(child, domain, logs, includeStack);
+        }
+      }
       return;
     }
 
@@ -251,13 +307,20 @@ export class ScenarioEngine {
       const timeoutMs = parseDuration((value as { timeout?: string | number }).timeout ?? '3000ms');
       const started = Date.now();
       while (Date.now() - started <= timeoutMs) {
+        if (this.abortRequested) throw new ScenarioStopped();
         const result = matchExpectation(this.robot.snapshot(), (value as { until?: Record<string, unknown> }).until ?? {}, domain);
         if (result.ok) return;
         await delay(50);
       }
       throw new Error(`wait.until timeout after ${timeoutMs}ms`);
     }
-    await delay(parseDuration(value as string | number));
+    const totalMs = parseDuration(value as string | number);
+    const started = Date.now();
+    while (Date.now() - started < totalMs) {
+      if (this.abortRequested) throw new ScenarioStopped();
+      const remaining = totalMs - (Date.now() - started);
+      await delay(Math.min(50, remaining));
+    }
   }
 
   private resolveScenario(request: ScenarioRunRequest): ScenarioDefinition {
@@ -351,7 +414,7 @@ function matchExpectation(
   expected: Record<string, unknown>,
   domain: RobotDomain,
 ): { ok: boolean; message: string; mismatches: string[] } {
-  const ctx = domain === 'mowing' ? snapshot.mowing : snapshot.mapping;
+  const ctx = (domain === 'mowing' ? snapshot.mowing : snapshot.mapping) as SimView<string>;
   const view = {
     ...snapshot,
     ...ctx,

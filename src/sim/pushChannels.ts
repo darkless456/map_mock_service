@@ -1,5 +1,6 @@
 import type { VirtualRobot, MowingTaskRecord, VirtualRobotSnapshot } from './virtualRobot';
 import type { RatelStatusPushPayload } from './ratelStatusPush';
+import type { SimTaskState, SimView } from './simFsmTypes';
 import { createId } from '../shared/ids';
 
 export interface WsEnvelope<TData = Record<string, unknown>> {
@@ -22,12 +23,24 @@ function signalPayload() {
   return {
     bluetooth: { connected: 1, rssi: -55 },
     wifi: { connected: 1, ssid: 'MockWiFi', rssi: -60, signal_strength: 'good' },
-    cellular: { connected: 0, signal_strength: 'weak' },
+    cellular: { connected: -1, signal_strength: 'none' },
   };
 }
 
 function activeContext(snapshot: VirtualRobotSnapshot) {
   return snapshot.activeDomain === 'mowing' ? snapshot.mowing : snapshot.mapping;
+}
+
+/**
+ * Coerces internal FSM work-status into the cloud WS enum
+ * (`idle` / `mowing` / `charging` / `mapping` / `error`), per `ratel_backend_api.md` §2.2.
+ * `estop` → `error`; legacy `mapping_completed` is not a cloud value → `idle`
+ * (completion surfaces as `sub_status: exit_mapping` then `work_status: idle`).
+ */
+function toCloudWorkStatus(rawWork: string): string {
+  if (rawWork === 'estop') return 'error';
+  if (rawWork === 'mapping_completed') return 'idle';
+  return rawWork;
 }
 
 /** Derives `sub_status` from mock FSM when no prior NOTIFY was recorded. */
@@ -73,7 +86,7 @@ export function buildCurrentRatelStatusPayload(robot: VirtualRobot): RatelStatus
   const snapshot = robot.snapshot();
   const ctx = activeContext(snapshot);
   const rawWork = robot.lastNotifyWorkStatus ?? robot.workStatus();
-  const workStatus = rawWork === 'estop' ? 'error' : rawWork;
+  const workStatus = toCloudWorkStatus(rawWork);
   return {
     sn: snapshot.sn,
     work_status: workStatus,
@@ -88,15 +101,15 @@ export function buildNotifyRatelStatus(
   payload: RatelStatusPushPayload,
 ): WsEnvelope<Record<string, unknown>> {
   const snapshot = robot.snapshot();
-  const ctx = activeContext(snapshot);
-  const capabilities = (ctx as { capabilities?: { canSwitchManual: boolean; canSwitchAuto: boolean } }).capabilities ?? {
+  const ctx = activeContext(snapshot) as SimView<string>;
+  const capabilities = ctx.capabilities ?? {
     canSwitchManual: false,
     canSwitchAuto: false,
   };
   const workStatus = payload.work_status;
   const subStatus = payload.sub_status;
   const batteryLevel = payload.battery_level ?? ctx.battery ?? 80;
-  const isEstop = ctx.state === 'ESTOPPED';
+  const isEstop = (ctx.state as SimTaskState) === 'ESTOPPED';
   return {
     cmd: 'NOTIFY_RATEL_STATUS',
     cmd_id: createId(),

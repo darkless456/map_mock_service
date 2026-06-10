@@ -18,9 +18,15 @@ describe('scenarioGuide', () => {
     assert.equal(doc!.domainLabel, '建图');
   });
 
-  it('lists catalog with at least nine scenarios', () => {
+  it('lists the four core scenarios', () => {
     const catalog = listScenarioGuideSummaries(DEFAULT_SCENARIO_ROOT);
-    assert.ok(catalog.length >= 9);
+    const names = catalog.map(entry => entry.name).sort();
+    assert.deepEqual(names, [
+      'mapping_happy_auto',
+      'mapping_stream_incremental',
+      'mowing_happy_auto',
+      'mowing_trajectory_stream',
+    ]);
     const happy = catalog.find(entry => entry.name === 'mapping_happy_auto');
     assert.ok(happy);
     assert.ok(happy!.summary.length > 0);

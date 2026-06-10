@@ -1,48 +1,50 @@
 name: mapping_stream_incremental
-description: NOTIFY_RATEL streamable phases with 30s holds (scan / follow / cover)
+description: >-
+  无限循环增量建图帧。自建建图任务并在可推流阶段（扫边/沿边/弓字覆盖）间循环切换，
+  Mock 持续按 PUSH_INTERVAL_MS 广播 MAP_INCREMENTAL（地图 patch 循环复用），用于联调建图渲染。
 guide:
-  title: 建图 — 增量地图流（长时 hold）
+  title: 建图 — 无限循环增量帧（渲染压测）
   domain_label: 建图
-  summary: 在可推流阶段长时间停留，持续输出 MAP_INCREMENTAL，用于 MapBuilder / 增量渲染联调。
+  summary: >-
+    自建建图任务后在可推流阶段间无限循环，持续输出 MAP_INCREMENTAL，专用于测试建图地图渲染效果。
+    需手动点击「停止场景」结束。
   when_to_use: >-
-    调试建图页增量瓦片、帧率、内存或 RustKit 帧解析；需要 WS 上持续有 MAP_INCREMENTAL 时选用。
+    调试建图页增量瓦片渲染、帧率、内存或 RustKit 帧解析；希望 WS 上一直有 MAP_INCREMENTAL 时使用。
   simulates:
-    - NOTIFY 进入 MAP_SCAN_BOUNDARY / MAP_FOLLOW_BOUNDARY / MAP_COVERAGE_RUN
-    - 每个可推流 phase 停留 30s，期间 Mock 按 PUSH_INTERVAL_MS 广播增量帧
+    - emit CMD_START 自建建图任务（无需 App HTTP mapping/start）
+    - 在 MAP_SCAN_BOUNDARY / MAP_FOLLOW_BOUNDARY / MAP_COVERAGE_RUN 之间无限循环
+    - 全程保持可推流状态，Mock 每 PUSH_INTERVAL_MS 广播一帧（patch 循环复用）
   prerequisites:
-    - 同 mapping_happy_auto：App 已 HTTP mapping/start，处于 PREPARING
-    - 建议 App 停留在 CreateMap（MapBuilder 已挂载）
+    - 已启动 map_mock_service（npm start）
+    - App 已登录且 WS 已连接（或任意 WS 客户端已握手）
   user_steps:
-    - 完成建图 HTTP start 后打开 /sim/panel
-    - 选择 mapping_stream_incremental 并运行
-    - 在 App 建图地图页观察增量 patch 是否持续刷新（约 90s+）
-    - 可在 State 面板查看 phase 是否在 scan / follow / cover 间切换
+    - 打开 /sim/panel，选择 mapping_stream_incremental
+    - 点击「运行场景」，在 App 建图地图页观察增量 patch 是否持续刷新
+    - 观察右侧状态中 phase 在 scan / follow / cover 间循环切换
+    - 测试完成后点击「停止场景」
   auto_behavior:
-    - notify 驱动 FSM 进入各 streamable phase
-    - wait 30s 让 mapTimer 持续 broadcast MAP_INCREMENTAL
-  duration: 约 2–3 分钟
+    - setup 为 IDLE，emit CMD_START 进入建图
+    - notify 驱动进入 MAP_SCAN_BOUNDARY 后进入无限 loop
+    - loop 每轮在三个可推流 phase 间切换并各停留 8s
+  duration: 无限（手动停止）
   pushes:
     - NOTIFY_RATEL_STATUS
-    - MAP_INCREMENTAL（进入可推流 phase 后自动）
+    - MAP_INCREMENTAL（进入可推流 phase 后由 mapTimer 自动持续广播）
 domain: mapping
 setup:
-  state: PREPARING
+  state: IDLE
   phase: null
 steps:
+  - emit: { type: CMD_START, mode: auto, taskMode: MAP_BUILD }
   - notify: { work_status: mapping, sub_status: precondition }
-  - wait: 5s
   - notify: { work_status: mapping, sub_status: leave_dock }
-  - wait: 8s
   - notify: { work_status: mapping, sub_status: find_boundary }
   - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY }
-  - wait: 30s
-  - notify: { work_status: mapping, sub_status: edge_mapping }
-  - expect: { phase: MAP_FOLLOW_BOUNDARY }
-  - wait: 30s
-  - notify: { work_status: mapping, sub_status: bow_cover }
-  - expect: { phase: MAP_COVERAGE_RUN }
-  - wait: 30s
-  - notify: { work_status: mapping, sub_status: exit_mapping }
-  - wait: 5s
-  - notify: { work_status: idle, sub_status: none }
-  - expect: { state: COMPLETED }
+  - loop:
+      steps:
+        - notify: { work_status: mapping, sub_status: find_boundary }
+        - wait: 8s
+        - notify: { work_status: mapping, sub_status: edge_mapping }
+        - wait: 8s
+        - notify: { work_status: mapping, sub_status: bow_cover }
+        - wait: 8s

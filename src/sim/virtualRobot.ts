@@ -17,27 +17,24 @@ import type {
   RobotWorkStatus,
   TaskContext,
   TaskEvent,
-  TaskNotice,
   TaskState,
 } from './fsm-mirror/domain/shared/TaskFSM';
 import { createCompactId } from '../shared/ids';
 import type { RatelNotifyPayload } from './mappingNotify';
 import { applyRatelStatusPush, type RatelStatusPushPayload } from './ratelStatusPush';
+import type { SimCapabilities, SimOnlyEvent, SimTaskNotice, SimTaskState, SimView } from './simFsmTypes';
 
 export type RobotDomain = 'mapping' | 'mowing' | 'mapEdit' | null;
 
-const DEFAULT_SIM_CAPABILITIES = {
+const DEFAULT_SIM_CAPABILITIES: SimCapabilities = {
   canSwitchManual: false,
   canSwitchAuto: false,
-} as const;
+};
 
 function withSimulatorDefaults<P extends string>(
   ctx: TaskContext<P>,
   battery: number,
-): TaskContext<P> & {
-  readonly capabilities: typeof DEFAULT_SIM_CAPABILITIES;
-  readonly notices: readonly TaskNotice[];
-} {
+): SimView<P> {
   return {
     ...ctx,
     battery,
@@ -45,7 +42,12 @@ function withSimulatorDefaults<P extends string>(
     notices: [],
   };
 }
-export type AnyTaskEvent = TaskEvent<MappingPhase> | TaskEvent<MowingPhase> | MappingEvent | MowingEvent;
+export type AnyTaskEvent =
+  | TaskEvent<MappingPhase>
+  | TaskEvent<MowingPhase>
+  | MappingEvent
+  | MowingEvent
+  | SimOnlyEvent;
 
 export interface MowingTaskRecord {
   readonly task_id: string;
@@ -96,7 +98,7 @@ export interface VirtualRobotSetup {
     readonly can_switch_manual: boolean;
     readonly can_switch_auto: boolean;
   }>;
-  readonly notices?: readonly TaskNotice[];
+  readonly notices?: readonly SimTaskNotice[];
   readonly error?: TaskContext<string>['error'];
   readonly sn?: string;
   readonly nickname?: string;
@@ -213,7 +215,7 @@ export class VirtualRobot extends EventEmitter {
     if (typeof setup.nickname === 'string') this.nickname = setup.nickname;
     const domain = setup.domain === 'mowing' || setup.domain === 'mapEdit' ? setup.domain : 'mapping';
     this.activeDomain = domain;
-    const target = domain === 'mowing' ? this.mowing : this.mapping;
+    const target = (domain === 'mowing' ? this.mowing : this.mapping) as SimView<string>;
     const capabilities = setup.capabilities
       ? {
           canSwitchManual: setup.capabilities.canSwitchManual ?? setup.capabilities.can_switch_manual ?? target.capabilities.canSwitchManual,
@@ -298,8 +300,8 @@ export class VirtualRobot extends EventEmitter {
   }
 
   dispatchRaw(event: AnyTaskEvent, domain: RobotDomain = this.activeDomain): void {
-    if (domain === 'mowing') this.dispatchMowing(event as MowingEvent);
-    else this.dispatchMapping(event as MappingEvent);
+    if (domain === 'mowing') this.dispatchMowing(event as MowingEvent | SimOnlyEvent);
+    else this.dispatchMapping(event as MappingEvent | SimOnlyEvent);
   }
 
   /** Used by {@link applyRatelStatusPush} and scenario `emit`. */
@@ -355,7 +357,7 @@ export class VirtualRobot extends EventEmitter {
 
   workStatus(): RobotWorkStatus | 'estop' {
     const ctx = this.activeContext;
-    if (ctx.state === 'ESTOPPED') return 'estop';
+    if ((ctx.state as SimTaskState) === 'ESTOPPED') return 'estop';
     if (ctx.state === 'ERRORED') return 'error';
     if (ctx.state === 'RECHARGING') return 'charging';
     if (this.activeDomain === 'mapping') {
@@ -400,8 +402,8 @@ export class VirtualRobot extends EventEmitter {
       wifi_connected: 1,
       wifi_rssi: -60,
       wifi_signal_strength: 'good',
-      cellular_connected: 0,
-      cellular_signal_strength: 'weak',
+      cellular_connected: -1,
+      cellular_signal_strength: 'none',
       isConnected: true,
     };
   }
@@ -425,7 +427,7 @@ export class VirtualRobot extends EventEmitter {
     return task;
   }
 
-  private ensureScenarioMowingTask(event: MowingEvent): void {
+  private ensureScenarioMowingTask(event: MowingEvent | SimOnlyEvent): void {
     if (event.type !== 'CMD_START' || this.activeTask()) return;
     const taskMode = 'taskMode' in event && typeof event.taskMode === 'string'
       ? event.taskMode
@@ -437,21 +439,21 @@ export class VirtualRobot extends EventEmitter {
     });
   }
 
-  private dispatchMapping(event: MappingEvent): void {
+  private dispatchMapping(event: MappingEvent | SimOnlyEvent): void {
     const before = this.snapshot();
     const prev = this.mapping;
-    this.mapping = mappingReducer(this.mapping, event);
+    this.mapping = mappingReducer(this.mapping, event as MappingEvent);
     this.record('mapping', event);
     const after = this.snapshot();
     this.emitTranscript('mapping', event, before, after, this.mapping !== prev);
     if (this.mapping !== prev) this.emit('changed', after);
   }
 
-  private dispatchMowing(event: MowingEvent): void {
+  private dispatchMowing(event: MowingEvent | SimOnlyEvent): void {
     const before = this.snapshot();
     const prev = this.mowing;
     this.ensureScenarioMowingTask(event);
-    this.mowing = mowingReducer(this.mowing, event);
+    this.mowing = mowingReducer(this.mowing, event as MowingEvent);
     this.record('mowing', event);
     this.syncActiveTaskFromContext();
     const after = this.snapshot();
@@ -486,7 +488,6 @@ export class VirtualRobot extends EventEmitter {
         task.task_message = 'Cancelled by user';
         break;
       case 'ERRORED':
-      case 'ESTOPPED':
         task.status = 'FAILED';
         task.task_message = this.mowing.error?.code ?? 'Mowing failed';
         task.task_error_code = -1;
