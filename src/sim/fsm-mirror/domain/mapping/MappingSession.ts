@@ -1,11 +1,12 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/mapping/MappingSession.ts. DO NOT EDIT. !!!
-// Source SHA-256: 842df1fe764fe3e475e16e72be1c41ece0f35402949e40f898b0716a734384a0
-// Synced at: 2026-06-02T09:43:38.803Z
+// Source SHA-256: 8237bf99dfb06cf431c6d00e49c08317bae276fb25bf68c7ba0dd7a7e40156cf
+// Synced at: 2026-06-10T07:46:58.562Z
 /**
  * MappingSession FSM — task-level `TaskState` + `MappingPhase` tuple from
- * `TaskFSM`. UI binding uses `MappingPanelId` in `features/mapping/state`.
+ * `TaskFSM`. UI binding resolves a `PanelScene` directly from `(state, phase)`
+ * via `resolvePanelScene` in `features/mapping/state`.
  */
 
 import {
@@ -68,10 +69,24 @@ export const initialMappingState: MappingContext =
 export type MappingEvent = TaskEvent<MappingPhase>;
 export type MappingEventType = MappingEvent['type'];
 
+/**
+ * 急停 / 能力 / 通知属于正交事件：即便处于 `MAP_COVERAGE_DONE` 粘滞预览，
+ * 也必须放行（急停要能打断、能力/通知要能更新）。
+ */
+const ORTHOGONAL_DEVICE_EVENTS: ReadonlySet<MappingEventType> = new Set([
+  'DEVICE_ESTOP',
+  'DEVICE_CAPABILITIES',
+  'DEVICE_NOTICE',
+]);
+
 const baseReducer = createTaskReducer<MappingPhase>({
   domain: 'mapping',
   terminalPhases: MAPPING_TERMINAL_PHASES,
-  canSwitchManual: ctx => ctx.phase === 'MAP_SCAN_BOUNDARY_FAILED',
+  // 进入遥控的业务例外（D5）：仅「沿边阶段」允许切手摇——自动沿边
+  // （`MAP_FOLLOW_BOUNDARY`）与覆盖前探边（`MAP_COVERAGE_PROBE`）。离桩 / 寻边 /
+  // 闭合 Loading / 弓形覆盖 / 预览均禁止；主守卫仍需 `PAUSED` + `canSwitchManual`。
+  canEnterRemote: ctx =>
+    ctx.phase === 'MAP_FOLLOW_BOUNDARY' || ctx.phase === 'MAP_COVERAGE_PROBE',
 });
 
 /**
@@ -84,8 +99,80 @@ export function mappingReducer(
   event: MappingEvent,
   logger?: LoggerLike,
 ): MappingContext {
+  // `MAP_COVERAGE_DONE` is the sticky map-preview step: once internal coverage finishes
+  // (`exit_mapping` → `MAP_COVERAGE_DONE`), the UI shows the preview panel + save countdown
+  // and must NOT react to any further device-originated status (e.g. `return_dock` →
+  // `returning`, `charging`, low battery, errors, link/timeout, area). Only `CMD_*` events
+  // act — the `mapping→idle` edge's `CMD_CONFIRM` still completes the task, and
+  // save / cancel / reset still work. This keeps the preview frozen until the user decides.
+  if (
+    ctx.phase === 'MAP_COVERAGE_DONE' &&
+    !event.type.startsWith('CMD_') &&
+    !ORTHOGONAL_DEVICE_EVENTS.has(event.type)
+  ) {
+    return ctx;
+  }
+
   if (event.type === 'DEVICE_WORK_STATUS') {
     return reduceWorkStatus(ctx, event, logger);
+  }
+
+  // 手摇交接：寻到边（MAP_BOUNDARY_FOUND）且当前为手摇模式 → 把控制权交给用户。
+  // `resumeTo` 指向自动沿边，使用户中途「退出遥控」时落回自动沿边（非手摇 phase）。
+  if (
+    event.type === 'DEVICE_PHASE' &&
+    event.phase === 'MAP_BOUNDARY_FOUND' &&
+    ctx.state === 'WORKING' &&
+    ctx.mode === 'remote'
+  ) {
+    return commit(
+      ctx,
+      {
+        ...ctx,
+        state: 'REMOTE_CONTROL',
+        phase: 'MAP_FOLLOW_BOUNDARY_MANUAL',
+        resumeTo: { state: 'WORKING', phase: 'MAP_FOLLOW_BOUNDARY' },
+        error: null,
+      },
+      event,
+      logger,
+    );
+  }
+
+  // 沿边闭合：手摇态收到 map_edge_finish（MAP_BOUNDARY_DONE）→ 设备驱动退出遥控，
+  // 回到自动 WORKING，进入「沿边闭合 Loading + 确认进覆盖」闸门。
+  if (
+    event.type === 'DEVICE_PHASE' &&
+    event.phase === 'MAP_BOUNDARY_DONE' &&
+    ctx.state === 'REMOTE_CONTROL'
+  ) {
+    return commit(
+      ctx,
+      {
+        ...ctx,
+        state: 'WORKING',
+        mode: 'auto',
+        phase: 'MAP_BOUNDARY_DONE',
+        resumeTo: null,
+        error: null,
+      },
+      event,
+      logger,
+    );
+  }
+
+  // 确认进入内部覆盖（CMD_START_COVERAGE）：乐观先行推进到弓形覆盖，
+  // 设备随后上报 bow_cover 落位（与 cmdStart / cmdPause 的乐观模式一致）。
+  if (event.type === 'CMD_START_COVERAGE') {
+    if (ctx.state === 'WORKING' && ctx.phase === 'MAP_BOUNDARY_DONE') {
+      return commit(
+        ctx,
+        { ...ctx, phase: 'MAP_COVERAGE_RUN', error: null },
+        event,
+        logger,
+      );
+    }
+    return ctx;
   }
 
   if (
@@ -133,7 +220,14 @@ function reduceWorkStatus(
     if (ctx.state === 'CANCELLED') return ctx;
     return commit(
       ctx,
-      { ...ctx, state: 'COMPLETED', phase: 'MAP_COVERAGE_DONE', resumeTo: null, error: null },
+      {
+        ...ctx,
+        state: 'COMPLETED',
+        phase: 'MAP_COVERAGE_DONE',
+        resumeTo: null,
+        error: null,
+        notices: [],
+      },
       event,
       logger,
     );

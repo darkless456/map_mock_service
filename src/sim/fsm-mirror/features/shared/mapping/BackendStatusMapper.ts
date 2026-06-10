@@ -1,13 +1,14 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/shared/mapping/BackendStatusMapper.ts. DO NOT EDIT. !!!
-// Source SHA-256: 7b275f9b7e7e14733986bc3ed5be0b9d4231888c84955897e724167cc39e3f87
-// Synced at: 2026-06-02T09:43:38.803Z
+// Source SHA-256: 0440bd74dde629690b38ce0a00381297eb1a4d8a8c66c01cda5e8544770c3607
+// Synced at: 2026-06-10T07:46:58.562Z
 import type {
   RobotWorkStatus,
   TaskContext,
   TaskEvent,
 } from '../../../domain/shared/TaskFSM';
+import { isRobotWorkStatus } from './workStatus';
 
 export type BackendStatus = RobotWorkStatus | string;
 export type BackendEdge = `${RobotWorkStatus | 'null' | string}->${BackendStatus}`;
@@ -80,15 +81,4 @@ function matches<P extends string>(handler: EdgeHandler<P>, ctx: TaskContext<P>)
 function fallbackUnknown<P extends string>(status: BackendStatus): MapperOutput<P> {
   if (isRobotWorkStatus(status)) return [];
   return [{ type: 'LOG_UNKNOWN_BACKEND_STATUS', status }];
-}
-
-function isRobotWorkStatus(value: BackendStatus): value is RobotWorkStatus {
-  return (
-    value === 'idle' ||
-    value === 'mowing' ||
-    value === 'charging' ||
-    value === 'mapping' ||
-    value === 'mapping_completed' ||
-    value === 'error'
-  );
 }

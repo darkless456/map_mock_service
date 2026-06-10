@@ -18,11 +18,12 @@ describe('scenarioGuide', () => {
     assert.equal(doc!.domainLabel, '建图');
   });
 
-  it('lists the four core scenarios', () => {
+  it('lists the five core scenarios', () => {
     const catalog = listScenarioGuideSummaries(DEFAULT_SCENARIO_ROOT);
     const names = catalog.map(entry => entry.name).sort();
     assert.deepEqual(names, [
       'mapping_happy_auto',
+      'mapping_happy_manual',
       'mapping_stream_incremental',
       'mowing_happy_auto',
       'mowing_trajectory_stream',

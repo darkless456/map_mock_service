@@ -88,6 +88,18 @@ export const handleSimRoutes: RouteHandler<AppRouteContext> = async (req, res, u
     return true;
   }
 
+  if (url.pathname === '/sim/scenario/pause' && methodIs(req, 'POST')) {
+    ctx.scenarioEngine.pause();
+    sendOk(res, ctx.scenarioEngine.snapshot());
+    return true;
+  }
+
+  if (url.pathname === '/sim/scenario/resume' && methodIs(req, 'POST')) {
+    ctx.scenarioEngine.resume();
+    sendOk(res, ctx.scenarioEngine.snapshot());
+    return true;
+  }
+
   if (url.pathname === '/sim/scenario/stop' && methodIs(req, 'POST')) {
     const wasRunning = ctx.scenarioEngine.snapshot().running != null;
     ctx.scenarioEngine.stop();

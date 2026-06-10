@@ -19,7 +19,7 @@ const mirrorFiles = [
   ['src/features/shared/mapping/BackendStatusMapper.ts', 'features/shared/mapping/BackendStatusMapper.ts'],
   ['src/features/shared/mapping/BackendPhaseMapper.ts', 'features/shared/mapping/BackendPhaseMapper.ts'],
   ['src/features/shared/mapping/unknownBackendSubStatus.ts', 'features/shared/mapping/unknownBackendSubStatus.ts'],
-  ['src/features/shared/mapping/cloudWorkStatus.ts', 'features/shared/mapping/cloudWorkStatus.ts'],
+  ['src/features/shared/mapping/workStatus.ts', 'features/shared/mapping/workStatus.ts'],
   ['src/features/mapping/state/mappingBackendRegistry.ts', 'features/mapping/state/mappingBackendRegistry.ts'],
   ['src/features/mowing/state/mowingBackendRegistry.ts', 'features/mowing/state/mowingBackendRegistry.ts'],
   ['src/infra/events/Arbitrator.ts', 'services/events/Arbitrator.ts'],

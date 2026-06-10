@@ -236,8 +236,10 @@ export class VirtualRobot extends EventEmitter {
       lastSource: 'cmd' as const,
       lastSourceTs: Date.now(),
     };
-    if (domain === 'mowing') this.mowing = next as MowingContext;
-    else this.mapping = next as MappingContext;
+    // SimView 刻意与镜像 TaskContext 的 notices 模型不同（见 simFsmTypes），
+    // 此处为适配层边界，经 unknown 转换存回。
+    if (domain === 'mowing') this.mowing = next as unknown as MowingContext;
+    else this.mapping = next as unknown as MappingContext;
     this.record(domain, { type: 'SIM_SETUP', setup });
     this.emit('changed', this.snapshot());
   }
@@ -439,7 +441,20 @@ export class VirtualRobot extends EventEmitter {
     });
   }
 
+  /**
+   * 任何来源（Web 面板 / App API / 场景脚本）下发的暂停 / 恢复指令都会经过
+   * dispatchMapping / dispatchMowing。这里在状态机处理前统一广播控制意图，
+   * 供 {@link ScenarioEngine} 据此暂停 / 恢复脚本循环（而不仅仅是机器人 FSM）。
+   * 即使当前 FSM 状态不接受该指令（reducer 未改变状态），意图仍会广播，
+   * 保证调试时暂停始终生效。
+   */
+  private emitControlIntent(event: { readonly type?: string }): void {
+    if (event.type === 'CMD_PAUSE') this.emit('controlPause');
+    else if (event.type === 'CMD_RESUME') this.emit('controlResume');
+  }
+
   private dispatchMapping(event: MappingEvent | SimOnlyEvent): void {
+    this.emitControlIntent(event as { type?: string });
     const before = this.snapshot();
     const prev = this.mapping;
     this.mapping = mappingReducer(this.mapping, event as MappingEvent);
@@ -450,6 +465,7 @@ export class VirtualRobot extends EventEmitter {
   }
 
   private dispatchMowing(event: MowingEvent | SimOnlyEvent): void {
+    this.emitControlIntent(event as { type?: string });
     const before = this.snapshot();
     const prev = this.mowing;
     this.ensureScenarioMowingTask(event);

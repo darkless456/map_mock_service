@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/mapEdit/MapEditSession.ts. DO NOT EDIT. !!!
-// Source SHA-256: 498ad7339cb917d083f7cd7f4a16291c8e354c5f66a25679c75df01ad81cbe2f
-// Synced at: 2026-06-02T09:43:38.803Z
+// Source SHA-256: 2246ead89c0b8ecb6f290b395ffaa5f5f99256c6dd249c448e5d5a2b0cdea60d
+// Synced at: 2026-06-10T07:46:58.562Z
 /**
  * MapEditSession FSM — Phase 4 domain-only map-edit workflow.
  *
@@ -143,8 +143,11 @@ function transition(ctx: MapEditContext, event: MapEditEvent): MapEditContext {
       return withMeta({ ...ctx, state: 'CANCELLED' }, event);
     case 'DEVICE_AREA':
     case 'DEVICE_BATTERY':
+    case 'DEVICE_CAPABILITIES':
     case 'DEVICE_DOCKED':
+    case 'DEVICE_ESTOP':
     case 'DEVICE_LOW_BATTERY':
+    case 'DEVICE_NOTICE':
     case 'DEVICE_PHASE':
     case 'DEVICE_UNDOCKED':
     case 'DEVICE_WORK_STATUS':
@@ -153,11 +156,14 @@ function transition(ctx: MapEditContext, event: MapEditEvent): MapEditContext {
     case 'LINK_NET_LOST':
     case 'LINK_WS_DOWN':
     case 'LINK_WS_UP':
+    case 'CMD_ADD_NEW_AREA':
+    case 'CMD_DISMISS_NOTICE':
     case 'CMD_EXIT_MANUAL':
     case 'CMD_PAUSE':
     case 'CMD_RESUME':
     case 'CMD_RETURN_DOCK':
     case 'CMD_SWITCH_MANUAL':
+    case 'CMD_START_COVERAGE':
     case 'TIMEOUT':
       return ctx;
     default: {

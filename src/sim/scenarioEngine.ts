@@ -89,6 +89,7 @@ export class ScenarioEngine {
   private readonly recorder?: Recorder;
   private readonly scenarioRoot: string;
   private abortRequested = false;
+  private paused = false;
   private running: string | null = null;
 
   constructor(options: ScenarioEngineOptions) {
@@ -96,6 +97,10 @@ export class ScenarioEngine {
     this.chaos = options.chaos;
     this.recorder = options.recorder;
     this.scenarioRoot = options.scenarioRoot ?? SCENARIO_ROOT;
+    // 任意来源（Web 面板 / App API）下发的暂停 / 恢复都会经机器人广播控制意图，
+    // 这里订阅后即可暂停 / 恢复脚本循环本身，而不只是机器人 FSM。
+    this.robot.on('controlPause', () => this.pause());
+    this.robot.on('controlResume', () => this.resume());
   }
 
   listScenarios(): string[] {
@@ -109,6 +114,7 @@ export class ScenarioEngine {
   snapshot(): Record<string, unknown> {
     return {
       running: this.running,
+      paused: this.paused,
       scenarios: this.listScenarios(),
       catalog: listScenarioGuideSummaries(this.scenarioRoot),
     };
@@ -121,6 +127,22 @@ export class ScenarioEngine {
 
   stop(): void {
     this.abortRequested = true;
+    // 停止时解除暂停，避免脚本循环卡在等待恢复而无法收尾。
+    this.paused = false;
+  }
+
+  /** 暂停当前脚本循环：步骤推进与 wait 计时都会冻结，直至 {@link resume}。 */
+  pause(): void {
+    this.paused = true;
+  }
+
+  /** 恢复脚本循环，从暂停处继续执行后续步骤。 */
+  resume(): void {
+    this.paused = false;
+  }
+
+  get isPaused(): boolean {
+    return this.paused;
   }
 
   async run(request: ScenarioRunRequest): Promise<ScenarioRunResult> {
@@ -140,6 +162,7 @@ export class ScenarioEngine {
     const startedAt = new Date().toISOString();
     const logs: ScenarioRunLog[] = [];
     this.abortRequested = false;
+    this.paused = false;
     this.running = scenario.name;
 
     try {
@@ -176,7 +199,20 @@ export class ScenarioEngine {
     } finally {
       this.running = null;
       this.abortRequested = false;
+      this.paused = false;
     }
+  }
+
+  /**
+   * 步骤之间的检查点：先响应停止请求，再在暂停期间挂起，恢复后继续。
+   * 暂停状态下不推进任何步骤，确保可以稳定停在某个特定流程状态进行调试。
+   */
+  private async checkpoint(): Promise<void> {
+    if (this.abortRequested) throw new ScenarioStopped();
+    while (this.paused && !this.abortRequested) {
+      await delay(50);
+    }
+    if (this.abortRequested) throw new ScenarioStopped();
   }
 
   private async executeScenario(
@@ -191,7 +227,7 @@ export class ScenarioEngine {
     }
 
     for (const step of scenario.steps) {
-      if (this.abortRequested) throw new ScenarioStopped();
+      await this.checkpoint();
       await this.executeStep(step, domain, logs, includeStack);
     }
   }
@@ -251,9 +287,9 @@ export class ScenarioEngine {
       const maxIterations = typeof rawMax === 'number' && rawMax > 0 ? Math.floor(rawMax) : Infinity;
       this.pushLog(logs, { index, kind: 'loop', ok: true, detail: { maxIterations: rawMax ?? 'infinite', steps: inner.length } });
       for (let iteration = 0; iteration < maxIterations; iteration += 1) {
-        if (this.abortRequested) throw new ScenarioStopped();
+        await this.checkpoint();
         for (const child of inner) {
-          if (this.abortRequested) throw new ScenarioStopped();
+          await this.checkpoint();
           await this.executeStep(child, domain, logs, includeStack);
         }
       }
@@ -305,21 +341,33 @@ export class ScenarioEngine {
   ): Promise<void> {
     if (typeof value === 'object' && value !== null && !Array.isArray(value) && 'until' in value) {
       const timeoutMs = parseDuration((value as { timeout?: string | number }).timeout ?? '3000ms');
-      const started = Date.now();
-      while (Date.now() - started <= timeoutMs) {
+      let elapsed = 0;
+      while (elapsed <= timeoutMs) {
         if (this.abortRequested) throw new ScenarioStopped();
+        // 暂停期间冻结超时计时，不推进、不判定，恢复后从原处继续。
+        if (this.paused) {
+          await delay(50);
+          continue;
+        }
         const result = matchExpectation(this.robot.snapshot(), (value as { until?: Record<string, unknown> }).until ?? {}, domain);
         if (result.ok) return;
         await delay(50);
+        elapsed += 50;
       }
       throw new Error(`wait.until timeout after ${timeoutMs}ms`);
     }
     const totalMs = parseDuration(value as string | number);
-    const started = Date.now();
-    while (Date.now() - started < totalMs) {
+    let remaining = totalMs;
+    while (remaining > 0) {
       if (this.abortRequested) throw new ScenarioStopped();
-      const remaining = totalMs - (Date.now() - started);
-      await delay(Math.min(50, remaining));
+      // 暂停期间不消耗等待时长，确保「暂停当前场景」语义。
+      if (this.paused) {
+        await delay(50);
+        continue;
+      }
+      const slice = Math.min(50, remaining);
+      await delay(slice);
+      remaining -= slice;
     }
   }
 

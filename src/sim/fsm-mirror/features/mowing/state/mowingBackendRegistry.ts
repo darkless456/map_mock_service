@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/mowing/state/mowingBackendRegistry.ts. DO NOT EDIT. !!!
-// Source SHA-256: 0bd7f50dcb264b7fc758632798a413ef099eecb73af0a7db7b2564f704e6f56f
-// Synced at: 2026-06-02T09:43:38.803Z
+// Source SHA-256: 92c569af3ec83ed116536632008b0b26e909efc17461b00e4971fb75c9facbba
+// Synced at: 2026-06-10T07:46:58.562Z
 import type { MowingPhase } from '../../../domain/mowing/MowingTask';
 import type { BackendStatusRegistry } from '../../shared/mapping/BackendStatusMapper';
 
@@ -19,7 +19,11 @@ export const MOWING_BACKEND_REGISTRY: BackendStatusRegistry<MowingPhase> = {
       ],
     },
     'null->charging': {
-      guard: ctx => ctx.state === 'IDLE',
+      guard: ctx =>
+        ctx.state === 'WORKING' ||
+        ctx.state === 'PAUSED' ||
+        ctx.state === 'RESUMING' ||
+        ctx.state === 'RECHARGING',
       events: () => [
         { type: 'DEVICE_WORK_STATUS', status: 'charging', source: 'ws', ts: now() },
       ],
@@ -31,6 +35,11 @@ export const MOWING_BACKEND_REGISTRY: BackendStatusRegistry<MowingPhase> = {
       ],
     },
     'idle->charging': {
+      guard: ctx =>
+        ctx.state === 'WORKING' ||
+        ctx.state === 'PAUSED' ||
+        ctx.state === 'RESUMING' ||
+        ctx.state === 'RECHARGING',
       events: () => [
         { type: 'DEVICE_WORK_STATUS', status: 'charging', source: 'ws', ts: now() },
       ],

@@ -86,10 +86,47 @@ describe('e2e scenarios', () => {
     assert.equal(robot.snapshot().mapping.state, 'COMPLETED');
     assert.deepEqual([...engine.listScenarios()].sort(), [
       'mapping_happy_auto',
+      'mapping_happy_manual',
       'mapping_stream_incremental',
       'mowing_happy_auto',
       'mowing_trajectory_stream',
     ]);
+  });
+
+  it('runs the manual remote mapping chain (boundary_found → REMOTE_CONTROL → coverage)', async () => {
+    const robot = new VirtualRobot();
+    const engine = new ScenarioEngine({ robot, chaos: new ChaosController() });
+    assert.ok(engine.listScenarios().includes('mapping_happy_manual'));
+    // Fast inline mirror of the checked-in scenario: validates the手动遥控 FSM
+    // transitions without the long observation waits baked into the YAML.
+    const result = await engine.run({
+      inline: {
+        name: 'fast_manual_mapping',
+        domain: 'mapping',
+        setup: { state: 'IDLE', phase: null },
+        steps: [
+          { emit: { type: 'CMD_START', mode: 'remote', taskMode: 'MAP_BUILD' } },
+          { notify: { work_status: 'mapping', sub_status: 'precondition' } },
+          { expect: { state: 'PREPARING', mode: 'remote' } },
+          { notify: { work_status: 'mapping', sub_status: 'leave_dock' } },
+          { expect: { state: 'UNDOCKING' } },
+          { notify: { work_status: 'mapping', sub_status: 'find_boundary' } },
+          { expect: { state: 'WORKING', phase: 'MAP_SCAN_BOUNDARY' } },
+          { notify: { work_status: 'mapping', sub_status: 'boundary_found' } },
+          { expect: { state: 'REMOTE_CONTROL', phase: 'MAP_FOLLOW_BOUNDARY_MANUAL', mode: 'remote' } },
+          { notify: { work_status: 'mapping', sub_status: 'map_edge_finish' } },
+          { expect: { state: 'WORKING', phase: 'MAP_BOUNDARY_DONE', mode: 'auto' } },
+          { emit: { type: 'CMD_START_COVERAGE' } },
+          { expect: { state: 'WORKING', phase: 'MAP_COVERAGE_RUN' } },
+          { notify: { work_status: 'mapping', sub_status: 'exit_mapping' } },
+          { expect: { phase: 'MAP_COVERAGE_DONE' } },
+          { notify: { work_status: 'idle', sub_status: 'none' } },
+          { expect: { state: 'COMPLETED', phase: 'MAP_COVERAGE_DONE' } },
+        ],
+      },
+    });
+    assert.equal(result.ok, true, result.error);
+    assert.equal(robot.snapshot().mapping.state, 'COMPLETED');
   });
 
   it('pushes MAP_INCREMENTAL when entering a streamable mapping phase', async () => {

@@ -167,11 +167,16 @@ async function refresh() {
   const data = payload.data;
   currentState = data;
   scenarioRunning = !!(data.scenario && data.scenario.running);
+  const scenarioPaused = !!(data.scenario && data.scenario.paused);
   document.getElementById('btn-run').disabled = scenarioRunning;
   document.getElementById('btn-stop').disabled = !scenarioRunning;
-  document.getElementById('summary').innerHTML = ['state', 'phase', 'workStatus', 'activeDomain'].map(k =>
+  const pills = ['state', 'phase', 'workStatus', 'activeDomain'].map(k =>
     '<span class="pill">' + k + ': ' + escapeHtml(data[k] ?? '') + '</span>'
-  ).join('');
+  );
+  if (scenarioRunning) {
+    pills.unshift('<span class="pill">场景: ' + (scenarioPaused ? '已暂停 ⏸' : '运行中 ▶') + '</span>');
+  }
+  document.getElementById('summary').innerHTML = pills.join('');
   document.getElementById('state').textContent = JSON.stringify(data, null, 2);
 }
 
@@ -245,13 +250,17 @@ async function stopScenario() {
 
 async function pauseActive() {
   const domain = activeDomain();
+  // 先冻结场景脚本循环本身，再下发 FSM 暂停指令（保持机器人状态一致）。
+  if (scenarioRunning) await postJson('/sim/scenario/pause', {});
   await postJson('/sim/event', { domain, type: 'CMD_PAUSE' });
-  setStatus('已暂停（' + domain + '）', 'ok');
+  setStatus(scenarioRunning ? '场景已暂停（' + domain + '）' : '已暂停（' + domain + '）', 'ok');
   await refresh();
 }
 
 async function resumeActive() {
   const domain = activeDomain();
+  // 先恢复场景脚本循环，再补发 FSM 恢复指令。
+  if (scenarioRunning) await postJson('/sim/scenario/resume', {});
   await postJson('/sim/event', { domain, type: 'CMD_RESUME' });
   if (domain === 'mowing') {
     await postJson('/sim/event', { domain, type: 'DEVICE_WORK_STATUS', status: 'mowing', source: 'ws' });
@@ -259,7 +268,7 @@ async function resumeActive() {
     const phase = currentState.phase || 'MAP_COVERAGE_RUN';
     await postJson('/sim/event', { domain, type: 'DEVICE_PHASE', phase, source: 'ws' });
   }
-  setStatus('已恢复（' + domain + '）', 'ok');
+  setStatus(scenarioRunning ? '场景已恢复（' + domain + '）' : '已恢复（' + domain + '）', 'ok');
   await refresh();
 }
 

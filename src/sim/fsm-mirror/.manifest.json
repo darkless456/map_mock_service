@@ -1,12 +1,12 @@
 {
   "mowerRoot": "/Users/linyang1/Development/pudu_ratel_app_mower",
   "mirrorRoot": "/Users/linyang1/Development/map_mock_service/src/sim/fsm-mirror",
-  "syncedAt": "2026-06-02T09:43:38.803Z",
+  "syncedAt": "2026-06-10T07:46:58.562Z",
   "files": [
     {
       "source": "src/domain/shared/TaskFSM.ts",
       "dest": "src/sim/fsm-mirror/domain/shared/TaskFSM.ts",
-      "sha256": "a4d2ecf3f4524b146de88f89d3f69d178324f971149467de84d532bfe53c2c21"
+      "sha256": "93416df3af44c4e81cb22f40a9b70f6b211a05f8853c35f9aae877757bd5a6b4"
     },
     {
       "source": "src/domain/shared/LoggerLike.ts",
@@ -16,37 +16,37 @@
     {
       "source": "src/domain/mapping/MappingSession.ts",
       "dest": "src/sim/fsm-mirror/domain/mapping/MappingSession.ts",
-      "sha256": "842df1fe764fe3e475e16e72be1c41ece0f35402949e40f898b0716a734384a0"
+      "sha256": "8237bf99dfb06cf431c6d00e49c08317bae276fb25bf68c7ba0dd7a7e40156cf"
     },
     {
       "source": "src/domain/mowing/MowingTask.ts",
       "dest": "src/sim/fsm-mirror/domain/mowing/MowingTask.ts",
-      "sha256": "139e5c66dc54e6c262f43b925032a9f186047fc5f40b35a7cc152208518e79e2"
+      "sha256": "d93394c07464c8e0c91685ed94cade8a7dfbe0bea148db73ceb61f9b02f95688"
     },
     {
       "source": "src/domain/mapEdit/MapEditSession.ts",
       "dest": "src/sim/fsm-mirror/domain/mapEdit/MapEditSession.ts",
-      "sha256": "498ad7339cb917d083f7cd7f4a16291c8e354c5f66a25679c75df01ad81cbe2f"
+      "sha256": "2246ead89c0b8ecb6f290b395ffaa5f5f99256c6dd249c448e5d5a2b0cdea60d"
     },
     {
       "source": "src/features/shared/mapping/BackendStatusMapper.ts",
       "dest": "src/sim/fsm-mirror/features/shared/mapping/BackendStatusMapper.ts",
-      "sha256": "7b275f9b7e7e14733986bc3ed5be0b9d4231888c84955897e724167cc39e3f87"
+      "sha256": "0440bd74dde629690b38ce0a00381297eb1a4d8a8c66c01cda5e8544770c3607"
     },
     {
       "source": "src/features/shared/mapping/BackendPhaseMapper.ts",
       "dest": "src/sim/fsm-mirror/features/shared/mapping/BackendPhaseMapper.ts",
-      "sha256": "ae82ee5960db0c6be73c8969afcaa45364d4e3e233f6f32349b98faffa3a65d9"
+      "sha256": "23dad9b2211e435b014d5aa8d9257637d1cfe97cc3163a5baaceb64c102c8599"
     },
     {
       "source": "src/features/shared/mapping/unknownBackendSubStatus.ts",
       "dest": "src/sim/fsm-mirror/features/shared/mapping/unknownBackendSubStatus.ts",
-      "sha256": "251d3b57c22bb1991e87e84feff05a9a1e4037b2665ffff2cb07b2ed42b41c10"
+      "sha256": "8077a3279ae96f5cfb619574c00baaa618b090d7833d6e5677eb007b3331f140"
     },
     {
-      "source": "src/features/shared/mapping/cloudWorkStatus.ts",
-      "dest": "src/sim/fsm-mirror/features/shared/mapping/cloudWorkStatus.ts",
-      "sha256": "5a50e2761ee0f187eed21c19cbb927cb9047d617a26caa648fdb9adb383ccd53"
+      "source": "src/features/shared/mapping/workStatus.ts",
+      "dest": "src/sim/fsm-mirror/features/shared/mapping/workStatus.ts",
+      "sha256": "f566a82ac6824f55f1ba52fbb9276858cfeb4c03dfe401f324656c2c07f8410e"
     },
     {
       "source": "src/features/mapping/state/mappingBackendRegistry.ts",
@@ -56,22 +56,22 @@
     {
       "source": "src/features/mowing/state/mowingBackendRegistry.ts",
       "dest": "src/sim/fsm-mirror/features/mowing/state/mowingBackendRegistry.ts",
-      "sha256": "0bd7f50dcb264b7fc758632798a413ef099eecb73af0a7db7b2564f704e6f56f"
+      "sha256": "92c569af3ec83ed116536632008b0b26e909efc17461b00e4971fb75c9facbba"
     },
     {
       "source": "src/infra/events/Arbitrator.ts",
       "dest": "src/sim/fsm-mirror/services/events/Arbitrator.ts",
-      "sha256": "5e8551b2d610b6c816ac3e5172f8f64146b93d800645c2e37a9d7156b41b1848"
+      "sha256": "1771423ef68537218081f2a285f87271050abc951b3628056b897e9cbaf0517f"
     },
     {
       "source": "src/infra/events/EventAdapter.ts",
       "dest": "src/sim/fsm-mirror/services/events/EventAdapter.ts",
-      "sha256": "c2551d8b7b06602ade6389486a402bd3ac053c117d8d3e578d638c4381d4ada1"
+      "sha256": "05fb88f66404d503b74af7c6ca07971fea8db71f95421d8e9de84eda6bc4b76a"
     },
     {
       "source": "src/features/shared/mapping/TaskEventPipeline.ts",
       "dest": "src/sim/fsm-mirror/features/shared/mapping/TaskEventPipeline.ts",
-      "sha256": "3b03b5917642d2ce58c5fa5118b0b94f69d9550188d85fc02f062edb5f11f6c2"
+      "sha256": "042f910d8e1ce6ed1209d5b01dc1c19de6289a2643035943e64cda19a04eecc3"
     }
   ]
 }

@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/shared/mapping/unknownBackendSubStatus.ts. DO NOT EDIT. !!!
-// Source SHA-256: 251d3b57c22bb1991e87e84feff05a9a1e4037b2665ffff2cb07b2ed42b41c10
-// Synced at: 2026-06-02T09:43:38.803Z
+// Source SHA-256: 8077a3279ae96f5cfb619574c00baaa618b090d7833d6e5677eb007b3331f140
+// Synced at: 2026-06-10T07:46:58.562Z
 import type { LoggerLike } from '../../../domain/shared/LoggerLike';
 import { getModuleLogger } from '../../../infra/bridges/log';
 import { LogCategory } from '../../../infra/bridges/log/categories';
@@ -15,30 +15,20 @@ export interface UnknownBackendSubStatusEvent {
   readonly workStatus: string;
 }
 
-const UNKNOWN_LOG_THROTTLE_MS = 5_000;
-const unknownSubStatusLogAt = new Map<string, number>();
-
 /**
- * Throttled warn for unmapped `sub_status` (category `ws.device.phase`).
+ * Warn for unmapped `sub_status` (category `ws.device.phase`).
  * Does not advance FSM — callers must not synthesize `*_FAILED` phases.
  */
 export function logUnknownBackendSubStatus(
   logger: LoggerLike | undefined,
   event: UnknownBackendSubStatusEvent,
 ): void {
-  const key = `${event.workStatus}:${event.subStatus}`;
-  const now = Date.now();
-  const last = unknownSubStatusLogAt.get(key) ?? 0;
-  if (now - last < UNKNOWN_LOG_THROTTLE_MS) {
-    return;
-  }
-  unknownSubStatusLogAt.set(key, now);
-
   try {
     const log = logger ?? getModuleLogger();
     log.warn(LogCategory.WS_DEVICE_PHASE, 'unknown_backend_sub_status', {
       workStatus: event.workStatus,
       subStatus: event.subStatus,
+      rawMessage: JSON.stringify(event),
     });
   } catch {
     // Logger not mounted in unit tests.
@@ -54,13 +44,14 @@ export function logUnknownBackendWorkStatus(
     const log = logger ?? getModuleLogger();
     log.warn(LogCategory.WS_DEVICE_PHASE, 'unknown_backend_work_status', {
       status: event.status,
+      rawMessage: JSON.stringify(event),
     });
   } catch {
     // Logger not mounted in unit tests.
   }
 }
 
-/** @internal */
+/** @internal — 保留供单测兼容，节流已移除 */
 export function resetUnknownBackendSubStatusLogForTests(): void {
-  unknownSubStatusLogAt.clear();
+  /* no-op */
 }

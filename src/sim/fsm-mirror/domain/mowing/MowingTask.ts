@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/mowing/MowingTask.ts. DO NOT EDIT. !!!
-// Source SHA-256: 139e5c66dc54e6c262f43b925032a9f186047fc5f40b35a7cc152208518e79e2
-// Synced at: 2026-06-02T09:43:38.803Z
+// Source SHA-256: d93394c07464c8e0c91685ed94cade8a7dfbe0bea148db73ceb61f9b02f95688
+// Synced at: 2026-06-10T07:46:58.562Z
 /**
  * MowingTask FSM — generalized `TaskState` + `MowingPhase` tuple from TaskFSM.
  *
@@ -179,8 +179,9 @@ function markCharging(
   event: { readonly type: string; readonly source?: DeviceEventSource; readonly ts?: number },
   logger?: LoggerLike,
 ): MowingContext {
+  // Robot idle on dock reports `charging` — not an in-app return-to-charge session.
   if (ctx.state === 'IDLE') {
-    return commit(ctx, { ...ctx, state: 'RECHARGING', phase: 'charging' }, event, logger);
+    return ctx;
   }
   if (ctx.state === 'COMPLETED' || ctx.state === 'CANCELLED' || ctx.state === 'ERRORED') {
     return ctx;
@@ -205,9 +206,33 @@ function complete(
 ): MowingContext {
   if (ctx.state === 'IDLE' || ctx.state === 'CANCELLED') return ctx;
   if (ctx.state === 'COMPLETED') return ctx;
+  if (ctx.state === 'RECHARGING' && ctx.resumeTo === null) {
+    return commit(
+      ctx,
+      {
+        ...ctx,
+        state: 'IDLE',
+        phase: null,
+        taskMode: null,
+        area: 0,
+        resumeTo: null,
+        error: null,
+        notices: [],
+      },
+      event,
+      logger,
+    );
+  }
   return commit(
     ctx,
-    { ...ctx, state: 'COMPLETED', phase: 'MOW_RUNNING', resumeTo: null, error: null },
+    {
+      ...ctx,
+      state: 'COMPLETED',
+      phase: 'MOW_RUNNING',
+      resumeTo: null,
+      error: null,
+      notices: [],
+    },
     event,
     logger,
   );

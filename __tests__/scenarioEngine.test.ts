@@ -45,6 +45,90 @@ steps:
     assert.equal(robot.snapshot().activeDomain, 'mowing');
   });
 
+  it('pauses the running scenario and resumes from where it left off', async () => {
+    const robot = new VirtualRobot({ sn: 'SN-PAUSE' });
+    const engine = new ScenarioEngine({ robot, chaos: new ChaosController() });
+    const runPromise = engine.run({
+      inline: {
+        name: 'pause smoke',
+        domain: 'mapping',
+        setup: { state: 'WORKING', phase: 'MAP_SCAN_BOUNDARY' },
+        steps: [
+          { wait: '300ms' },
+          { notify: { work_status: 'mapping', sub_status: 'find_boundary' } },
+          { wait: '300ms' },
+          { expect: { state: 'WORKING', phase: 'MAP_SCAN_BOUNDARY' } },
+        ],
+      },
+    });
+
+    // 暂停后脚本不再推进：等待远超步骤时长，run 仍未完成。
+    engine.pause();
+    assert.equal(engine.isPaused, true);
+    assert.equal(engine.snapshot().paused, true);
+    const settledWhilePaused = await Promise.race([
+      runPromise.then(() => 'done'),
+      new Promise(resolve => setTimeout(() => resolve('still-running'), 800)),
+    ]);
+    assert.equal(settledWhilePaused, 'still-running', 'scenario must not progress while paused');
+    assert.equal(engine.snapshot().running, 'pause smoke');
+
+    // 恢复后从暂停处继续直到完成。
+    engine.resume();
+    assert.equal(engine.isPaused, false);
+    const result = await runPromise;
+    assert.equal(result.ok, true, result.error);
+    assert.equal(result.stopped ?? false, false);
+    assert.equal(engine.snapshot().running, null);
+  });
+
+  it('pauses/resumes the scenario via robot CMD_PAUSE/CMD_RESUME (panel & app path)', async () => {
+    const robot = new VirtualRobot({ sn: 'SN-PAUSE-CMD' });
+    const engine = new ScenarioEngine({ robot, chaos: new ChaosController() });
+    const runPromise = engine.run({
+      inline: {
+        name: 'cmd pause smoke',
+        domain: 'mapping',
+        setup: { state: 'WORKING', phase: 'MAP_SCAN_BOUNDARY' },
+        steps: [{ wait: '300ms' }, { wait: '300ms' }],
+      },
+    });
+
+    // 模拟 Web 面板 / App 下发的暂停指令（CMD_PAUSE 经机器人广播控制意图）。
+    robot.dispatchRaw({ type: 'CMD_PAUSE' }, 'mapping');
+    assert.equal(engine.isPaused, true);
+    const settledWhilePaused = await Promise.race([
+      runPromise.then(() => 'done'),
+      new Promise(resolve => setTimeout(() => resolve('still-running'), 800)),
+    ]);
+    assert.equal(settledWhilePaused, 'still-running', 'CMD_PAUSE must freeze the scenario loop');
+
+    robot.dispatchRaw({ type: 'CMD_RESUME' }, 'mapping');
+    assert.equal(engine.isPaused, false);
+    const result = await runPromise;
+    assert.equal(result.ok, true, result.error);
+  });
+
+  it('stop() releases a paused scenario so it can finish unwinding', async () => {
+    const robot = new VirtualRobot({ sn: 'SN-PAUSE-STOP' });
+    const engine = new ScenarioEngine({ robot, chaos: new ChaosController() });
+    const runPromise = engine.run({
+      inline: {
+        name: 'pause then stop',
+        domain: 'mapping',
+        setup: { state: 'WORKING', phase: 'MAP_SCAN_BOUNDARY' },
+        steps: [{ wait: '5s' }, { wait: '5s' }],
+      },
+    });
+    engine.pause();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    engine.stop();
+    const result = await runPromise;
+    assert.equal(result.stopped, true);
+    assert.equal(engine.isPaused, false);
+    assert.equal(engine.snapshot().running, null);
+  });
+
   it('reports expectation mismatches', async () => {
     const robot = new VirtualRobot();
     const engine = new ScenarioEngine({ robot, chaos: new ChaosController() });

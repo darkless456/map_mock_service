@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/infra/events/Arbitrator.ts. DO NOT EDIT. !!!
-// Source SHA-256: 5e8551b2d610b6c816ac3e5172f8f64146b93d800645c2e37a9d7156b41b1848
-// Synced at: 2026-06-02T09:43:38.803Z
+// Source SHA-256: 1771423ef68537218081f2a285f87271050abc951b3628056b897e9cbaf0517f
+// Synced at: 2026-06-10T07:46:58.562Z
 import type { TaskEvent, TaskSource } from '../../domain/shared/TaskFSM';
 
 export type UnknownArbitratedEvent = {
@@ -109,7 +109,7 @@ export class Arbitrator<P extends string = string> {
       this.clearAckTimer();
       return;
     }
-    if (!isCommandEvent(event) || event.type === 'CMD_RESET') return;
+    if (!isCommandEvent(event) || !isAckAwaitingCommand(event)) return;
 
     this.clearAckTimer();
     this.pendingAck = { command: event, startedAt: this.now() };
@@ -185,6 +185,18 @@ function timestampForEvent<P extends string>(
 
 function isCommandEvent<P extends string>(event: ArbitratedEvent<P>): boolean {
   return event.type.startsWith('CMD_');
+}
+
+/**
+ * 仅期望设备回执的状态变更命令才武装 ack 计时器；本地 UI 命令
+ * （复位 / 添加新区域 / 关闭提醒）不等待设备 ack，避免误触发 `TIMEOUT`。
+ */
+function isAckAwaitingCommand<P extends string>(event: ArbitratedEvent<P>): boolean {
+  return (
+    event.type !== 'CMD_RESET' &&
+    event.type !== 'CMD_ADD_NEW_AREA' &&
+    event.type !== 'CMD_DISMISS_NOTICE'
+  );
 }
 
 function isAckEvent<P extends string>(event: ArbitratedEvent<P>): boolean {
