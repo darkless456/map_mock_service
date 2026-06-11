@@ -2,7 +2,7 @@
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/shared/mapping/TaskEventPipeline.ts. DO NOT EDIT. !!!
 // Source SHA-256: 042f910d8e1ce6ed1209d5b01dc1c19de6289a2643035943e64cda19a04eecc3
-// Synced at: 2026-06-11T13:20:40.103Z
+// Synced at: 2026-06-11T13:44:16.069Z
 import type {
   DeviceEventSource,
   RobotWorkStatus,

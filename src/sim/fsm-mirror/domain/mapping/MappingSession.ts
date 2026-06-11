@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/mapping/MappingSession.ts. DO NOT EDIT. !!!
-// Source SHA-256: 15ac514a36f726ed2a5f00ec646be9a86e9eb0f2b64ec231baf8c5e588d9e451
-// Synced at: 2026-06-11T13:20:40.103Z
+// Source SHA-256: 7f8f9605bb455836677a03f45a0d222786db502f0c8c408ce6a56c7ff9b2d5e1
+// Synced at: 2026-06-11T13:44:16.069Z
 /**
  * MappingSession FSM — task-level `TaskState` + `MappingPhase` tuple from
  * `TaskFSM`. UI binding resolves a `PanelScene` directly from `(state, phase)`
@@ -242,16 +242,22 @@ function reduceWorkStatus(
   }
 
   // 恢复确认（对齐割草 markRunning，见 build-docs/pause_resume_contract_design.md §3.1）：
-  // 设备无「已恢复」专用态，`RESUMING` 期间任意活跃 `work_status: mapping` 推送即视为恢复
-  // 落地 → `WORKING`（phase 复用 `resumeTo`，无 phase 信息时保持当前）。仅 `RESUMING` 生效，
-  // `PAUSED` 不因周期性 `mapping` 推送自动恢复（恢复须由用户 CMD_RESUME 触发）。
-  if (ctx.state === 'RESUMING' && event.status === 'mapping') {
+  // 设备无「已恢复」专用态，`RESUMING` 期间活跃 `work_status: mapping` 推送视为恢复落地 →
+  // `WORKING`（phase 复用 `resumeTo`）。仅 `RESUMING` 生效，`PAUSED` 不因周期性 `mapping`
+  // 推送自动恢复（恢复须由用户 CMD_RESUME 触发）。
+  //
+  // 仅当存在可恢复的**工作 phase** 时才由 work_status 解除：退桩 / 自检阶段暂停（`UNDOCKING`/
+  // `PREPARING`，`resumeTo.phase === null`）时，`work_status` 不带 phase，若据此落 `WORKING`
+  // 会得到 `WORKING + phase=null`——该组合无任何按钮规则匹配，导致底部按钮消失。这类暂停应
+  // 等待设备上报实际 `DEVICE_PHASE`（寻边等）再落 `WORKING`（由通用层宽松匹配处理）。
+  const resumePhase = ctx.resumeTo?.phase ?? ctx.phase;
+  if (ctx.state === 'RESUMING' && event.status === 'mapping' && resumePhase !== null) {
     return commit(
       ctx,
       {
         ...ctx,
         state: 'WORKING',
-        phase: ctx.resumeTo?.phase ?? ctx.phase,
+        phase: resumePhase,
         resumeTo: null,
         error: null,
       },

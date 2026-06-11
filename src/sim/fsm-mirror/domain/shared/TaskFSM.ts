@@ -2,7 +2,7 @@
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/shared/TaskFSM.ts. DO NOT EDIT. !!!
 // Source SHA-256: 2c9c799d71edf74a1671b66a2f0e606a16b698ca7598c53c24ccc60874d924fe
-// Synced at: 2026-06-11T13:20:40.103Z
+// Synced at: 2026-06-11T13:44:16.069Z
 import { safeLog, type LoggerLike } from './LoggerLike';
 
 export type TaskState =
