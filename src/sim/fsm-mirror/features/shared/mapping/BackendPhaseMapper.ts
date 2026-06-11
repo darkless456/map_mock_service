@@ -2,7 +2,7 @@
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/shared/mapping/BackendPhaseMapper.ts. DO NOT EDIT. !!!
 // Source SHA-256: 28e8deaaa0b4fc90f1bf11829ac7f95ef2441cd5f39a065d6922099d8dd56058
-// Synced at: 2026-06-11T08:30:38.383Z
+// Synced at: 2026-06-11T13:20:40.103Z
 import type { RobotWorkStatus } from '../../../domain/shared/TaskFSM';
 import { resetUnknownBackendSubStatusLogForTests } from './unknownBackendSubStatus';
 

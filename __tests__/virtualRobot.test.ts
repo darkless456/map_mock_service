@@ -21,6 +21,29 @@ describe('VirtualRobot mapping domain', () => {
     assert.equal(robot.shouldStreamMap(), true);
   });
 
+  it('pauses then resumes mapping, broadcasting a confirming frame that clears RESUMING', () => {
+    const robot = new VirtualRobot({ sn: 'SN-R' });
+    robot.startMapping({ sn: 'SN-R', mode: 'auto' });
+    robot.dispatchRatelNotify({ work_status: 'mapping', sub_status: 'leave_dock' });
+    robot.dispatchRatelNotify({ work_status: 'mapping', sub_status: 'find_boundary' });
+    assert.equal(robot.snapshot().mapping.state, 'WORKING');
+
+    robot.pauseMapping();
+    assert.equal(robot.snapshot().mapping.state, 'PAUSED');
+
+    // 恢复确认：resumeMapping 补推 work_status:mapping 帧，mock FSM 应直接走出 RESUMING → WORKING
+    // （宽松匹配 + work_status 解除，见 mower build-docs/pause_resume_contract_design.md §3）。
+    const frames: Array<{ work_status: string; sub_status: string }> = [];
+    robot.on('ratelStatus', (p: { work_status: string; sub_status: string }) => frames.push(p));
+    robot.resumeMapping();
+    assert.equal(robot.snapshot().mapping.state, 'WORKING');
+    assert.equal(robot.snapshot().mapping.phase, 'MAP_SCAN_BOUNDARY');
+    assert.ok(
+      frames.some(f => f.work_status === 'mapping'),
+      'resume should broadcast a confirming mapping frame',
+    );
+  });
+
   it('builds NOTIFY_RATEL_STATUS with simulator extension fields', () => {
     const robot = new VirtualRobot({ sn: 'SN-2' });
     robot.startMapping({ sn: 'SN-2', mode: 'auto' });

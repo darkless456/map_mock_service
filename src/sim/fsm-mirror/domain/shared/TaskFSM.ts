@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/shared/TaskFSM.ts. DO NOT EDIT. !!!
-// Source SHA-256: 8a99847f9105808a64cd6e3ad3bb8fcf1f1d260eb96890cb426df5daa45f955a
-// Synced at: 2026-06-11T08:30:38.383Z
+// Source SHA-256: 2c9c799d71edf74a1671b66a2f0e606a16b698ca7598c53c24ccc60874d924fe
+// Synced at: 2026-06-11T13:20:40.103Z
 import { safeLog, type LoggerLike } from './LoggerLike';
 
 export type TaskState =
@@ -33,11 +33,13 @@ export type RobotWorkStatus =
   | 'return_dock'
   | 'error';
 
-export type AckTimeoutPhase =
-  | 'preparing'
-  | 'undocking'
-  | 'resuming'
-  | 'ackPending';
+/**
+ * 唯一的回执超时 phase。`TIMEOUT` 仅由 {@link Arbitrator} 在乐观命令未获设备回执时派发，
+ * 且只派 `'ackPending'`；历史上的 `preparing`/`undocking`/`resuming` 从无定时器武装
+ * （死代码），已移除。恢复（resume）的超时与回落同样复用 `ackPending`（见
+ * `build-docs/pause_resume_contract_design.md` §5.3）。
+ */
+export type AckTimeoutPhase = 'ackPending';
 
 export interface TaskResumeTarget<P extends string> {
   readonly state: TaskState;
@@ -383,9 +385,10 @@ function transition<P extends string>(
         return withMeta({ ...ctx, phase: event.phase, error: null }, event, options);
       }
       if (ctx.state === 'RESUMING') {
-        if (ctx.resumeTo?.phase !== null && ctx.resumeTo?.phase !== event.phase) {
-          return ctx;
-        }
+        // 恢复确认（宽松匹配，见 build-docs/pause_resume_contract_design.md §3.1）：
+        // `RESUMING` 下收到任意本任务的 `DEVICE_PHASE` 即落 `WORKING`，允许恢复后 phase
+        // 保持或前进——不再强制等于 `resumeTo.phase`（旧严格匹配会因设备重发同帧或 phase
+        // 已推进而无法解除，导致继续假死）。
         return withMeta(
           { ...ctx, state: 'WORKING', phase: event.phase, resumeTo: null, error: null },
           event,
@@ -574,17 +577,20 @@ function transition<P extends string>(
     }
 
     case 'TIMEOUT': {
-      if (event.phase === 'preparing' && ctx.state === 'PREPARING') {
-        return withError(ctx, event, 'PREPARING_TIMEOUT', false, options);
-      }
-      if (event.phase === 'undocking' && ctx.state === 'UNDOCKING') {
-        return withError(ctx, event, 'UNDOCKING_TIMEOUT', false, options);
-      }
-      if (event.phase === 'resuming' && ctx.state === 'RESUMING') {
-        return withMeta({ ...ctx, state: 'PAUSED' }, event, options);
-      }
-      if (event.phase === 'ackPending' && ctx.state !== 'IDLE') {
-        return withError(ctx, event, 'ACK_TIMEOUT', false, options);
+      if (event.phase === 'ackPending') {
+        // 乐观 `PAUSED` 是本地权威态（设计 §S6「暂停态统一走 FSM PAUSED」）：云端
+        // `work_status` 协议没有「已暂停」设备态，CMD_PAUSE 永远无法被设备正面回执，
+        // 暂停后（尤其退桩 leave_dock）机器人停下、不再推送状态边沿。ack 超时此时不应把
+        // 一个很可能已成功的暂停升级为 `ERRORED` 而清空整屏 UI——保持 `PAUSED`。
+        if (ctx.state === 'PAUSED') return ctx;
+        // 恢复（CMD_RESUME → RESUMING）的设备回执超时：优雅回落到 `PAUSED`，而非
+        // `ERRORED`，让用户可重试恢复（见 build-docs/pause_resume_contract_design.md §3.2）。
+        if (ctx.state === 'RESUMING') {
+          return withMeta({ ...ctx, state: 'PAUSED' }, event, options);
+        }
+        if (ctx.state !== 'IDLE') {
+          return withError(ctx, event, 'ACK_TIMEOUT', false, options);
+        }
       }
       return ctx;
     }

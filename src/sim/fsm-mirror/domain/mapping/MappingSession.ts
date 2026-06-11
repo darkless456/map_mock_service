@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/mapping/MappingSession.ts. DO NOT EDIT. !!!
-// Source SHA-256: fe9309dc8cc569fa37411b17b7579c157dd72beefec7eaef193b176681253432
-// Synced at: 2026-06-11T08:30:38.383Z
+// Source SHA-256: 15ac514a36f726ed2a5f00ec646be9a86e9eb0f2b64ec231baf8c5e588d9e451
+// Synced at: 2026-06-11T13:20:40.103Z
 /**
  * MappingSession FSM — task-level `TaskState` + `MappingPhase` tuple from
  * `TaskFSM`. UI binding resolves a `PanelScene` directly from `(state, phase)`
@@ -80,11 +80,13 @@ const ORTHOGONAL_DEVICE_EVENTS: ReadonlySet<MappingEventType> = new Set([
 const baseReducer = createTaskReducer<MappingPhase>({
   domain: 'mapping',
   terminalPhases: MAPPING_TERMINAL_PHASES,
-  // 进入遥控的业务例外（D5）：仅「沿边阶段」允许切手摇——自动沿边
-  // （`MAP_FOLLOW_BOUNDARY`）与覆盖前探边（`MAP_COVERAGE_PROBE`）。离桩 / 寻边 /
-  // 闭合 Loading / 弓形覆盖 / 预览均禁止；主守卫仍需 `PAUSED` + `canSwitchManual`。
+  // 进入遥控的业务例外：寻边 + 沿边阶段允许切手摇——寻边（`MAP_SCAN_BOUNDARY`）、
+  // 自动沿边（`MAP_FOLLOW_BOUNDARY`）与覆盖前探边（`MAP_COVERAGE_PROBE`）。离桩 /
+  // 沿边闭合 Loading / 弓形覆盖 / 预览均禁止；主守卫仍需 `PAUSED` + `canSwitchManual`。
   canEnterRemote: ctx =>
-    ctx.phase === 'MAP_FOLLOW_BOUNDARY' || ctx.phase === 'MAP_COVERAGE_PROBE',
+    ctx.phase === 'MAP_SCAN_BOUNDARY' ||
+    ctx.phase === 'MAP_FOLLOW_BOUNDARY' ||
+    ctx.phase === 'MAP_COVERAGE_PROBE',
 });
 
 /**
@@ -129,6 +131,30 @@ export function mappingReducer(
       {
         ...ctx,
         state: 'REMOTE_CONTROL',
+        phase: 'MAP_FOLLOW_BOUNDARY_MANUAL',
+        resumeTo: { state: 'WORKING', phase: 'MAP_FOLLOW_BOUNDARY' },
+        error: null,
+      },
+      event,
+      logger,
+    );
+  }
+
+  // 寻边失败恢复（设计 §5.3）：设备已停止、无暂停概念，用户可在失败态直接切手动遥控围边。
+  // 通用层 `CMD_SWITCH_MANUAL` 守卫要求 PAUSED，故此处显式放行 `WORKING + 失败 phase`；
+  // 落点与自动沿边手摇交接一致（`MAP_FOLLOW_BOUNDARY_MANUAL`，退出遥控回落自动沿边）。
+  if (
+    event.type === 'CMD_SWITCH_MANUAL' &&
+    ctx.state === 'WORKING' &&
+    ctx.phase === 'MAP_SCAN_BOUNDARY_FAILED' &&
+    ctx.capabilities.canSwitchManual
+  ) {
+    return commit(
+      ctx,
+      {
+        ...ctx,
+        state: 'REMOTE_CONTROL',
+        mode: 'remote',
         phase: 'MAP_FOLLOW_BOUNDARY_MANUAL',
         resumeTo: { state: 'WORKING', phase: 'MAP_FOLLOW_BOUNDARY' },
         error: null,
@@ -213,6 +239,25 @@ function reduceWorkStatus(
     (event.status === 'mapping' || event.status === 'mowing')
   ) {
     return ctx;
+  }
+
+  // 恢复确认（对齐割草 markRunning，见 build-docs/pause_resume_contract_design.md §3.1）：
+  // 设备无「已恢复」专用态，`RESUMING` 期间任意活跃 `work_status: mapping` 推送即视为恢复
+  // 落地 → `WORKING`（phase 复用 `resumeTo`，无 phase 信息时保持当前）。仅 `RESUMING` 生效，
+  // `PAUSED` 不因周期性 `mapping` 推送自动恢复（恢复须由用户 CMD_RESUME 触发）。
+  if (ctx.state === 'RESUMING' && event.status === 'mapping') {
+    return commit(
+      ctx,
+      {
+        ...ctx,
+        state: 'WORKING',
+        phase: ctx.resumeTo?.phase ?? ctx.phase,
+        resumeTo: null,
+        error: null,
+      },
+      event,
+      logger,
+    );
   }
 
   if (event.status === 'mapping_completed') {

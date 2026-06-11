@@ -56,7 +56,7 @@ export const handleMappingRoutes: RouteHandler<AppRouteContext> = async (req, re
   }
 
   if (url.pathname === '/ratel/api/v1/mapping/resume' && methodIs(req, 'POST')) {
-    ctx.robot.dispatchRaw({ type: 'CMD_RESUME' }, 'mapping');
+    ctx.robot.resumeMapping();
     sendJson(res, 200, {
       code: 200,
       message: 'Success',

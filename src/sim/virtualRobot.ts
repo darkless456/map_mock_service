@@ -385,6 +385,20 @@ export class VirtualRobot extends EventEmitter {
     this.dispatchMapping({ type: 'CMD_PAUSE' });
   }
 
+  /**
+   * 恢复建图：与割草 `applyMowingAction('RESUME')` 对称。先驱动 mock FSM `CMD_RESUME`，
+   * 再**补推一帧 `work_status: mapping` 恢复确认**——云端无「已恢复」设备态，App 侧
+   * `RESUMING` 需靠活跃状态推送走出（见 mower `build-docs/pause_resume_contract_design.md`
+   * §3.1/§3.5）。重置 notify 去重，确保即使 sub_status 未变也能广播该确认帧。
+   */
+  resumeMapping(): void {
+    this.dispatchMapping({ type: 'CMD_RESUME' });
+    const sub = this.lastNotifySubStatus ?? 'none';
+    this.lastNotifyWorkStatus = null;
+    this.lastNotifySubStatus = null;
+    this.pushRatelStatus({ work_status: 'mapping', sub_status: sub });
+  }
+
   createMowingTask(input: { sn: string; task_info: Record<string, unknown> }): MowingTaskRecord {
     this.sn = input.sn;
     this.activeDomain = 'mowing';
