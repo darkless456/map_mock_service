@@ -64,6 +64,8 @@ The service only registers the mower API paths below. For app compatibility, dev
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/create` | Create mowing task, dispatch `CMD_START` + `NOTIFY_RATEL_STATUS` sequence (`map_check` → `leave_dock` → `mowing`). |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/action` | Handle `PAUSE`, `RESUME`, `CANCEL`, and `FINISH_AND_RETURN_DOCK`. |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/list` | Return task list and active `task_notify`. |
+| `POST` | `/ratel/api/v1/robot/recharge/task` | Trigger recharge (回桩); returns `task_id`, pushes WS `RECHARGE` + `work_status: return_dock` sub-status sequence → `idle`. |
+| `POST` | `/ratel/api/v1/robot/recharge/action` | Recharge task `PAUSE` / `RESUME` / `CANCEL`. |
 | `GET` | `/api/health` | Local health check. |
 
 Asset URLs returned by map list currently point to `/sim/assets/full_semanticmap.png`.
@@ -128,7 +130,7 @@ Useful rendering scenarios:
 | Scenario | Use | 结束 |
 |---|---|---|
 | `mapping_happy_auto` | 正常建图 happy flow：完整 `NOTIFY_RATEL_STATUS` 链 → CreateMap 导航 → `COMPLETED` | 自动 |
-| `mapping_happy_manual` | 手动遥控建图 happy flow：`boundary_found` 交接手摇沿边（`REMOTE_CONTROL` → ManualMap）→ 沿边闭合 → 确认进覆盖 → `COMPLETED` | 自动 |
+| `mapping_happy_manual` | 手动遥控建图 happy flow：`edge_mapping` 交接手摇沿边（`REMOTE_CONTROL` → ManualMap）→ 沿边闭合 → 确认进覆盖 → `COMPLETED` | 自动 |
 | `mowing_happy_auto` | 正常割草 happy flow：`map_check → mowing → return_dock → idle` → `COMPLETE` | 自动 |
 | `mapping_stream_incremental` | 无限循环：可推流建图阶段间循环，持续 `MAP_INCREMENTAL`（测建图渲染） | 手动停止 |
 | `mowing_trajectory_stream` | 无限循环：保持 `ON_THE_WAY`，沿语义地图持续 `ROBOT_LOCATION`（测割草轨迹渲染） | 手动停止 |

@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/shared/mapping/BackendPhaseMapper.ts. DO NOT EDIT. !!!
-// Source SHA-256: 23dad9b2211e435b014d5aa8d9257637d1cfe97cc3163a5baaceb64c102c8599
-// Synced at: 2026-06-10T07:46:58.562Z
+// Source SHA-256: 28e8deaaa0b4fc90f1bf11829ac7f95ef2441cd5f39a065d6922099d8dd56058
+// Synced at: 2026-06-11T08:30:38.383Z
 import type { RobotWorkStatus } from '../../../domain/shared/TaskFSM';
 import { resetUnknownBackendSubStatusLogForTests } from './unknownBackendSubStatus';
 
@@ -25,20 +25,11 @@ const SKIP: PhaseRule = { kind: 'skip' };
 const UNDOCK: PhaseRule = { kind: 'undocked' };
 const toPhase = (phase: string): PhaseRule => ({ kind: 'phase', phase });
 
-/**
- * 手摇建图「已寻到边」假定 sub_status（占位值，待后端最终确认后替换）。
- * 设备完成寻边、即将交给用户手摇沿边时上报此状态；FSM 据此在手摇模式下
- * 把控制权移交用户（WORKING → REMOTE_CONTROL，见 MappingSession）。
- * 调试期可用 mock service 模拟下发该 sub_status。
- */
-export const ASSUMED_BOUNDARY_FOUND_SUB_STATUS = 'boundary_found';
-
 const MAPPING_SUB: Readonly<Record<string, PhaseRule>> = {
   precondition: SKIP,
   complete: SKIP,
   leave_dock: UNDOCK,
   find_boundary: toPhase('MAP_SCAN_BOUNDARY'),
-  [ASSUMED_BOUNDARY_FOUND_SUB_STATUS]: toPhase('MAP_BOUNDARY_FOUND'),
   edge_mapping: toPhase('MAP_FOLLOW_BOUNDARY'),
   map_edge_finish: toPhase('MAP_BOUNDARY_DONE'),
   bow_cover: toPhase('MAP_COVERAGE_RUN'),
@@ -53,6 +44,19 @@ const MOWING_SUB: Readonly<Record<string, PhaseRule>> = {
   mowing: toPhase('MOW_RUNNING'),
   edge: toPhase('MOW_RUNNING'),
   return_dock: toPhase('returning'),
+};
+
+/**
+ * 回桩（`work_status: return_dock`）子状态 → 回桩 `MowingPhase`（docs §13）。
+ * `complete` 视为收尾信号（skip，由后续 `work_status: idle` 收口完成）。
+ */
+const RETURN_DOCK_SUB: Readonly<Record<string, PhaseRule>> = {
+  go_to_pre_dock_point: toPhase('RETURN_PRE_DOCK'),
+  seek_charger_dock: toPhase('RETURN_SEEK_CHARGER'),
+  enter_dock: toPhase('RETURN_ENTER_DOCK'),
+  at_dock: toPhase('RETURN_AT_DOCK'),
+  failed: toPhase('RETURN_DOCK_FAILED'),
+  complete: SKIP,
 };
 
 const CHARGING_SUB: Readonly<Record<string, PhaseRule>> = {
@@ -79,6 +83,7 @@ export const SUB_STATUS_TABLE: Readonly<Record<string, Readonly<Record<string, P
   mapping: MAPPING_SUB,
   mapping_completed: MAPPING_SUB,
   mowing: MOWING_SUB,
+  return_dock: RETURN_DOCK_SUB,
   charging: CHARGING_SUB,
   idle: IDLE_SUB,
 };
@@ -110,7 +115,7 @@ export function normalizeLegacyPhase(phase: string): string {
     case 'hasBorderError':
       return 'MAP_SCAN_BOUNDARY_FAILED';
     case 'hasBorder':
-      return 'MAP_BOUNDARY_FOUND';
+      return 'MAP_FOLLOW_BOUNDARY';
     case 'fullBorder':
       return 'MAP_BOUNDARY_DONE';
     case 'newAreaChecking':

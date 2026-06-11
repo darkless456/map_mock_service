@@ -7,11 +7,12 @@ import {
   buildCurrentRatelStatusPayload,
   buildMowStatus,
   buildNotifyRatelStatus,
+  buildRecharge,
   buildRobotLocation,
   changedPushes,
 } from '../sim/pushChannels';
 import type { RatelStatusPushPayload } from '../sim/ratelStatusPush';
-import type { VirtualRobot, VirtualRobotSnapshot } from '../sim/virtualRobot';
+import type { RechargeStatusPush, VirtualRobot, VirtualRobotSnapshot } from '../sim/virtualRobot';
 import { MapStream } from '../sim/mapStream';
 import type { ChaosController } from '../sim/chaos';
 import type { Recorder } from '../sim/recorder';
@@ -156,6 +157,12 @@ export function createWsServer({
   };
   robot.on('changed', onChanged);
 
+  // 回充（回桩）任务过程推送：WS `cmd: RECHARGE`，驱动 App 回充槽按钮（docs §12 / §13）。
+  const onRechargeStatus = (payload: RechargeStatusPush) => {
+    outbound.broadcastJson(buildRecharge(payload));
+  };
+  robot.on('rechargeStatus', onRechargeStatus);
+
   const mapTimer = setInterval(() => {
     if (!robot.shouldStreamMap()) return;
     outbound.broadcastRawMany(mapStream.nextFrame({ sn: robot.sn }));
@@ -164,32 +171,33 @@ export function createWsServer({
   let locationTickLogAt = 0;
   const locationTimer = setInterval(() => {
     const task = robot.activeTask();
-    if (!task) {
-      lastMowingLocationStatus = null;
-      return;
-    }
-    if (task.status !== 'ON_THE_WAY') {
-      lastMowingLocationStatus = task.status;
+    const recharge = robot.activeRechargeTask();
+    const mowActive = !!task && task.status === 'ON_THE_WAY';
+    // 回桩中（RECHARGE ON_THE_WAY）继续推送 ROBOT_LOCATION，使返回轨迹持续显示（docs §13）。
+    const rechargeActive = !!recharge && recharge.status === 'ON_THE_WAY';
+    if (!mowActive && !rechargeActive) {
+      lastMowingLocationStatus = task ? task.status : null;
       return;
     }
     if (lastMowingLocationStatus !== 'ON_THE_WAY') {
       resetPoseState(pose);
     }
     lastMowingLocationStatus = 'ON_THE_WAY';
-    const mapId = taskMapId(task);
+    const locationSn = task?.sn ?? recharge?.sn ?? robot.sn;
+    const mapId = task ? taskMapId(task) : 'mock_map_001';
     const current = advancePose(pose);
     // 诊断：每秒最多一条，确认正在推流以及订阅者数量。
     const now = Date.now();
     if (now - locationTickLogAt > 1000) {
       locationTickLogAt = now;
       logger.info('ROBOT_LOCATION broadcast', {
-        taskSn: task.sn,
-        subscriberCount: outbound.locationSubscriberCount(task.sn),
+        taskSn: locationSn,
+        subscriberCount: outbound.locationSubscriberCount(locationSn),
         x: current.x,
         y: current.y,
       });
     }
-    outbound.broadcastLocation(task.sn, buildRobotLocation(task.sn, current, { mapId }));
+    outbound.broadcastLocation(locationSn, buildRobotLocation(locationSn, current, { mapId }));
   }, 300);
 
   const mowTimer = setInterval(() => {
@@ -212,6 +220,7 @@ export function createWsServer({
       robot.off('changed', onChanged);
       robot.off('transcript', onTranscript);
       robot.off('ratelStatus', onRatelStatus);
+      robot.off('rechargeStatus', onRechargeStatus);
       closeWebSocketClients(wss);
       closeWebSocketClients(inspectWss);
       wss.close();

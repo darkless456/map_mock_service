@@ -2,7 +2,7 @@
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/mapEdit/MapEditSession.ts. DO NOT EDIT. !!!
 // Source SHA-256: 2246ead89c0b8ecb6f290b395ffaa5f5f99256c6dd249c448e5d5a2b0cdea60d
-// Synced at: 2026-06-10T07:46:58.562Z
+// Synced at: 2026-06-11T08:30:38.383Z
 /**
  * MapEditSession FSM — Phase 4 domain-only map-edit workflow.
  *

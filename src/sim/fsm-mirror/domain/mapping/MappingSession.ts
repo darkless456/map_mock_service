@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/mapping/MappingSession.ts. DO NOT EDIT. !!!
-// Source SHA-256: 8237bf99dfb06cf431c6d00e49c08317bae276fb25bf68c7ba0dd7a7e40156cf
-// Synced at: 2026-06-10T07:46:58.562Z
+// Source SHA-256: fe9309dc8cc569fa37411b17b7579c157dd72beefec7eaef193b176681253432
+// Synced at: 2026-06-11T08:30:38.383Z
 /**
  * MappingSession FSM — task-level `TaskState` + `MappingPhase` tuple from
  * `TaskFSM`. UI binding resolves a `PanelScene` directly from `(state, phase)`
@@ -28,7 +28,6 @@ import { safeLog, type LoggerLike } from '../shared/LoggerLike';
 export type MappingBusinessPhase =
   | 'MAP_SCAN_BOUNDARY'
   | 'MAP_SCAN_BOUNDARY_FAILED'
-  | 'MAP_BOUNDARY_FOUND'
   | 'MAP_FOLLOW_BOUNDARY'
   | 'MAP_FOLLOW_BOUNDARY_MANUAL'
   | 'MAP_BOUNDARY_DONE'
@@ -44,7 +43,6 @@ export type MappingState = TaskState;
 export const MAPPING_PHASES: readonly MappingBusinessPhase[] = [
   'MAP_SCAN_BOUNDARY',
   'MAP_SCAN_BOUNDARY_FAILED',
-  'MAP_BOUNDARY_FOUND',
   'MAP_FOLLOW_BOUNDARY',
   'MAP_FOLLOW_BOUNDARY_MANUAL',
   'MAP_BOUNDARY_DONE',
@@ -117,11 +115,12 @@ export function mappingReducer(
     return reduceWorkStatus(ctx, event, logger);
   }
 
-  // 手摇交接：寻到边（MAP_BOUNDARY_FOUND）且当前为手摇模式 → 把控制权交给用户。
+  // 手摇交接：收到后端 edge_mapping（MAP_FOLLOW_BOUNDARY）且当前为手摇模式
+  // → 把控制权交给用户。
   // `resumeTo` 指向自动沿边，使用户中途「退出遥控」时落回自动沿边（非手摇 phase）。
   if (
     event.type === 'DEVICE_PHASE' &&
-    event.phase === 'MAP_BOUNDARY_FOUND' &&
+    event.phase === 'MAP_FOLLOW_BOUNDARY' &&
     ctx.state === 'WORKING' &&
     ctx.mode === 'remote'
   ) {

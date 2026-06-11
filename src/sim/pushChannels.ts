@@ -33,9 +33,10 @@ function activeContext(snapshot: VirtualRobotSnapshot) {
 
 /**
  * Coerces internal FSM work-status into the cloud WS enum
- * (`idle` / `mowing` / `charging` / `mapping` / `error`), per `ratel_backend_api.md` §2.2.
- * `estop` → `error`; legacy `mapping_completed` is not a cloud value → `idle`
- * (completion surfaces as `sub_status: exit_mapping` then `work_status: idle`).
+ * (`idle` / `mowing` / `charging` / `mapping` / `return_dock` / `error`), per
+ * `ratel_backend_api.md` §2.2. `estop` → `error`; legacy `mapping_completed` is not a
+ * cloud value → `idle` (completion surfaces as `sub_status: exit_mapping` then `idle`).
+ * `return_dock`（回桩，docs §13）作为顶层 work_status 原样透传。
  */
 function toCloudWorkStatus(rawWork: string): string {
   if (rawWork === 'estop') return 'error';
@@ -76,7 +77,21 @@ function deriveSubStatus(robot: VirtualRobot): string {
       return ctx.taskMode === 'MOW_EDGE' ? 'edge' : 'mowing';
     }
     if (ctx.phase === 'returning') return 'return_dock';
-    return 'none';
+    // 回桩（RETURNING_DOCK）子阶段（docs §13）。
+    switch (ctx.phase) {
+      case 'RETURN_PRE_DOCK':
+        return 'go_to_pre_dock_point';
+      case 'RETURN_SEEK_CHARGER':
+        return 'seek_charger_dock';
+      case 'RETURN_ENTER_DOCK':
+        return 'enter_dock';
+      case 'RETURN_AT_DOCK':
+        return 'at_dock';
+      case 'RETURN_DOCK_FAILED':
+        return 'failed';
+      default:
+        return 'none';
+    }
   }
   return 'none';
 }
@@ -166,6 +181,26 @@ export function buildMowStatus(task: MowingTaskRecord): WsEnvelope<Record<string
     data: {
       ...payload,
       payload,
+    },
+  };
+}
+
+/** Cloud `cmd: RECHARGE` — 回充任务过程推送（驱动 App 回充槽按钮，docs §12 / §13）。 */
+export function buildRecharge(payload: {
+  readonly sn: string;
+  readonly task_id: string;
+  readonly task_status: string;
+  readonly remark?: string;
+}): WsEnvelope<Record<string, unknown>> {
+  return {
+    cmd: 'RECHARGE',
+    cmd_id: createId(),
+    version: 1,
+    data: {
+      sn: payload.sn,
+      task_id: payload.task_id,
+      task_status: payload.task_status,
+      remark: payload.remark ?? '',
     },
   };
 }

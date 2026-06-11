@@ -20,16 +20,13 @@ YAML scenarios drive **cloud-accurate** `NOTIFY_RATEL_STATUS` pushes over WebSoc
 | `precondition` | Stay `PREPARING`（设备自检，不跳屏） |
 | `leave_dock` | `UNDOCKING` → **DeviceStart** |
 | `find_boundary` | `WORKING` + `MAP_SCAN_BOUNDARY` → **CreateMap** |
-| `boundary_found` | 自动：保持 `MAP_BOUNDARY_FOUND`；**手摇（`mode=remote`）**：`WORKING` → `REMOTE_CONTROL` + `MAP_FOLLOW_BOUNDARY_MANUAL` → **ManualMap** 交接用户手摇沿边 |
-| `edge_mapping` | `MAP_FOLLOW_BOUNDARY`（自动沿边） |
+| `edge_mapping` | 自动：`WORKING/MAP_FOLLOW_BOUNDARY`（自动沿边）；**手摇（`mode=remote`）**：`WORKING` → `REMOTE_CONTROL` + `MAP_FOLLOW_BOUNDARY_MANUAL` → **ManualMap** 交接用户手摇沿边 |
 | `map_edge_finish` | `MAP_BOUNDARY_DONE`；手摇态由此**退出遥控**回到自动 `WORKING`，进入「Loading + 确认进覆盖」闸门 |
 | `bow_cover` | `MAP_COVERAGE_RUN`（手摇流程需用户确认后 `emit CMD_START_COVERAGE` 乐观先行） |
 | `exit_mapping` | `MAP_COVERAGE_DONE` |
 | `work_status: idle` + `sub_status: none` | `mapping→idle` → `COMPLETED` |
 
 Between steps, scenarios use `wait: 5s`–`20s` (stream scenario holds 30s in streamable phases).
-
-> `boundary_found` 是后端尚未最终确定的假定 `sub_status`（见 `BackendPhaseMapper.ASSUMED_BOUNDARY_FOUND_SUB_STATUS`），用于手摇建图「寻到边 → 交接用户」。后端定稿后需同步更新映射与场景。
 
 ## Mowing `sub_status` sequence (§5.2)
 
@@ -38,8 +35,25 @@ Between steps, scenarios use `wait: 5s`–`20s` (stream scenario holds 30s in st
 | `map_check` | Stay in early prepare / accept `work_status: mowing` |
 | `leave_dock` | `UNDOCKING` |
 | `mowing` / `edge` | `WORKING` + `MOW_RUNNING` |
-| `return_dock` | `returning` phase |
+| `return_dock`（`work_status: mowing` 的 sub） | `returning` phase（低电回充语义，旧） |
 | `work_status: idle` + `sub_status: none` | Task completion edge |
+
+### 回桩（顶层 `work_status: return_dock`，§13）
+
+「回充」按钮结束割草任务后，设备上报**顶层** `work_status: return_dock` 的回桩子流程：
+
+| Step `sub_status`（`work_status: return_dock`） | Mock FSM |
+|-------------------|----------|
+| `go_to_pre_dock_point` | `RETURNING_DOCK` + `RETURN_PRE_DOCK` |
+| `seek_charger_dock` | `RETURN_SEEK_CHARGER` |
+| `enter_dock` | `RETURN_ENTER_DOCK` |
+| `at_dock` | `RETURN_AT_DOCK`（**不直接完成**） |
+| `failed` | `RETURN_DOCK_FAILED`（可恢复错误，留在 `RETURNING_DOCK`） |
+| `work_status: idle` + `sub_status: none` | `RETURNING_DOCK → COMPLETED` |
+
+HTTP `POST /ratel/api/v1/robot/recharge/task` 会触发回充任务并自动推送上述 `return_dock`
+子流程 + WS `cmd: RECHARGE`（`ON_THE_WAY → COMPLETE`，驱动回充槽按钮）。`mowing_recharge.yaml`
+场景以 `notify` 直接驱动回桩子流程，无需 App 调 HTTP。
 
 Mowing 场景使用 `domain: mowing` 且自行 `emit CMD_START` 建任务（`mowing_happy_auto`、`mowing_trajectory_stream` 均自包含）。注意：割草 `work_status: mowing` 在 `PREPARING` 下会直接进入 `UNDOCKING`（与建图不同，建图 `work_status: mapping` 在自检阶段保持 `PREPARING`，仅 `leave_dock` 才离桩）。
 
@@ -87,13 +101,14 @@ curl -s -X POST http://localhost:9900/sim/scenario/run \
 
 ## Checked-in scenarios
 
-> 更新日期：2026-06-10。5 个核心场景（不再模拟异常）。两个 stream 场景均为**无限循环**，需在 `/sim/panel` 点击「停止场景」结束。所有场景均**自包含**（`emit CMD_START` 自建任务），无需 App 先调 HTTP `mapping/start` 或 `ratel_task/create`。
+> 更新日期：2026-06-11。6 个核心场景（不再模拟异常）。两个 stream 场景均为**无限循环**，需在 `/sim/panel` 点击「停止场景」结束。所有场景均**自包含**（`emit CMD_START` 自建任务），无需 App 先调 HTTP `mapping/start` 或 `ratel_task/create`。
 
 | File | 用途 | 结束方式 |
 |------|------|----------|
 | `mapping_happy_auto.yaml` | 正常建图 happy flow：完整 NOTIFY 链 → `COMPLETED` | 自动结束（约 1.5 分钟） |
 | `mapping_happy_manual.yaml` | 手动遥控建图 happy flow：寻到边交接手摇沿边（`REMOTE_CONTROL`）→ 沿边闭合 → 确认进覆盖 → `COMPLETED` | 自动结束（约 1.5 分钟） |
 | `mowing_happy_auto.yaml` | 正常割草 happy flow：`map_check → mowing → return_dock → idle` → `COMPLETE` | 自动结束（约 40 秒） |
+| `mowing_recharge.yaml` | 割草并回充（回桩）：割草中触发回充 → `RETURNING_DOCK` 回桩子阶段 → `at_dock` 等 `idle` → `COMPLETED` | 自动结束（约 35 秒） |
 | `mapping_stream_incremental.yaml` | **无限循环**：在可推流建图阶段间循环，持续广播 `MAP_INCREMENTAL`（测建图渲染） | 手动停止 |
 | `mowing_trajectory_stream.yaml` | **无限循环**：保持 `ON_THE_WAY`，沿语义地图路线持续推 `ROBOT_LOCATION`（测割草轨迹渲染） | 手动停止 |
 

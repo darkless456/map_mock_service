@@ -1,0 +1,68 @@
+name: mowing_recharge
+description: >-
+  割草并回充（回桩）flow。自建割草任务（emit CMD_START），按云端 NOTIFY_RATEL_STATUS
+  顺序 map_check → leave_dock → mowing 进入割草，随后模拟用户点「回充」结束任务：设备上报
+  顶层 work_status: return_dock 的回桩子流程
+  go_to_pre_dock_point → seek_charger_dock → enter_dock → at_dock，
+  最终 work_status: idle 收口至 COMPLETED。回桩期间机器人轨迹继续显示（RETURNING_DOCK
+  保持 ROBOT_LOCATION 订阅）。注意 RETURN_AT_DOCK 不直接完成，需等设备 idle。
+guide:
+  title: 割草 — 回充并回桩（return_dock）
+  domain_label: 割草
+  summary: >-
+    在割草执行中触发「回充」，结束当前割草任务并进入回桩态（RETURNING_DOCK），验证
+    回桩子阶段流转、面板「回桩中」、回桩中轨迹继续显示，以及到桩后等 idle 才完成。
+  when_to_use: >-
+    验证割草「回充」按钮接入后的设备态回桩（work_status: return_dock）：FSM RETURNING_DOCK
+    子阶段、面板状态文案、按钮态（回充槽「暂停」）与「等 idle 才 COMPLETED」逻辑。
+  simulates:
+    - emit CMD_START 自建割草任务（IDLE → PREPARING）
+    - map_check → leave_dock → mowing 进入 WORKING/MOW_RUNNING
+    - 回充：work_status return_dock 的 go_to_pre_dock_point → seek_charger_dock → enter_dock → at_dock
+    - 到桩后保持 RETURNING_DOCK，最终 work_status idle 收口 COMPLETED
+  prerequisites:
+    - 已启动 map_mock_service（npm start），App mock 指向模拟器；WS 已连接
+    - 如需回桩轨迹，App 在割草 / 回桩活跃态发送 LOCATION_REGISTER
+  user_steps:
+    - 打开 /sim/panel，选择 mowing_recharge
+    - 点击「运行场景」，观察割草 UI → 面板切到「回桩中」→ 轨迹继续 → 任务完成
+    - 等待场景结束（约 35 秒），确认任务 COMPLETED
+  auto_behavior:
+    - setup 为 IDLE，emit CMD_START 进入 PREPARING
+    - 依次 notify + expect，进入 WORKING 后推 return_dock 回桩子流程
+    - RETURN_AT_DOCK 保持 RETURNING_DOCK，最后 idle → COMPLETED
+  duration: 约 35 秒
+  pushes:
+    - NOTIFY_RATEL_STATUS（work_status: mowing / return_dock / idle）
+    - NOTIFY_MOW_STATUS（FSM 变化时）
+    - ROBOT_LOCATION（需 LOCATION_REGISTER；回桩中继续推送）
+domain: mowing
+setup:
+  state: IDLE
+  phase: null
+steps:
+  - emit: { type: CMD_START, mode: auto, taskMode: MOW_GLOBAL }
+  - expect: { state: PREPARING }
+  - notify: { work_status: mowing, sub_status: map_check }
+  - wait: 2s
+  - notify: { work_status: mowing, sub_status: leave_dock }
+  - expect: { state: UNDOCKING }
+  - wait: 3s
+  - notify: { work_status: mowing, sub_status: mowing }
+  - expect: { state: WORKING, phase: MOW_RUNNING, task_status: ON_THE_WAY }
+  - wait: 10s
+  - note: 此处 App 点「回充」→ POST /ratel/api/v1/robot/recharge/task；设备上报 return_dock 回桩
+  - notify: { work_status: return_dock, sub_status: go_to_pre_dock_point }
+  - expect: { state: RETURNING_DOCK, phase: RETURN_PRE_DOCK, task_status: ON_THE_WAY }
+  - wait: 3s
+  - notify: { work_status: return_dock, sub_status: seek_charger_dock }
+  - expect: { state: RETURNING_DOCK, phase: RETURN_SEEK_CHARGER }
+  - wait: 3s
+  - notify: { work_status: return_dock, sub_status: enter_dock }
+  - expect: { state: RETURNING_DOCK, phase: RETURN_ENTER_DOCK }
+  - wait: 3s
+  - notify: { work_status: return_dock, sub_status: at_dock }
+  - expect: { state: RETURNING_DOCK, phase: RETURN_AT_DOCK }
+  - wait: 3s
+  - notify: { work_status: idle, sub_status: none }
+  - expect: { state: COMPLETED, task_status: COMPLETE }

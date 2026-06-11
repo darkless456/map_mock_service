@@ -21,6 +21,8 @@ function notifyTargetDomain(
   activeDomain: RobotDomain,
 ): 'mapping' | 'mowing' {
   if (work === 'mowing') return 'mowing';
+  // 回桩（return_dock）是割草域设备态（docs §13）。
+  if (work === 'return_dock') return 'mowing';
   if (work === 'mapping' || work === 'mapping_completed') return 'mapping';
   if (prevWork === 'mowing') return 'mowing';
   if (prevWork === 'mapping' || prevWork === 'mapping_completed') return 'mapping';

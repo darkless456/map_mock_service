@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/mowing/MowingTask.ts. DO NOT EDIT. !!!
-// Source SHA-256: d93394c07464c8e0c91685ed94cade8a7dfbe0bea148db73ceb61f9b02f95688
-// Synced at: 2026-06-10T07:46:58.562Z
+// Source SHA-256: a13356fec4e2c9ba43fd483d8f963a5c3f9e72150b8b17e5e809a5770d4650f1
+// Synced at: 2026-06-11T08:30:38.383Z
 /**
  * MowingTask FSM — generalized `TaskState` + `MowingPhase` tuple from TaskFSM.
  *
@@ -23,9 +23,41 @@ import { safeLog, type LoggerLike } from '../shared/LoggerLike';
 
 export type MowingMode = 'global' | 'region' | 'edge';
 export type MowingTaskMode = 'MOW_GLOBAL' | 'MOW_REGION' | 'MOW_EDGE';
-export type MowingPhase = 'MOW_RUNNING' | 'returning' | 'charging' | 'charged';
+/**
+ * 割草业务阶段：
+ * - `MOW_RUNNING`：割草执行中（模式由 `taskMode` 承载）。
+ * - `returning` / `charging` / `charged`：低电回充子阶段（搭配 `RECHARGING`）。
+ * - `RETURN_*`：回桩子阶段（搭配顶层态 `RETURNING_DOCK`，由设备 `work_status: return_dock`
+ *   进入，结束当前割草任务，见 docs §13）。
+ */
+export type MowingPhase =
+  | 'MOW_RUNNING'
+  | 'returning'
+  | 'charging'
+  | 'charged'
+  | 'RETURN_PRE_DOCK'
+  | 'RETURN_SEEK_CHARGER'
+  | 'RETURN_ENTER_DOCK'
+  | 'RETURN_AT_DOCK'
+  | 'RETURN_DOCK_FAILED';
 export type MowingState = TaskState;
 export type MowingContext = TaskContext<MowingPhase>;
+
+/** 回桩子阶段集合（搭配 `RETURNING_DOCK`）。 */
+export const RETURN_DOCK_PHASES: readonly MowingPhase[] = [
+  'RETURN_PRE_DOCK',
+  'RETURN_SEEK_CHARGER',
+  'RETURN_ENTER_DOCK',
+  'RETURN_AT_DOCK',
+  'RETURN_DOCK_FAILED',
+];
+
+/** 回桩失败错误码（可恢复，留在 `RETURNING_DOCK`）。 */
+export const RETURN_DOCK_FAILED_CODE = 'mowing.return_dock_failed';
+
+export function isReturnDockPhase(phase: string | null): phase is MowingPhase {
+  return phase !== null && RETURN_DOCK_PHASES.includes(phase as MowingPhase);
+}
 
 type GenericMowingEvent = Exclude<
   TaskEvent<MowingPhase>,
@@ -117,13 +149,95 @@ export function mowingReducer(
       if (event.status === 'charging') {
         return markCharging(ctx, event, logger);
       }
+      if (event.status === 'return_dock') {
+        return enterReturningDock(ctx, event, logger);
+      }
       if (event.status === 'idle') {
         return complete(ctx, event, logger);
+      }
+      return baseReducer(ctx, event, logger);
+    case 'DEVICE_PHASE':
+      // 回桩子阶段（RETURN_*）不在通用 reducer 处理（其只认 WORKING/REMOTE/RESUMING/
+      // UNDOCKING），改由割草域接管：从活跃态进入 RETURNING_DOCK 并更新子阶段。
+      if (isReturnDockPhase(event.phase)) {
+        return applyReturnDockPhase(ctx, event, logger);
       }
       return baseReducer(ctx, event, logger);
     default:
       return baseReducer(ctx, event, logger);
   }
+}
+
+/**
+ * 可进入回桩态（`RETURNING_DOCK`）的来源态。
+ *
+ * 含 `IDLE`：割草页「回充」按钮会**先取消当前割草任务**（→ `CANCELLED` → 清理回 `IDLE`），
+ * 设备再上报 `work_status: return_dock`；故 `IDLE` 也需接管，确保回桩态可达（docs §13）。
+ * 排除：终态（已结束）、`RECHARGING`（低电回充保留 `resumeTo`）、`ESTOPPED`（急停正交）。
+ */
+function canEnterReturningDock(state: MowingContext['state']): boolean {
+  return (
+    state === 'IDLE' ||
+    state === 'PREPARING' ||
+    state === 'UNDOCKING' ||
+    state === 'WORKING' ||
+    state === 'PAUSED' ||
+    state === 'RESUMING' ||
+    state === 'REMOTE_CONTROL' ||
+    state === 'RETURNING_DOCK'
+  );
+}
+
+/**
+ * 进入 / 推进回桩态（`RETURNING_DOCK`）。
+ *
+ * 由设备 `work_status: return_dock` 或回桩 `sub_status`（`RETURN_*` phase）触发；
+ * 结束当前割草任务，**不保留 `resumeTo`**（不可恢复）。`RETURN_DOCK_FAILED` 写可恢复
+ * 错误并留在 `RETURNING_DOCK`（见 docs §13）。终态 / `RECHARGING` / `ESTOPPED` 忽略。
+ */
+function enterReturningDock(
+  ctx: MowingContext,
+  event: { readonly type: string; readonly source?: DeviceEventSource; readonly ts?: number },
+  logger?: LoggerLike,
+): MowingContext {
+  if (!canEnterReturningDock(ctx.state)) return ctx;
+  if (ctx.state === 'RETURNING_DOCK') return ctx;
+  return commit(
+    ctx,
+    {
+      ...ctx,
+      state: 'RETURNING_DOCK',
+      phase: 'RETURN_PRE_DOCK',
+      resumeTo: null,
+      error: null,
+    },
+    event,
+    logger,
+  );
+}
+
+function applyReturnDockPhase(
+  ctx: MowingContext,
+  event: { readonly type: 'DEVICE_PHASE'; readonly phase: MowingPhase; readonly source?: DeviceEventSource; readonly ts?: number },
+  logger?: LoggerLike,
+): MowingContext {
+  if (!canEnterReturningDock(ctx.state)) return ctx;
+  const error =
+    event.phase === 'RETURN_DOCK_FAILED'
+      ? { code: RETURN_DOCK_FAILED_CODE, recoverable: true }
+      : null;
+  return commit(
+    ctx,
+    {
+      ...ctx,
+      state: 'RETURNING_DOCK',
+      phase: event.phase,
+      resumeTo: null,
+      error,
+    },
+    event,
+    logger,
+  );
 }
 
 export function taskModeFromMowingMode(mode: MowingMode): MowingTaskMode {

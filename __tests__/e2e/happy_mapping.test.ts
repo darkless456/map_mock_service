@@ -89,11 +89,21 @@ describe('e2e scenarios', () => {
       'mapping_happy_manual',
       'mapping_stream_incremental',
       'mowing_happy_auto',
+      'mowing_recharge',
       'mowing_trajectory_stream',
     ]);
   });
 
-  it('runs the manual remote mapping chain (boundary_found → REMOTE_CONTROL → coverage)', async () => {
+  it('runs the checked-in mowing_recharge scenario to COMPLETED', { timeout: 60_000 }, async () => {
+    const robot = new VirtualRobot();
+    const engine = new ScenarioEngine({ robot, chaos: new ChaosController() });
+    assert.ok(engine.listScenarios().includes('mowing_recharge'));
+    const result = await engine.run({ name: 'mowing_recharge' });
+    assert.equal(result.ok, true, result.error);
+    assert.equal(robot.snapshot().mowing.state, 'COMPLETED');
+  });
+
+  it('runs the manual remote mapping chain (edge_mapping → REMOTE_CONTROL → coverage)', async () => {
     const robot = new VirtualRobot();
     const engine = new ScenarioEngine({ robot, chaos: new ChaosController() });
     assert.ok(engine.listScenarios().includes('mapping_happy_manual'));
@@ -112,7 +122,7 @@ describe('e2e scenarios', () => {
           { expect: { state: 'UNDOCKING' } },
           { notify: { work_status: 'mapping', sub_status: 'find_boundary' } },
           { expect: { state: 'WORKING', phase: 'MAP_SCAN_BOUNDARY' } },
-          { notify: { work_status: 'mapping', sub_status: 'boundary_found' } },
+          { notify: { work_status: 'mapping', sub_status: 'edge_mapping' } },
           { expect: { state: 'REMOTE_CONTROL', phase: 'MAP_FOLLOW_BOUNDARY_MANUAL', mode: 'remote' } },
           { notify: { work_status: 'mapping', sub_status: 'map_edge_finish' } },
           { expect: { state: 'WORKING', phase: 'MAP_BOUNDARY_DONE', mode: 'auto' } },

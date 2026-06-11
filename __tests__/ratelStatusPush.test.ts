@@ -46,4 +46,38 @@ describe('pushRatelStatus / NOTIFY_RATEL_STATUS', () => {
     assert.equal(robot.snapshot().mowing.state, 'WORKING');
     assert.equal(robot.snapshot().mowing.phase, 'MOW_RUNNING');
   });
+
+  it('return_dock notify drives RETURNING_DOCK sub-phases then idle → COMPLETED', () => {
+    const robot = new VirtualRobot({ sn: 'SN-MOW-RD' });
+    robot.applySetup({ domain: 'mowing', state: 'WORKING', phase: 'MOW_RUNNING' });
+    robot.pushRatelStatus({ work_status: 'return_dock', sub_status: 'go_to_pre_dock_point' });
+    assert.equal(robot.snapshot().mowing.state, 'RETURNING_DOCK');
+    assert.equal(robot.snapshot().mowing.phase, 'RETURN_PRE_DOCK');
+    robot.pushRatelStatus({ work_status: 'return_dock', sub_status: 'seek_charger_dock' });
+    assert.equal(robot.snapshot().mowing.phase, 'RETURN_SEEK_CHARGER');
+    robot.pushRatelStatus({ work_status: 'return_dock', sub_status: 'enter_dock' });
+    assert.equal(robot.snapshot().mowing.phase, 'RETURN_ENTER_DOCK');
+    robot.pushRatelStatus({ work_status: 'return_dock', sub_status: 'at_dock' });
+    assert.equal(robot.snapshot().mowing.state, 'RETURNING_DOCK');
+    assert.equal(robot.snapshot().mowing.phase, 'RETURN_AT_DOCK');
+    // RETURN_AT_DOCK 不直接完成；需等 work_status idle。
+    robot.pushRatelStatus({ work_status: 'idle', sub_status: 'none' });
+    assert.equal(robot.snapshot().mowing.state, 'COMPLETED');
+  });
+
+  it('startRecharge emits RECHARGE ON_THE_WAY and clears mowing FSM', () => {
+    const robot = new VirtualRobot({ sn: 'SN-RC' });
+    robot.applySetup({ domain: 'mowing', state: 'WORKING', phase: 'MOW_RUNNING' });
+    const recharge: unknown[] = [];
+    robot.on('rechargeStatus', payload => recharge.push(payload));
+    const task = robot.startRecharge('SN-RC');
+    assert.ok(task.task_id);
+    assert.equal(robot.activeRechargeTask()?.status, 'ON_THE_WAY');
+    assert.equal(robot.snapshot().mowing.state, 'IDLE');
+    assert.equal(recharge.length, 1);
+    assert.equal((recharge[0] as { task_status: string }).task_status, 'ON_THE_WAY');
+    // CANCEL stops the scheduled return_dock sequence.
+    assert.equal(robot.applyRechargeAction('CANCEL'), null);
+    assert.equal(robot.activeRechargeTask()?.status, 'CANCEL');
+  });
 });

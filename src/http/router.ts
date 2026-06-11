@@ -12,6 +12,7 @@ import { handleDeviceRoutes } from './routes.device';
 import { handleMapRoutes } from './routes.map';
 import { handleMappingRoutes } from './routes.mapping';
 import { handleTaskRoutes } from './routes.task';
+import { handleRechargeRoutes } from './routes.recharge';
 import { handleSimRoutes } from './routes.sim';
 
 export interface AppRouteContext extends HttpRouteDeps {
@@ -31,6 +32,7 @@ const ROUTES: readonly RouteHandler<AppRouteContext>[] = [
   handleMapRoutes,
   handleMappingRoutes,
   handleTaskRoutes,
+  handleRechargeRoutes,
   handleSimRoutes,
 ];
 

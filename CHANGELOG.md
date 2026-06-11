@@ -21,7 +21,7 @@
 
 ### Added
 
-- **新增 `mapping_happy_manual` 场景**（手动遥控建图 happy flow）：`emit CMD_START mode=remote` 自建任务，按 NOTIFY 顺序 `precondition → leave_dock → find_boundary → boundary_found → map_edge_finish → bow_cover → exit_mapping → idle`。寻到边（`boundary_found`）交接手摇 `REMOTE_CONTROL`/`MAP_FOLLOW_BOUNDARY_MANUAL`，沿边闭合后回到自动 `WORKING` 并经「Loading + 确认进覆盖」（`emit CMD_START_COVERAGE`）进入内部覆盖至 `COMPLETED`。同步 `npm run sync-fsm-mirror`（FSM 镜像随 mower 手动建图重构更新；`cloudWorkStatus.ts` → `workStatus.ts`）。
+- **新增 `mapping_happy_manual` 场景**（手动遥控建图 happy flow）：`emit CMD_START mode=remote` 自建任务，按 NOTIFY 顺序 `precondition → leave_dock → find_boundary → edge_mapping → map_edge_finish → bow_cover → exit_mapping → idle`。沿边状态（`edge_mapping`）交接手摇 `REMOTE_CONTROL`/`MAP_FOLLOW_BOUNDARY_MANUAL`，沿边闭合后回到自动 `WORKING` 并经「Loading + 确认进覆盖」（`emit CMD_START_COVERAGE`）进入内部覆盖至 `COMPLETED`。同步 `npm run sync-fsm-mirror`（FSM 镜像随 mower 手动建图重构更新；`cloudWorkStatus.ts` → `workStatus.ts`）。
 - 场景引擎新增 **`loop` 步骤**（`maxIterations` 省略/`<=0` 即无限循环），`wait` 在循环内可被「停止场景」按 ~50ms 粒度中断；停止时返回 `{ ok: true, stopped: true }`，运行日志上限 500 条。
 - Docs updated for canonical WS status cmd and correct `ratel_task/create` path.
 

@@ -1,8 +1,8 @@
 name: mapping_happy_manual
 description: >-
   手动遥控建图 happy flow。自建建图任务（emit CMD_START mode=remote），按云端
-  NOTIFY_RATEL_STATUS 顺序 precondition → leave_dock → find_boundary → boundary_found
-  → map_edge_finish → bow_cover → exit_mapping → idle。寻到边后交接给用户手摇沿边
+  NOTIFY_RATEL_STATUS 顺序 precondition → leave_dock → find_boundary → edge_mapping
+  → map_edge_finish → bow_cover → exit_mapping → idle。进入沿边后交接给用户手摇沿边
   （REMOTE_CONTROL / MAP_FOLLOW_BOUNDARY_MANUAL），沿边闭合后回到自动 WORKING 并经
   「Loading + 确认进覆盖」闸门进入内部覆盖，直至 COMPLETED。
 guide:
@@ -16,8 +16,8 @@ guide:
     确认进覆盖 → 完成），以及与自动建图的状态切换是否与后端 §5.1 状态机一致。
   simulates:
     - emit CMD_START mode=remote 自建建图任务（IDLE → PREPARING）
-    - 按顺序推送 NOTIFY_RATEL_STATUS（precondition → leave_dock → find_boundary → boundary_found → …）
-    - 寻到边（boundary_found）交接手摇：WORKING/MAP_SCAN_BOUNDARY → REMOTE_CONTROL/MAP_FOLLOW_BOUNDARY_MANUAL
+    - 按顺序推送 NOTIFY_RATEL_STATUS（precondition → leave_dock → find_boundary → edge_mapping → …）
+    - 沿边状态（edge_mapping）交接手摇：WORKING/MAP_SCAN_BOUNDARY → REMOTE_CONTROL/MAP_FOLLOW_BOUNDARY_MANUAL
     - 沿边闭合（map_edge_finish）设备驱动退出遥控：REMOTE_CONTROL → WORKING/MAP_BOUNDARY_DONE
     - 用户确认进覆盖（emit CMD_START_COVERAGE，乐观推进），设备 bow_cover 落位
   prerequisites:
@@ -34,7 +34,7 @@ guide:
   auto_behavior:
     - setup 为 IDLE，emit CMD_START mode=remote 进入 PREPARING
     - 依次 notify 各 sub_status，expect 校验 FSM 快照
-    - boundary_found 后 expect REMOTE_CONTROL / MAP_FOLLOW_BOUNDARY_MANUAL
+    - edge_mapping 后 expect REMOTE_CONTROL / MAP_FOLLOW_BOUNDARY_MANUAL
     - map_edge_finish 后 expect WORKING / MAP_BOUNDARY_DONE，停留 5s 模拟 Loading + 确认 Modal
     - emit CMD_START_COVERAGE 乐观进入 MAP_COVERAGE_RUN，再 notify bow_cover 落位，直至 COMPLETED
   duration: 约 1.5 分钟
@@ -55,8 +55,8 @@ steps:
   - notify: { work_status: mapping, sub_status: find_boundary }
   - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY }
   - wait: 10s
-  # 寻到边：手摇模式把控制权交给用户（REMOTE_CONTROL / MAP_FOLLOW_BOUNDARY_MANUAL）。
-  - notify: { work_status: mapping, sub_status: boundary_found }
+  # 进入沿边：手摇模式把控制权交给用户（REMOTE_CONTROL / MAP_FOLLOW_BOUNDARY_MANUAL）。
+  - notify: { work_status: mapping, sub_status: edge_mapping }
   - expect: { state: REMOTE_CONTROL, phase: MAP_FOLLOW_BOUNDARY_MANUAL, mode: remote }
   - wait: 12s
   # 沿边闭合：设备驱动退出遥控，回到自动 WORKING / MAP_BOUNDARY_DONE。

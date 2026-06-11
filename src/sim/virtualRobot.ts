@@ -63,6 +63,35 @@ export interface MowingTaskRecord {
   readonly created_at: number;
 }
 
+/**
+ * 回充（回桩）任务记录。与割草任务相互独立（App 侧 `rechargeTaskSlice`，docs §12）。
+ * 由 `POST /robot/recharge/task` 创建，WS `cmd: RECHARGE` 推送 `task_status` 驱动按钮。
+ */
+export interface RechargeTaskRecord {
+  readonly task_id: string;
+  readonly sn: string;
+  status: 'ON_THE_WAY' | 'PAUSE' | 'COMPLETE' | 'CANCEL';
+  readonly created_at: number;
+}
+
+/** WS `cmd: RECHARGE` 推送 payload（`onRechargeStatus`）。 */
+export interface RechargeStatusPush {
+  readonly sn: string;
+  readonly task_id: string;
+  readonly task_status: RechargeTaskRecord['status'];
+  readonly remark: string;
+}
+
+/** 回桩 `sub_status` 顺序（与 App `BackendPhaseMapper.RETURN_DOCK_SUB` 对齐，docs §13）。 */
+const RETURN_DOCK_NOTIFY_SEQUENCE: ReadonlyArray<{ readonly atMs: number; readonly subStatus: string }> = [
+  { atMs: 0, subStatus: 'go_to_pre_dock_point' },
+  { atMs: 3000, subStatus: 'seek_charger_dock' },
+  { atMs: 6000, subStatus: 'enter_dock' },
+  { atMs: 9000, subStatus: 'at_dock' },
+];
+/** `at_dock` 后再延迟收口为 `work_status: idle`（驱动 FSM `RETURNING_DOCK → COMPLETED`）。 */
+const RETURN_DOCK_IDLE_DELAY_MS = 12000;
+
 export interface VirtualRobotSnapshot {
   readonly sn: string;
   readonly nickname: string;
@@ -152,6 +181,9 @@ export class VirtualRobot extends EventEmitter {
   private readonly events: RecordedEvent[] = [];
   private readonly tasks = new Map<string, MowingTaskRecord>();
   private readonly latestTaskBySn = new Map<string, string>();
+  /** 当前回充（回桩）任务（与割草任务独立，docs §12 / §13）。 */
+  private rechargeTask: RechargeTaskRecord | null = null;
+  private rechargeTimers: ReturnType<typeof setTimeout>[] = [];
 
   constructor(options: VirtualRobotOptions = {}) {
     super();
@@ -199,8 +231,106 @@ export class VirtualRobot extends EventEmitter {
     this.lastNotifySubStatus = null;
     this.tasks.clear();
     this.latestTaskBySn.clear();
+    this.clearRechargeTimers();
+    this.rechargeTask = null;
     this.record(null, { type: 'SIM_RESET' });
     this.emit('changed', this.snapshot());
+  }
+
+  activeRechargeTask(): RechargeTaskRecord | null {
+    return this.rechargeTask;
+  }
+
+  /**
+   * 触发回充（回桩）：`POST /robot/recharge/task`。
+   *
+   * 结束当前割草任务（将割草 FSM 归位到 IDLE），创建回充任务并推 `RECHARGE: ON_THE_WAY`，
+   * 随后按 {@link RETURN_DOCK_NOTIFY_SEQUENCE} 逐步推送 `work_status: return_dock` 的
+   * `sub_status`，最终 `work_status: idle` 收口（驱动 App FSM `RETURNING_DOCK → COMPLETED`、
+   * 面板显示「回桩中」）。
+   */
+  startRecharge(sn?: string): RechargeTaskRecord {
+    if (sn && sn.trim()) this.sn = sn.trim();
+    this.activeDomain = 'mowing';
+    this.clearRechargeTimers();
+    // 回充结束当前割草任务：割草 FSM 归位 IDLE，使后续 return_dock 设备态可进入 RETURNING_DOCK。
+    this.mowing = withSimulatorDefaults(initialMowingState, this.mowing.battery ?? 80);
+    this.lastNotifyWorkStatus = null;
+    this.lastNotifySubStatus = null;
+    const task: RechargeTaskRecord = {
+      task_id: createCompactId('mock-recharge'),
+      sn: this.sn,
+      status: 'ON_THE_WAY',
+      created_at: Date.now(),
+    };
+    this.rechargeTask = task;
+    this.emitRechargeStatus();
+    this.scheduleReturnDockSequence();
+    this.emit('changed', this.snapshot());
+    return task;
+  }
+
+  /** 回充任务动作：`POST /robot/recharge/action`（PAUSE / RESUME / CANCEL）。 */
+  applyRechargeAction(action: string): string | null {
+    const task = this.rechargeTask;
+    if (!task) return 'no active recharge task';
+    switch (action) {
+      case 'PAUSE':
+        task.status = 'PAUSE';
+        break;
+      case 'RESUME':
+        task.status = 'ON_THE_WAY';
+        break;
+      case 'CANCEL':
+        task.status = 'CANCEL';
+        this.clearRechargeTimers();
+        break;
+      default:
+        return `unknown recharge action ${action}`;
+    }
+    this.emitRechargeStatus();
+    return null;
+  }
+
+  private emitRechargeStatus(): void {
+    if (!this.rechargeTask) return;
+    this.emit('rechargeStatus', {
+      sn: this.rechargeTask.sn,
+      task_id: this.rechargeTask.task_id,
+      task_status: this.rechargeTask.status,
+      remark: '',
+    } satisfies RechargeStatusPush);
+  }
+
+  private scheduleReturnDockSequence(): void {
+    for (const step of RETURN_DOCK_NOTIFY_SEQUENCE) {
+      this.scheduleRechargeStep(step.atMs, () => {
+        this.pushRatelStatus({ work_status: 'return_dock', sub_status: step.subStatus });
+        if (step.subStatus === 'at_dock' && this.rechargeTask) {
+          this.rechargeTask.status = 'COMPLETE';
+          this.emitRechargeStatus();
+        }
+      });
+    }
+    this.scheduleRechargeStep(RETURN_DOCK_IDLE_DELAY_MS, () => {
+      this.pushRatelStatus({ work_status: 'idle', sub_status: 'none' });
+    });
+  }
+
+  private scheduleRechargeStep(atMs: number, run: () => void): void {
+    const handle = setTimeout(() => {
+      // 已取消的回充任务不再推进回桩序列。
+      if (!this.rechargeTask || this.rechargeTask.status === 'CANCEL') return;
+      run();
+    }, atMs);
+    // 不阻塞进程退出（测试 / 优雅关闭）。
+    (handle as { unref?: () => void }).unref?.();
+    this.rechargeTimers.push(handle);
+  }
+
+  private clearRechargeTimers(): void {
+    for (const handle of this.rechargeTimers) clearTimeout(handle);
+    this.rechargeTimers = [];
   }
 
   updateDevice(patch: Record<string, unknown>): void {
@@ -369,6 +499,7 @@ export class VirtualRobot extends EventEmitter {
     }
     if (this.activeDomain === 'mowing') {
       if (ctx.state === 'IDLE' || ctx.state === 'COMPLETED' || ctx.state === 'CANCELLED') return 'idle';
+      if (ctx.state === 'RETURNING_DOCK') return 'return_dock';
       return 'mowing';
     }
     return 'idle';

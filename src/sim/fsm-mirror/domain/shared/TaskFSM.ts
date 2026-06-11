@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/shared/TaskFSM.ts. DO NOT EDIT. !!!
-// Source SHA-256: 93416df3af44c4e81cb22f40a9b70f6b211a05f8853c35f9aae877757bd5a6b4
-// Synced at: 2026-06-10T07:46:58.562Z
+// Source SHA-256: 8a99847f9105808a64cd6e3ad3bb8fcf1f1d260eb96890cb426df5daa45f955a
+// Synced at: 2026-06-11T08:30:38.383Z
 import { safeLog, type LoggerLike } from './LoggerLike';
 
 export type TaskState =
@@ -30,6 +30,7 @@ export type RobotWorkStatus =
   | 'charging'
   | 'mapping'
   | 'mapping_completed'
+  | 'return_dock'
   | 'error';
 
 export type AckTimeoutPhase =
@@ -332,7 +333,7 @@ function transition<P extends string>(
     case 'CMD_START': {
       if (ctx.state !== 'IDLE') return ctx;
       // 离桩 / 寻边由设备自驱，自动与手摇启动一致：始终进入 PREPARING。
-      // 「寻到边后交给谁」由 `mode` 在 MAP_BOUNDARY_FOUND 处分叉（见 MappingSession）。
+      // 收到 edge_mapping 后交给自动还是手摇，由 `mode` 在 MappingSession 中分叉。
       return withMeta(
         {
           ...ctx,
