@@ -10,7 +10,7 @@ This document is the S0-S3 API contract for Mower Dev Simulator. Business API pa
 | `GET/POST` | `/ratel/api/v1/courtyard/robot/detail` | `{ code, message, data: IDevice }` |
 | `POST` | `/ratel/api/v1/courtyard/robot/info/update` | `{ code, message, data: IDevice }` |
 | `POST` | `/ratel/api/v1/courtyard/robot/unbind` | `{ code, message, data: { robot_code, robot_message } }` |
-| `GET/POST` | `/ratel/map-service/api/v1/ratel/map/list` | `{ code, data: { total, items } }` |
+| `GET/POST` | `/ratel/map-service/api/v1/ratel/map/list` | `{ code, data: { total, items } }`；`items[]` 含 `map_url` / `semantic_map_url` / `real_view_map_url` / `map_origin_x` / `map_origin_y` / `resolution` / `base_version` / `unit` / `increments`（命名对齐 APP端接口文档v2.md） |
 | `POST` | `/ratel/map-service/api/v1/ratel/semantic/save` | `{ code, data: { base_version } }` |
 | `POST` | `/ratel/api/v1/map/delete` | `{ code, data: { deleted, map_id } }` |
 | `POST` | `/ratel/api/v1/robot/self_check` | `{ code, data: { checked_at, overall, … } }` — 建图前置触发机器自检 |
@@ -27,6 +27,8 @@ This document is the S0-S3 API contract for Mower Dev Simulator. Business API pa
 
 ### Notes
 
+- `map/list` 的 `items[].increments[]` 为标注 / 点位增量，单项形如 `{ element_id, type, shape, points, properties, source }`。`type` 是 0-255 语义码：禁区 `251`、圆禁区 `201`、虚拟墙 `254`、**充电桩 `69`** 等。充电桩为单点位，协议无原生 point 形状，按 `shape: 'polygon'` + 1 个点（`points: [{x, y}]`）下发，APP 端按 `type` 反向迁移为 point 渲染；可选 `properties.yawRad`（BackendWorld 顺时针）控制朝向。增量数据源在 `src/data/annotations.ts`。
+- `increments[].source` = `"robot"` / `"app"`，标识数据来源并决定 APP 端可编辑性：`robot`（机器人/后端上报，如充电桩）只读不可编辑、不参与 `semantic/save` 回传；`app`（用户绘制，如禁区/虚拟墙）可编辑可保存。**`semantic/save` 的回传 body 不含 `source`**（与 `APP端接口文档v2.md` 一致）。
 - `ratel_backend_api.md`（`pudu_ratel_app_mower/build-docs/`）中若示例使用 `/ratel/open-platform-service/api/v1/ratel_task/{action,list}`，模拟器不实现该路径。Mower App 实际调用 `/ratel/central-control-service/api/v1/...`，模拟器与之对齐。
 - Device detail and map list support `POST` because the mower app's HTTP bridge currently posts to these constants.
 - Unknown routes return `404 { code: 404, message: 'deprecated; removed in simulator v1' }`.
@@ -94,5 +96,6 @@ On WS connect the simulator sends `MAP_FIX` and an initial `NOTIFY_RATEL_STATUS`
 | `POST` | `/sim/chaos` | Set `{ latencyMs?, dropRate?, reorderWindowMs? }`. |
 | `POST` | `/sim/ble/register` | S1 placeholder endpoint. |
 | `POST` | `/sim/ble/notify` | S1 placeholder endpoint. |
-| `GET` | `/sim/assets/full_semanticmap.png` | Basemap image returned by map list. |
+| `GET` | `/sim/assets/full_semanticmap.png` | Semantic basemap image returned by map list (`map_url` / `semantic_map_url`). |
+| `GET` | `/sim/assets/full_rgbmap.png` | Real-scene (RGB) basemap image returned by map list (`real_view_map_url`). |
 | `WS` | `/sim/inspect` | Live reducer transcript stream. |

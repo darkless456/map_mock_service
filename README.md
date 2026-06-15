@@ -51,7 +51,7 @@ The service only registers the mower API paths below. For app compatibility, dev
 | `GET/POST` | `/ratel/api/v1/courtyard/robot/detail` | Return current virtual robot device info. |
 | `POST` | `/ratel/api/v1/courtyard/robot/info/update` | Update simulator nickname / SN and broadcast `NOTIFY_RATEL_STATUS`. |
 | `POST` | `/ratel/api/v1/courtyard/robot/unbind` | Reset virtual robot state. |
-| `GET/POST` | `/ratel/map-service/api/v1/ratel/map/list` | Return semantic basemap URL and annotation increments. |
+| `GET/POST` | `/ratel/map-service/api/v1/ratel/map/list` | Return semantic + real-scene basemap URLs, map metadata (`resolution` / `origin`), and annotation increments. |
 | `POST` | `/ratel/map-service/api/v1/ratel/semantic/save` | Save annotation increment package in memory and dispatch `CMD_SAVE`. |
 | `POST` | `/ratel/api/v1/map/delete` | Delete an in-memory map package. |
 | `POST` | `/ratel/api/v1/robot/self_check` | 通知机器开始自检（建图前置第一步） |
@@ -68,7 +68,11 @@ The service only registers the mower API paths below. For app compatibility, dev
 | `POST` | `/ratel/api/v1/robot/recharge/action` | Recharge task `PAUSE` / `RESUME` / `CANCEL`. |
 | `GET` | `/api/health` | Local health check. |
 
-Asset URLs returned by map list currently point to `/sim/assets/full_semanticmap.png`.
+Each `map/list` item carries both basemap URLs and shared world metadata:
+
+- `map_url` / `semantic_map_url` → `/sim/assets/full_semanticmap.png` (套色板灰度语义图)。
+- `real_view_map_url` → `/sim/assets/full_rgbmap.png` (RGB 实景图)。
+- `map_origin_x` / `map_origin_y` 与 `resolution`：语义图与实景图共享同一世界坐标系。origin 为 BackendWorld(Y-down) 下图片左上角的世界坐标，mock 默认 `resolution=0.05`、`origin=(2.5, 2.2)`，取自 `APP端接口文档v2.md` 示例并参考 `地图管理系统设计方案.md` 的 `full_semanticmap.xml`(map_id/resolution/origin)。字段命名严格对齐 `APP端接口文档v2.md` 的 `Rsp.data.items`。
 
 ## WebSocket API
 

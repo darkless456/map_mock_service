@@ -1,6 +1,6 @@
 import type { RouteHandler } from '../shared/http';
 import { hostBaseUrl, methodIs, readJsonBody, sendError, sendJson, sendOk, stringBodyField } from '../shared/http';
-import { buildMapList, readBasemapAsset } from '../data/basemap';
+import { buildMapList, readBasemapAsset, readRealsceneAsset } from '../data/basemap';
 import { deleteAnnotationPackage, setAnnotationPackage, type IncrementPackage } from '../data/annotations';
 import type { AppRouteContext } from './router';
 
@@ -58,6 +58,21 @@ export const handleMapRoutes: RouteHandler<AppRouteContext> = async (req, res, u
     const asset = readBasemapAsset();
     if (!asset) {
       sendError(res, 503, 'full_semanticmap.png not found');
+      return true;
+    }
+    res.writeHead(200, {
+      'Content-Type': 'image/png',
+      'Content-Length': asset.length,
+      'Cache-Control': 'no-store',
+    });
+    res.end(asset);
+    return true;
+  }
+
+  if (url.pathname === '/sim/assets/full_rgbmap.png' && methodIs(req, 'GET')) {
+    const asset = readRealsceneAsset();
+    if (!asset) {
+      sendError(res, 503, 'full_rgbmap.png not found');
       return true;
     }
     res.writeHead(200, {

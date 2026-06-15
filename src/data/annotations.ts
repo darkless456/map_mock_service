@@ -5,6 +5,8 @@ export interface ProtocolPoint {
 
 export type ProtocolShape = 'line' | 'polygon' | 'rect';
 export type ProtocolUnit = 'meter' | 'px' | 'pixel' | '';
+/** 标注来源：`robot` 机器人/后端拥有（APP 只读）；`app` 用户绘制（可编辑）。 */
+export type AnnotationSource = 'robot' | 'app';
 
 export interface ProtocolIncrement {
   readonly element_id: string;
@@ -13,6 +15,8 @@ export interface ProtocolIncrement {
   readonly shape: ProtocolShape;
   readonly points: readonly ProtocolPoint[];
   readonly properties?: Record<string, unknown>;
+  /** 数据来源；map/list 下行携带，决定 APP 端可编辑性。semantic/save 不回传。 */
+  readonly source?: AnnotationSource;
 }
 
 export interface IncrementPackage {
@@ -42,6 +46,7 @@ store.set('mock_map_001', {
         { x: 7.345197498892281, y: 14.693950147938443 },
       ],
       properties: {},
+      source: 'app',
     },
     {
       element_id: '3af8ca02-4e74-450e-9234-86e33074c6aa',
@@ -52,6 +57,7 @@ store.set('mock_map_001', {
         { x: 15.081918702302154, y: 8.999716779920792 },
       ],
       properties: {},
+      source: 'app',
     },
     {
       element_id: '0a2821f1-1390-459d-889b-dbe07e9b7ede',
@@ -62,6 +68,18 @@ store.set('mock_map_001', {
         { x: 16.79287552303738, y: 14.918286980523003 },
       ],
       properties: {},
+      source: 'app',
+    },
+    // 充电桩点位：type=69，单点（{x,y}）。协议无原生 point 形状，按 1 点退化 polygon
+    // 下发；APP 端 ingestProtocol 通过 KindRegistry 把 type=69 反向迁移为 'point' 渲染。
+    // source='robot'：机器人上报、APP 端只读不可编辑。properties.yawRad 可选朝向。
+    {
+      element_id: 'b2c5b3f0-7a1d-4d2e-9c3a-2f6e8a4d1c90',
+      type: 69,
+      shape: 'polygon',
+      points: [{ x: 16.0, y: 9.0 }],
+      properties: { yawRad: 0 },
+      source: 'robot',
     },
   ],
 });

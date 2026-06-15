@@ -18,6 +18,7 @@ guide:
     - emit CMD_START mode=remote 自建建图任务（IDLE → PREPARING）
     - 按顺序推送 NOTIFY_RATEL_STATUS（precondition → leave_dock → find_boundary → edge_mapping → …）
     - 沿边状态（edge_mapping）交接手摇：WORKING/MAP_SCAN_BOUNDARY → REMOTE_CONTROL/MAP_FOLLOW_BOUNDARY_MANUAL
+    - 手摇沿边窗口（停留 20s）持续广播 MAP_INCREMENTAL 增量帧，模拟用户摇控机器沿边上传建图数据
     - 沿边闭合（map_edge_finish）设备驱动退出遥控：REMOTE_CONTROL → WORKING/MAP_BOUNDARY_DONE
     - 用户确认进覆盖（emit CMD_START_COVERAGE，乐观推进），设备 bow_cover 落位
   prerequisites:
@@ -40,6 +41,7 @@ guide:
   duration: 约 1.5 分钟
   pushes:
     - NOTIFY_RATEL_STATUS（work_status=mapping / idle）
+    - MAP_INCREMENTAL（寻边 / 手摇沿边 / 内部覆盖等 shouldStreamMap 阶段，按 PUSH_INTERVAL_MS 持续推送增量帧）
 domain: mapping
 setup:
   state: IDLE
@@ -58,7 +60,10 @@ steps:
   # 进入沿边：手摇模式把控制权交给用户（REMOTE_CONTROL / MAP_FOLLOW_BOUNDARY_MANUAL）。
   - notify: { work_status: mapping, sub_status: edge_mapping }
   - expect: { state: REMOTE_CONTROL, phase: MAP_FOLLOW_BOUNDARY_MANUAL, mode: remote }
-  - wait: 12s
+  # 手摇沿边窗口：本阶段 shouldStreamMap() 为真，mapTimer 按 PUSH_INTERVAL_MS（默认 200ms）
+  # 持续广播 MAP_INCREMENTAL 增量帧（含逐帧机器人位姿），模拟用户摇控机器沿边行驶时
+  # 实时上传建图数据。停留 20s ≈ 100 帧，给出清晰可见的增量建图窗口。
+  - wait: 20s
   # 沿边闭合：设备驱动退出遥控，回到自动 WORKING / MAP_BOUNDARY_DONE。
   - notify: { work_status: mapping, sub_status: map_edge_finish }
   - expect: { state: WORKING, phase: MAP_BOUNDARY_DONE, mode: auto }
