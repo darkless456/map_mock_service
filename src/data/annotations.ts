@@ -1,9 +1,11 @@
+import { CHARGING_DOCK_BACKEND_POINT } from './chargingDock';
+
 export interface ProtocolPoint {
   readonly x: number;
   readonly y: number;
 }
 
-export type ProtocolShape = 'line' | 'polygon' | 'rect';
+export type ProtocolShape = 'line' | 'polygon' | 'rect' | 'point';
 export type ProtocolUnit = 'meter' | 'px' | 'pixel' | '';
 /** 标注来源：`robot` 机器人/后端拥有（APP 只读）；`app` 用户绘制（可编辑）。 */
 export type AnnotationSource = 'robot' | 'app';
@@ -24,64 +26,136 @@ export interface IncrementPackage {
   readonly base_version: number;
   readonly timestamp: number;
   readonly unit: ProtocolUnit;
+  readonly is_use?: boolean;
   readonly increments: readonly ProtocolIncrement[];
 }
 
 const store = new Map<string, IncrementPackage>();
 
-store.set('mock_map_001', {
-  map_id: 'mock_map_001',
+store.set('4245b2a8-5394-4259-9a2f-0379c8f82f03', {
+  map_id: '4245b2a8-5394-4259-9a2f-0379c8f82f03',
   base_version: 1,
-  timestamp: 1779247395760,
-  unit: 'meter',
+  timestamp: 0,
+  unit: '',
+  is_use: true,
   increments: [
-    {
-      element_id: '864e6ed1-add3-4070-84ba-9e63053ab276',
-      type: 251,
-      shape: 'rect',
-      points: [
-        { x: 7.082406624693581, y: 10.127967876160502 },
-        { x: 11.80295047971377, y: 9.856281353411253 },
-        { x: 12.06574135391247, y: 14.422263625189194 },
-        { x: 7.345197498892281, y: 14.693950147938443 },
-      ],
-      properties: {},
-      source: 'app',
-    },
-    {
-      element_id: '3af8ca02-4e74-450e-9234-86e33074c6aa',
-      type: 201,
-      shape: 'polygon',
-      points: [
-        { x: 13.472582273130064, y: 7.783616016529225 },
-        { x: 15.081918702302154, y: 8.999716779920792 },
-      ],
-      properties: {},
-      source: 'app',
-    },
-    {
-      element_id: '0a2821f1-1390-459d-889b-dbe07e9b7ede',
-      type: 254,
-      shape: 'line',
-      points: [
-        { x: 13.225205654568143, y: 12.243492783440484 },
-        { x: 16.79287552303738, y: 14.918286980523003 },
-      ],
-      properties: {},
-      source: 'app',
-    },
-    // 充电桩点位：type=69，单点（{x,y}）。协议无原生 point 形状，按 1 点退化 polygon
-    // 下发；APP 端 ingestProtocol 通过 KindRegistry 把 type=69 反向迁移为 'point' 渲染。
-    // source='robot'：机器人上报、APP 端只读不可编辑。properties.yawRad 可选朝向。
-    {
-      element_id: 'b2c5b3f0-7a1d-4d2e-9c3a-2f6e8a4d1c90',
-      type: 69,
-      shape: 'polygon',
-      points: [{ x: 16.0, y: 9.0 }],
-      properties: { yawRad: 0 },
-      source: 'robot',
-    },
+    { element_id: '001', type: 99, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: '001', type: 98, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: '2425943b-92b6-43ea-a98a-6ae137741b48', type: 69, action: 'add', shape: 'point', points: [CHARGING_DOCK_BACKEND_POINT], properties: {}, source: 'robot' },
   ],
+});
+
+store.set('7923da82-4803-47e4-b541-782e4ada3a10', {
+  map_id: '7923da82-4803-47e4-b541-782e4ada3a10',
+  base_version: 1,
+  timestamp: 0,
+  unit: '',
+  is_use: false,
+  increments: [
+    { element_id: '001', type: 99, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: '001', type: 98, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: '19719b46-9bcd-4713-8bb4-8d1bc59703ae', type: 69, action: 'add', shape: 'point', points: [CHARGING_DOCK_BACKEND_POINT], properties: {}, source: 'robot' },
+  ],
+});
+
+store.set('ae277bb2-d99e-4411-b900-4a26af41cfb4', {
+  map_id: 'ae277bb2-d99e-4411-b900-4a26af41cfb4',
+  base_version: 1,
+  timestamp: 0,
+  unit: '',
+  is_use: false,
+  increments: [
+    { element_id: '001', type: 99, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: '001', type: 98, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: '67b1b577-837f-4cd5-82e8-40a2cfee6aa8', type: 69, action: 'add', shape: 'point', points: [CHARGING_DOCK_BACKEND_POINT], properties: {}, source: 'robot' },
+  ],
+});
+
+store.set('ed01fe3c-d2f1-4429-aec9-81ec4cb736e8', {
+  map_id: 'ed01fe3c-d2f1-4429-aec9-81ec4cb736e8',
+  base_version: 1,
+  timestamp: 0,
+  unit: '',
+  is_use: false,
+  increments: [
+    { element_id: '001', type: 99, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: '001', type: 98, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: 'fa96915f-2962-4c75-8cfe-012b32137f47', type: 69, action: 'add', shape: 'point', points: [CHARGING_DOCK_BACKEND_POINT], properties: {}, source: 'robot' },
+  ],
+});
+
+store.set('04377a8f-df99-4630-8883-d967f255f383', {
+  map_id: '04377a8f-df99-4630-8883-d967f255f383',
+  base_version: 1,
+  timestamp: 0,
+  unit: '',
+  is_use: false,
+  increments: [
+    { element_id: '001', type: 99, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: '001', type: 98, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: '179ec652-9c72-43bf-91a3-e670a932d8cc', type: 69, action: 'add', shape: 'point', points: [CHARGING_DOCK_BACKEND_POINT], properties: {}, source: 'robot' },
+  ],
+});
+
+store.set('cf640c1d-4f1c-4f15-b292-71fbcae50e63', {
+  map_id: 'cf640c1d-4f1c-4f15-b292-71fbcae50e63',
+  base_version: 1,
+  timestamp: 0,
+  unit: '',
+  is_use: false,
+  increments: [
+    { element_id: '001', type: 99, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: '001', type: 98, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: 'e1c05454-65d4-4967-bed8-9e99f4d202bc', type: 69, action: 'add', shape: 'point', points: [CHARGING_DOCK_BACKEND_POINT], properties: {}, source: 'robot' },
+  ],
+});
+
+store.set('f755fe0f-5958-4b0a-9fd5-47159ba440de', {
+  map_id: 'f755fe0f-5958-4b0a-9fd5-47159ba440de',
+  base_version: 1,
+  timestamp: 0,
+  unit: '',
+  is_use: false,
+  increments: [
+    { element_id: '001', type: 99, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: '001', type: 98, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: 'bbde93e7-36f7-4fd8-b5f0-7b03727f49a3', type: 69, action: 'add', shape: 'point', points: [CHARGING_DOCK_BACKEND_POINT], properties: {}, source: 'robot' },
+  ],
+});
+
+store.set('2a27fcb3-c123-43fe-9653-5b5e31aff895', {
+  map_id: '2a27fcb3-c123-43fe-9653-5b5e31aff895',
+  base_version: 1,
+  timestamp: 0,
+  unit: '',
+  is_use: false,
+  increments: [
+    { element_id: '001', type: 99, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: '001', type: 98, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: '7f6ee3e0-fa8d-446b-9012-598180b6db00', type: 69, action: 'add', shape: 'point', points: [CHARGING_DOCK_BACKEND_POINT], properties: {}, source: 'robot' },
+  ],
+});
+
+store.set('04e5afc6-085c-4522-956e-a89379515621', {
+  map_id: '04e5afc6-085c-4522-956e-a89379515621',
+  base_version: 1,
+  timestamp: 0,
+  unit: '',
+  is_use: false,
+  increments: [
+    { element_id: '001', type: 99, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: '001', type: 98, action: 'add', shape: 'polygon', points: [], properties: {}, source: 'robot' },
+    { element_id: '467d7724-3411-46be-87a2-f3bf561d234e', type: 69, action: 'add', shape: 'point', points: [CHARGING_DOCK_BACKEND_POINT], properties: {}, source: 'robot' },
+  ],
+});
+
+store.set('first_map', {
+  map_id: 'first_map',
+  base_version: 1,
+  timestamp: 0,
+  unit: '',
+  is_use: false,
+  increments: [],
 });
 
 export function getAnnotationPackage(mapId: string): IncrementPackage | undefined {

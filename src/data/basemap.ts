@@ -44,6 +44,16 @@ const DEFAULT_MAP_METADATA: MapMetadata = {
 /** 已知地图的元数据覆盖表（缺省回落到 DEFAULT_MAP_METADATA）。 */
 const MAP_METADATA: Readonly<Record<string, MapMetadata>> = {
   mock_map_001: DEFAULT_MAP_METADATA,
+  '4245b2a8-5394-4259-9a2f-0379c8f82f03': { resolution: 0.05, origin_x: -12.8, origin_y: -12.8 },
+  '7923da82-4803-47e4-b541-782e4ada3a10': { resolution: 0.05, origin_x: -12.8, origin_y: -12.8 },
+  'ae277bb2-d99e-4411-b900-4a26af41cfb4': { resolution: 0.05, origin_x: -12.8, origin_y: -12.8 },
+  'ed01fe3c-d2f1-4429-aec9-81ec4cb736e8': { resolution: 0.05, origin_x: -12.8, origin_y: -12.8 },
+  '04377a8f-df99-4630-8883-d967f255f383': { resolution: 0.05, origin_x: -12.8, origin_y: -12.8 },
+  'cf640c1d-4f1c-4f15-b292-71fbcae50e63': { resolution: 0.05, origin_x: -12.8, origin_y: -12.8 },
+  'f755fe0f-5958-4b0a-9fd5-47159ba440de': { resolution: 0.05, origin_x: -12.8, origin_y: -12.8 },
+  '2a27fcb3-c123-43fe-9653-5b5e31aff895': { resolution: 0.05, origin_x: -12.8, origin_y: -12.8 },
+  '04e5afc6-085c-4522-956e-a89379515621': { resolution: 0.05, origin_x: -12.8, origin_y: -12.8 },
+  'first_map': { resolution: 0.05, origin_x: 0, origin_y: 0 },
 };
 
 export function getMapMetadata(mapId: string): MapMetadata {
@@ -63,6 +73,8 @@ export interface MapItem {
   readonly real_view_map_url: string;
   readonly base_version: number;
   readonly unit: string;
+  /** 是否为当前使用中的地图（APP端接口文档v2.md `is_use`）。 */
+  readonly is_use: boolean;
   /**
    * 米 / 像素，语义图与实景图共享。
    * 注：APP端接口文档v2.md 的 items 未列该字段，real backend 来源于
@@ -122,7 +134,8 @@ export function buildMapList(baseUrl: string): MapListData {
       semantic_map_url: semanticUrl,
       real_view_map_url: realsceneUrl,
       base_version: pkg.base_version,
-      unit: pkg.unit || 'meter',
+      unit: pkg.unit ?? '',
+      is_use: pkg.is_use ?? false,
       resolution: meta.resolution,
       map_origin_x: meta.origin_x,
       map_origin_y: meta.origin_y,
