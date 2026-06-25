@@ -1,4 +1,4 @@
-import { EventEmitter } from 'node:events';
+﻿import { EventEmitter } from 'node:events';
 import {
   initialMappingState,
   mappingReducer,
@@ -64,9 +64,7 @@ export interface MowingTaskRecord {
 }
 
 /**
- * 回充（回桩）任务记录。与割草任务相互独立（App 侧 `rechargeTaskSlice`，docs §12）。
- * 由 `POST /robot/recharge/task` 创建，WS `cmd: RECHARGE` 推送 `task_status` 驱动按钮。
- */
+ * 鍥炲厖锛堝洖妗╋級浠诲姟璁板綍銆備笌鍓茶崏浠诲姟鐩镐簰鐙珛锛圓pp 渚?`rechargeTaskSlice`锛宒ocs 搂12锛夈€? * 鐢?`POST /robot/recharge/task` 鍒涘缓锛學S `cmd: RECHARGE` 鎺ㄩ€?`task_status` 椹卞姩鎸夐挳銆? */
 export interface RechargeTaskRecord {
   readonly task_id: string;
   readonly sn: string;
@@ -74,7 +72,7 @@ export interface RechargeTaskRecord {
   readonly created_at: number;
 }
 
-/** WS `cmd: RECHARGE` 推送 payload（`onRechargeStatus`）。 */
+/** WS `cmd: RECHARGE` 鎺ㄩ€?payload锛坄onRechargeStatus`锛夈€?*/
 export interface RechargeStatusPush {
   readonly sn: string;
   readonly task_id: string;
@@ -82,14 +80,14 @@ export interface RechargeStatusPush {
   readonly remark: string;
 }
 
-/** 回桩 `sub_status` 顺序（与 App `BackendPhaseMapper.RETURN_DOCK_SUB` 对齐，docs §13）。 */
+/** 鍥炴々 `sub_status` 椤哄簭锛堜笌 App `BackendPhaseMapper.RETURN_DOCK_SUB` 瀵归綈锛宒ocs 搂13锛夈€?*/
 const RETURN_DOCK_NOTIFY_SEQUENCE: ReadonlyArray<{ readonly atMs: number; readonly subStatus: string }> = [
   { atMs: 0, subStatus: 'go_to_pre_dock_point' },
   { atMs: 3000, subStatus: 'seek_charger_dock' },
   { atMs: 6000, subStatus: 'enter_dock' },
   { atMs: 9000, subStatus: 'at_dock' },
 ];
-/** `at_dock` 后再延迟收口为 `work_status: idle`（驱动 FSM `RETURNING_DOCK → COMPLETED`）。 */
+/** `at_dock` 鍚庡啀寤惰繜鏀跺彛涓?`work_status: idle`锛堥┍鍔?FSM `RETURNING_DOCK 鈫?COMPLETED`锛夈€?*/
 const RETURN_DOCK_IDLE_DELAY_MS = 12000;
 
 export interface VirtualRobotSnapshot {
@@ -177,11 +175,20 @@ export class VirtualRobot extends EventEmitter {
   /** Last WS `NOTIFY_RATEL_STATUS` fields (for dedupe + status projection). */
   lastNotifyWorkStatus: string | null = null;
   lastNotifySubStatus: string | null = null;
+  /** WS state fields for mapping_api_dvt_gap.md 3 */
+  inLawn = false;
+  edgeStartAvailable = false;
+  regionCloseable = false;
+  /** Passage checkpoints for recovery (mapping_api_dvt_gap.md 4) */
+  readonly passageCheckpoints: Array<{ start: { x: number; y: number }; end: { x: number; y: number } | null }> = [];
+  private lastRobotX = 0;
+  private lastRobotY = 0;
+  private trajectoryLog: Array<{ x: number; y: number; t: number }> = [];
   private readonly maxEvents: number;
   private readonly events: RecordedEvent[] = [];
   private readonly tasks = new Map<string, MowingTaskRecord>();
   private readonly latestTaskBySn = new Map<string, string>();
-  /** 当前回充（回桩）任务（与割草任务独立，docs §12 / §13）。 */
+  /** 褰撳墠鍥炲厖锛堝洖妗╋級浠诲姟锛堜笌鍓茶崏浠诲姟鐙珛锛宒ocs 搂12 / 搂13锛夈€?*/
   private rechargeTask: RechargeTaskRecord | null = null;
   private rechargeTimers: ReturnType<typeof setTimeout>[] = [];
 
@@ -229,6 +236,13 @@ export class VirtualRobot extends EventEmitter {
     this.mappingCheckPollCount = 0;
     this.lastNotifyWorkStatus = null;
     this.lastNotifySubStatus = null;
+    this.inLawn = false;
+    this.edgeStartAvailable = false;
+    this.regionCloseable = false;
+    this.passageCheckpoints.length = 0;
+    this.lastRobotX = 0;
+    this.lastRobotY = 0;
+    this.trajectoryLog = [];
     this.tasks.clear();
     this.latestTaskBySn.clear();
     this.clearRechargeTimers();
@@ -242,21 +256,22 @@ export class VirtualRobot extends EventEmitter {
   }
 
   /**
-   * 触发回充（回桩）：`POST /robot/recharge/task`。
-   *
-   * 结束当前割草任务（将割草 FSM 归位到 IDLE），创建回充任务并推 `RECHARGE: ON_THE_WAY`，
-   * 随后按 {@link RETURN_DOCK_NOTIFY_SEQUENCE} 逐步推送 `work_status: return_dock` 的
-   * `sub_status`，最终 `work_status: idle` 收口（驱动 App FSM `RETURNING_DOCK → COMPLETED`、
-   * 面板显示「回桩中」）。
-   */
+   * 瑙﹀彂鍥炲厖锛堝洖妗╋級锛歚POST /robot/recharge/task`銆?   *
+   * 缁撴潫褰撳墠鍓茶崏浠诲姟锛堝皢鍓茶崏 FSM 褰掍綅鍒?IDLE锛夛紝鍒涘缓鍥炲厖浠诲姟骞舵帹 `RECHARGE: ON_THE_WAY`锛?   * 闅忓悗鎸?{@link RETURN_DOCK_NOTIFY_SEQUENCE} 閫愭鎺ㄩ€?`work_status: return_dock` 鐨?   * `sub_status`锛屾渶缁?`work_status: idle` 鏀跺彛锛堥┍鍔?App FSM `RETURNING_DOCK 鈫?COMPLETED`銆?   * 闈㈡澘鏄剧ず銆屽洖妗╀腑銆嶏級銆?   */
   startRecharge(sn?: string): RechargeTaskRecord {
     if (sn && sn.trim()) this.sn = sn.trim();
     this.activeDomain = 'mowing';
     this.clearRechargeTimers();
-    // 回充结束当前割草任务：割草 FSM 归位 IDLE，使后续 return_dock 设备态可进入 RETURNING_DOCK。
-    this.mowing = withSimulatorDefaults(initialMowingState, this.mowing.battery ?? 80);
+    // 鍥炲厖缁撴潫褰撳墠鍓茶崏浠诲姟锛氬壊鑽?FSM 褰掍綅 IDLE锛屼娇鍚庣画 return_dock 璁惧鎬佸彲杩涘叆 RETURNING_DOCK銆?    this.mowing = withSimulatorDefaults(initialMowingState, this.mowing.battery ?? 80);
     this.lastNotifyWorkStatus = null;
     this.lastNotifySubStatus = null;
+    this.inLawn = false;
+    this.edgeStartAvailable = false;
+    this.regionCloseable = false;
+    this.passageCheckpoints.length = 0;
+    this.lastRobotX = 0;
+    this.lastRobotY = 0;
+    this.trajectoryLog = [];
     const task: RechargeTaskRecord = {
       task_id: createCompactId('mock-recharge'),
       sn: this.sn,
@@ -270,7 +285,7 @@ export class VirtualRobot extends EventEmitter {
     return task;
   }
 
-  /** 回充任务动作：`POST /robot/recharge/action`（PAUSE / RESUME / CANCEL）。 */
+  /** 鍥炲厖浠诲姟鍔ㄤ綔锛歚POST /robot/recharge/action`锛圥AUSE / RESUME / CANCEL锛夈€?*/
   applyRechargeAction(action: string): string | null {
     const task = this.rechargeTask;
     if (!task) return 'no active recharge task';
@@ -319,12 +334,10 @@ export class VirtualRobot extends EventEmitter {
 
   private scheduleRechargeStep(atMs: number, run: () => void): void {
     const handle = setTimeout(() => {
-      // 已取消的回充任务不再推进回桩序列。
-      if (!this.rechargeTask || this.rechargeTask.status === 'CANCEL') return;
+      // 宸插彇娑堢殑鍥炲厖浠诲姟涓嶅啀鎺ㄨ繘鍥炴々搴忓垪銆?      if (!this.rechargeTask || this.rechargeTask.status === 'CANCEL') return;
       run();
     }, atMs);
-    // 不阻塞进程退出（测试 / 优雅关闭）。
-    (handle as { unref?: () => void }).unref?.();
+    // 涓嶉樆濉炶繘绋嬮€€鍑猴紙娴嬭瘯 / 浼橀泤鍏抽棴锛夈€?    (handle as { unref?: () => void }).unref?.();
     this.rechargeTimers.push(handle);
   }
 
@@ -366,9 +379,8 @@ export class VirtualRobot extends EventEmitter {
       lastSource: 'cmd' as const,
       lastSourceTs: Date.now(),
     };
-    // SimView 刻意与镜像 TaskContext 的 notices 模型不同（见 simFsmTypes），
-    // 此处为适配层边界，经 unknown 转换存回。
-    if (domain === 'mowing') this.mowing = next as unknown as MowingContext;
+    // SimView 鍒绘剰涓庨暅鍍?TaskContext 鐨?notices 妯″瀷涓嶅悓锛堣 simFsmTypes锛夛紝
+    // 姝ゅ涓洪€傞厤灞傝竟鐣岋紝缁?unknown 杞崲瀛樺洖銆?    if (domain === 'mowing') this.mowing = next as unknown as MowingContext;
     else this.mapping = next as unknown as MappingContext;
     this.record(domain, { type: 'SIM_SETUP', setup });
     this.emit('changed', this.snapshot());
@@ -386,16 +398,20 @@ export class VirtualRobot extends EventEmitter {
   }
 
   /**
-   * 恢复建图：与割草 `applyMowingAction('RESUME')` 对称。先驱动 mock FSM `CMD_RESUME`，
-   * 再**补推一帧 `work_status: mapping` 恢复确认**——云端无「已恢复」设备态，App 侧
-   * `RESUMING` 需靠活跃状态推送走出（见 mower `build-docs/pause_resume_contract_design.md`
-   * §3.1/§3.5）。重置 notify 去重，确保即使 sub_status 未变也能广播该确认帧。
-   */
+   * 鎭㈠寤哄浘锛氫笌鍓茶崏 `applyMowingAction('RESUME')` 瀵圭О銆傚厛椹卞姩 mock FSM `CMD_RESUME`锛?   * 鍐?*琛ユ帹涓€甯?`work_status: mapping` 鎭㈠纭**鈥斺€斾簯绔棤銆屽凡鎭㈠銆嶈澶囨€侊紝App 渚?   * `RESUMING` 闇€闈犳椿璺冪姸鎬佹帹閫佽蛋鍑猴紙瑙?mower `build-docs/pause_resume_contract_design.md`
+   * 搂3.1/搂3.5锛夈€傞噸缃?notify 鍘婚噸锛岀‘淇濆嵆浣?sub_status 鏈彉涔熻兘骞挎挱璇ョ‘璁ゅ抚銆?   */
   resumeMapping(): void {
     this.dispatchMapping({ type: 'CMD_RESUME' });
     const sub = this.lastNotifySubStatus ?? 'none';
     this.lastNotifyWorkStatus = null;
     this.lastNotifySubStatus = null;
+    this.inLawn = false;
+    this.edgeStartAvailable = false;
+    this.regionCloseable = false;
+    this.passageCheckpoints.length = 0;
+    this.lastRobotX = 0;
+    this.lastRobotY = 0;
+    this.trajectoryLog = [];
     this.pushRatelStatus({ work_status: 'mapping', sub_status: sub });
   }
 
@@ -587,12 +603,9 @@ export class VirtualRobot extends EventEmitter {
   }
 
   /**
-   * 任何来源（Web 面板 / App API / 场景脚本）下发的暂停 / 恢复指令都会经过
-   * dispatchMapping / dispatchMowing。这里在状态机处理前统一广播控制意图，
-   * 供 {@link ScenarioEngine} 据此暂停 / 恢复脚本循环（而不仅仅是机器人 FSM）。
-   * 即使当前 FSM 状态不接受该指令（reducer 未改变状态），意图仍会广播，
-   * 保证调试时暂停始终生效。
-   */
+   * 浠讳綍鏉ユ簮锛圵eb 闈㈡澘 / App API / 鍦烘櫙鑴氭湰锛変笅鍙戠殑鏆傚仠 / 鎭㈠鎸囦护閮戒細缁忚繃
+   * dispatchMapping / dispatchMowing銆傝繖閲屽湪鐘舵€佹満澶勭悊鍓嶇粺涓€骞挎挱鎺у埗鎰忓浘锛?   * 渚?{@link ScenarioEngine} 鎹鏆傚仠 / 鎭㈠鑴氭湰寰幆锛堣€屼笉浠呬粎鏄満鍣ㄤ汉 FSM锛夈€?   * 鍗充娇褰撳墠 FSM 鐘舵€佷笉鎺ュ彈璇ユ寚浠わ紙reducer 鏈敼鍙樼姸鎬侊級锛屾剰鍥句粛浼氬箍鎾紝
+   * 淇濊瘉璋冭瘯鏃舵殏鍋滃缁堢敓鏁堛€?   */
   private emitControlIntent(event: { readonly type?: string }): void {
     if (event.type === 'CMD_PAUSE') this.emit('controlPause');
     else if (event.type === 'CMD_RESUME') this.emit('controlResume');
@@ -685,6 +698,74 @@ export class VirtualRobot extends EventEmitter {
       changed,
     } satisfies VirtualRobotTranscript);
   }
+  // ── DVT passage / trajectory helpers (mapping_api_dvt_gap.md 3-4) ──────────
+
+  generateTrajectoryUrl(baseUrl: string): string {
+    return `${baseUrl}/sim/assets/mapping_trajectory.bin`;
+  }
+
+  buildTrajectoryBinary(): Buffer {
+    if (this.trajectoryLog.length === 0) {
+      // Return minimal mock trajectory: a straight line of 10 points
+      const pts: number[] = [];
+      for (let i = 0; i < 10; i++) {
+        pts.push(i * 0.5 + this.lastRobotX * 0.2, i * 0.3 + this.lastRobotY * 0.2, i * 150);
+      }
+      return Buffer.from(new Float32Array(pts).buffer);
+    }
+    // Build binary from log: [x, y, t] f32 triplets
+    const flat: number[] = [];
+    for (const pt of this.trajectoryLog.slice(-5000)) {
+      flat.push(pt.x, pt.y, pt.t);
+    }
+    return Buffer.from(new Float32Array(flat).buffer);
+  }
+
+  confirmEdgeStart(): void {
+    this.edgeStartAvailable = false;
+    // Record passage end point
+    this.recordPassageEnd();
+    // Push updated WS state
+    this.pushRatelStatus();
+    this.emit('changed', this.snapshot());
+  }
+
+  confirmRegionClosure(): void {
+    this.regionCloseable = false;
+    this.pushRatelStatus();
+    this.emit('changed', this.snapshot());
+  }
+
+  recordPassageStart(): void {
+    const start = { x: this.lastRobotX, y: this.lastRobotY };
+    this.passageCheckpoints.push({ start, end: null });
+    this.emit('changed', this.snapshot());
+  }
+
+  private recordPassageEnd(): void {
+    const last = this.passageCheckpoints[this.passageCheckpoints.length - 1];
+    if (last && !last.end) {
+      last.end = { x: this.lastRobotX, y: this.lastRobotY };
+    }
+  }
+
+  updateRobotPosition(x: number, y: number): void {
+    this.lastRobotX = x;
+    this.lastRobotY = y;
+    this.trajectoryLog.push({ x, y, t: Date.now() });
+    // Auto-detect: in lawn when position is within a simulated lawn region
+    this.inLawn = x > 3 && x < 20 && y > -15 && y < -2;
+    // edge_start_available when in lawn and remote mode
+    this.edgeStartAvailable = this.inLawn && this.mapping.mode === 'remote' && this.mapping.state === 'REMOTE_CONTROL';
+    // region_closeable when near start point
+    if (this.trajectoryLog.length > 20) {
+      const first = this.trajectoryLog[0];
+      const dx = x - first.x;
+      const dy = y - first.y;
+      this.regionCloseable = Math.sqrt(dx * dx + dy * dy) < 1.0;
+    }
+  }
+
 }
 
 function pickTranscriptSnapshot(snapshot: VirtualRobotSnapshot): VirtualRobotTranscript['before'] {
@@ -698,3 +779,6 @@ function pickTranscriptSnapshot(snapshot: VirtualRobotSnapshot): VirtualRobotTra
     activeTask: snapshot.activeTask,
   };
 }
+
+
+

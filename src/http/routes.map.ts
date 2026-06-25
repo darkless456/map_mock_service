@@ -1,4 +1,4 @@
-import type { RouteHandler } from '../shared/http';
+﻿import type { RouteHandler } from '../shared/http';
 import { hostBaseUrl, methodIs, readJsonBody, sendError, sendJson, sendOk, stringBodyField } from '../shared/http';
 import { buildMapList, readBasemapAsset, readRealsceneAsset } from '../data/basemap';
 import { deleteAnnotationPackage, setAnnotationPackage, type IncrementPackage } from '../data/annotations';
@@ -30,6 +30,8 @@ export const handleMapRoutes: RouteHandler<AppRouteContext> = async (req, res, u
       return true;
     }
     const pkg: IncrementPackage = {
+      name: typeof body.name === 'string' ? body.name : undefined,
+      area: typeof body.area === 'number' ? body.area : typeof body.lawn_area === 'number' ? body.lawn_area : undefined,
       map_id: body.map_id,
       base_version: typeof body.base_version === 'number' ? body.base_version + 1 : 1,
       timestamp: Date.now(),
@@ -86,3 +88,4 @@ export const handleMapRoutes: RouteHandler<AppRouteContext> = async (req, res, u
 
   return false;
 };
+

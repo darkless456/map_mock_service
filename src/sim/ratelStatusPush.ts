@@ -1,10 +1,13 @@
-import type { VirtualRobot, RobotDomain } from './virtualRobot';
+﻿import type { VirtualRobot, RobotDomain } from './virtualRobot';
 import type { RatelNotifyPayload } from './mappingNotify';
 import { ratelNotifyToMappingEvents } from './mappingNotify';
 import { ratelNotifyToMowingEvents } from './mowingNotify';
 import type { MappingEvent } from './fsm-mirror/domain/mapping/MappingSession';
 
 export interface RatelStatusPushPayload {
+  readonly in_lawn?: number;
+  readonly edge_start_available?: number;
+  readonly region_closeable?: number;
   readonly work_status: string;
   readonly sub_status: string;
   readonly battery_level?: number;
@@ -21,8 +24,7 @@ function notifyTargetDomain(
   activeDomain: RobotDomain,
 ): 'mapping' | 'mowing' {
   if (work === 'mowing') return 'mowing';
-  // 回桩（return_dock）是割草域设备态（docs §13）。
-  if (work === 'return_dock') return 'mowing';
+  // 鍥炴々锛坮eturn_dock锛夋槸鍓茶崏鍩熻澶囨€侊紙docs 搂13锛夈€?  if (work === 'return_dock') return 'mowing';
   if (work === 'mapping' || work === 'mapping_completed') return 'mapping';
   if (prevWork === 'mowing') return 'mowing';
   if (prevWork === 'mapping' || prevWork === 'mapping_completed') return 'mapping';
@@ -30,7 +32,7 @@ function notifyTargetDomain(
   return 'mapping';
 }
 
-/** Mirrors `mappingBackendRegistry` `mapping→idle` composite for mock FSM only. */
+/** Mirrors `mappingBackendRegistry` `mapping鈫抜dle` composite for mock FSM only. */
 function applyMappingToIdleCompletion(robot: VirtualRobot): void {
   const ctx = robot.mapping;
   if (ctx.state !== 'WORKING' && ctx.state !== 'PAUSED' && ctx.state !== 'RESUMING') {
@@ -61,7 +63,7 @@ function applyMowingToIdleCompletion(robot: VirtualRobot): void {
 
 /**
  * Applies NOTIFY_RATEL_STATUS to mock FSM and returns WS broadcast payload.
- * Skips duplicate `(work_status, sub_status)` pairs (§5 backend-status-mapper-update).
+ * Skips duplicate `(work_status, sub_status)` pairs (搂5 backend-status-mapper-update).
  */
 export function applyRatelStatusPush(
   robot: VirtualRobot,
@@ -109,7 +111,11 @@ export function applyRatelStatusPush(
     sub_status: sub,
     battery_level: input.battery_level,
     sn,
+    in_lawn: robot.inLawn ? 1 : 0,
+    edge_start_available: robot.edgeStartAvailable ? 1 : 0,
+    region_closeable: robot.regionCloseable ? 1 : 0,
   };
 }
 
 export type { MappingEvent };
+

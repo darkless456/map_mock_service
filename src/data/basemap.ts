@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+﻿import fs from 'node:fs';
 import path from 'node:path';
 import type { IncrementPackage } from './annotations';
 import { getAnnotationPackage, listAnnotationPackages } from './annotations';
@@ -11,37 +11,30 @@ const SEMANTIC_ASSET_PATH = '/sim/assets/full_semanticmap.png';
 const RGB_ASSET_PATH = '/sim/assets/full_rgbmap.png';
 
 /**
- * 地图元数据（resolution / origin）。
- *
- * 语义图与实景图共享同一世界坐标系：同一 `resolution` 与同一 `origin`
- * （见 pudu-rn-poc/docs/map_world_frame_realscene_robot_design.md §2.4 / §3.2）。
- * `origin_x / origin_y` 为后端 BackendWorld（Y-down）下图片左上角像素对应的世界坐标，
- * 来源于 `机器端接口文档.md` 增量帧 header 与 `地图管理系统设计方案.md` §1.2.2
- * 中的 `full_semanticmap.xml`（含 map_id / resolution / origin）。
- */
+ * 鍦板浘鍏冩暟鎹紙resolution / origin锛夈€? *
+ * 璇箟鍥句笌瀹炴櫙鍥惧叡浜悓涓€涓栫晫鍧愭爣绯伙細鍚屼竴 `resolution` 涓庡悓涓€ `origin`
+ * 锛堣 pudu-rn-poc/docs/map_world_frame_realscene_robot_design.md 搂2.4 / 搂3.2锛夈€? * `origin_x / origin_y` 涓哄悗绔?BackendWorld锛圷-down锛変笅鍥剧墖宸︿笂瑙掑儚绱犲搴旂殑涓栫晫鍧愭爣锛? * 鏉ユ簮浜?`鏈哄櫒绔帴鍙ｆ枃妗?md` 澧為噺甯?header 涓?`鍦板浘绠＄悊绯荤粺璁捐鏂规.md` 搂1.2.2
+ * 涓殑 `full_semanticmap.xml`锛堝惈 map_id / resolution / origin锛夈€? */
 export interface MapMetadata {
-  /** 米 / cell（米 / 像素）。 */
+  /** 绫?/ cell锛堢背 / 鍍忕礌锛夈€?*/
   readonly resolution: number;
-  /** 图片左上角在 BackendWorld(Y-down) 中的 X 坐标（米）。 */
+  /** 鍥剧墖宸︿笂瑙掑湪 BackendWorld(Y-down) 涓殑 X 鍧愭爣锛堢背锛夈€?*/
   readonly origin_x: number;
-  /** 图片左上角在 BackendWorld(Y-down) 中的 Y 坐标（米）。 */
+  /** 鍥剧墖宸︿笂瑙掑湪 BackendWorld(Y-down) 涓殑 Y 鍧愭爣锛堢背锛夈€?*/
   readonly origin_y: number;
 }
 
 /**
- * Mock 默认元数据。
- *
- * 512×512 底图 × 0.05 m/px ≈ 25.6m 见方；origin 取 APP端接口文档v2.md 示例值
- * `(2.5, 2.2)`，既体现非零原点偏移（用于验证 Phase 3 origin 落地），
- * 又能让既有标注（世界坐标 x≈7~17、y≈7~15）完整落在底图范围内。
- */
+ * Mock 榛樿鍏冩暟鎹€? *
+ * 512脳512 搴曞浘 脳 0.05 m/px 鈮?25.6m 瑙佹柟锛沷rigin 鍙?APP绔帴鍙ｆ枃妗2.md 绀轰緥鍊? * `(2.5, 2.2)`锛屾棦浣撶幇闈為浂鍘熺偣鍋忕Щ锛堢敤浜庨獙璇?Phase 3 origin 钀藉湴锛夛紝
+ * 鍙堣兘璁╂棦鏈夋爣娉紙涓栫晫鍧愭爣 x鈮?~17銆亂鈮?~15锛夊畬鏁磋惤鍦ㄥ簳鍥捐寖鍥村唴銆? */
 const DEFAULT_MAP_METADATA: MapMetadata = {
   resolution: 0.05,
   origin_x: 2.5,
   origin_y: 2.2,
 };
 
-/** 已知地图的元数据覆盖表（缺省回落到 DEFAULT_MAP_METADATA）。 */
+/** 宸茬煡鍦板浘鐨勫厓鏁版嵁瑕嗙洊琛紙缂虹渷鍥炶惤鍒?DEFAULT_MAP_METADATA锛夈€?*/
 const MAP_METADATA: Readonly<Record<string, MapMetadata>> = {
   mock_map_001: DEFAULT_MAP_METADATA,
   '4245b2a8-5394-4259-9a2f-0379c8f82f03': { resolution: 0.05, origin_x: -12.8, origin_y: -12.8 },
@@ -61,32 +54,34 @@ export function getMapMetadata(mapId: string): MapMetadata {
 }
 
 /**
- * `map/list` 列表项，字段命名严格对齐 `APP端接口文档v2.md` 的 `Rsp.data.items`。
- */
+ * `map/list` 鍒楄〃椤癸紝瀛楁鍛藉悕涓ユ牸瀵归綈 `APP绔帴鍙ｆ枃妗2.md` 鐨?`Rsp.data.items`銆? */
 export interface MapItem {
   readonly map_id: string;
-  /** 机器端的地图包 URL（APP端接口文档v2.md `map_url`）。 */
+  /** 鏈哄櫒绔殑鍦板浘鍖?URL锛圓PP绔帴鍙ｆ枃妗2.md `map_url`锛夈€?*/
   readonly map_url: string;
-  /** 机器上报的语义地图 URL（APP端接口文档v2.md `semantic_map_url`）。 */
+  /** 鏈哄櫒涓婃姤鐨勮涔夊湴鍥?URL锛圓PP绔帴鍙ｆ枃妗2.md `semantic_map_url`锛夈€?*/
   readonly semantic_map_url: string;
-  /** 机器上报的实景地图 URL（APP端接口文档v2.md `real_view_map_url`）。 */
+  /** 鏈哄櫒涓婃姤鐨勫疄鏅湴鍥?URL锛圓PP绔帴鍙ｆ枃妗2.md `real_view_map_url`锛夈€?*/
   readonly real_view_map_url: string;
   readonly base_version: number;
   readonly unit: string;
-  /** 是否为当前使用中的地图（APP端接口文档v2.md `is_use`）。 */
+  /** 鏄惁涓哄綋鍓嶄娇鐢ㄤ腑鐨勫湴鍥撅紙APP绔帴鍙ｆ枃妗2.md `is_use`锛夈€?*/
   readonly is_use: boolean;
   /**
-   * 米 / 像素，语义图与实景图共享。
-   * 注：APP端接口文档v2.md 的 items 未列该字段，real backend 来源于
-   * `full_semanticmap.xml`（地图管理系统设计方案.md §1.2.2）；mock 在此随列表项一并下发。
-   */
+   * 绫?/ 鍍忕礌锛岃涔夊浘涓庡疄鏅浘鍏变韩銆?   * 娉細APP绔帴鍙ｆ枃妗2.md 鐨?items 鏈垪璇ュ瓧娈碉紝real backend 鏉ユ簮浜?   * `full_semanticmap.xml`锛堝湴鍥剧鐞嗙郴缁熻璁℃柟妗?md 搂1.2.2锛夛紱mock 鍦ㄦ闅忓垪琛ㄩ」涓€骞朵笅鍙戙€?   */
   readonly resolution: number;
-  /** 地图原点 X（APP端接口文档v2.md `map_origin_x`），BackendWorld(Y-down) 图片左上角世界坐标，单位米。 */
+  /** 鍦板浘鍘熺偣 X锛圓PP绔帴鍙ｆ枃妗2.md `map_origin_x`锛夛紝BackendWorld(Y-down) 鍥剧墖宸︿笂瑙掍笘鐣屽潗鏍囷紝鍗曚綅绫炽€?*/
   readonly map_origin_x: number;
-  /** 地图原点 Y（APP端接口文档v2.md `map_origin_y`），BackendWorld(Y-down) 图片左上角世界坐标，单位米。 */
+  /** 鍦板浘鍘熺偣 Y锛圓PP绔帴鍙ｆ枃妗2.md `map_origin_y`锛夛紝BackendWorld(Y-down) 鍥剧墖宸︿笂瑙掍笘鐣屽潗鏍囷紝鍗曚綅绫炽€?*/
   readonly map_origin_y: number;
   readonly increments: IncrementPackage['increments'];
   readonly timestamp?: number;
+  /** DVT 3: map card fields (mapping_api_dvt_gap.md 1) */
+  readonly name?: string;
+  readonly area?: number;
+  readonly thumbnail_url?: string;
+  readonly create_time?: number;
+  readonly update_time?: number;
 }
 
 export interface MapListData {
@@ -141,7 +136,13 @@ export function buildMapList(baseUrl: string): MapListData {
       map_origin_y: meta.origin_y,
       increments: pkg.increments,
       timestamp: pkg.timestamp,
+      name: pkg.name ?? Map ,
+      area: pkg.area ?? 150.5,
+      thumbnail_url: semanticUrl,
+      create_time: pkg.timestamp ?? Date.now() - 86400000,
+      update_time: pkg.timestamp ?? Date.now(),
     };
   });
   return { total: mapped.length, items: mapped };
 }
+
