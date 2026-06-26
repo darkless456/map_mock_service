@@ -136,7 +136,7 @@ export function buildMapList(baseUrl: string): MapListData {
       map_origin_y: meta.origin_y,
       increments: pkg.increments,
       timestamp: pkg.timestamp,
-      name: pkg.name ?? Map ,
+      name: pkg.name ?? `地图_${pkg.map_id.slice(0, 8)}`,
       area: pkg.area ?? 150.5,
       thumbnail_url: semanticUrl,
       create_time: pkg.timestamp ?? Date.now() - 86400000,

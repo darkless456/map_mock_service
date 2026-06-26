@@ -156,6 +156,15 @@ export function buildNotifyRatelStatus(
             recoverable: ctx.error.recoverable,
           }
         : null,
+      // mapping_api_dvt_gap.md §3 + §4: real-time mapping state fields
+      ...(workStatus === 'mapping' ? {
+        in_lawn: robot.inLawn ? 1 : 0,
+        edge_start_available: robot.edgeStartAvailable ? 1 : 0,
+        region_closeable: robot.regionCloseable ? 1 : 0,
+        map_id: 'mock_map_001',
+        mode: snapshot.mapping.mode ?? 'auto',
+        sub_status: subStatus,
+      } : {}),
     },
   };
 }

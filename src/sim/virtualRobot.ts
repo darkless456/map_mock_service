@@ -380,7 +380,8 @@ export class VirtualRobot extends EventEmitter {
       lastSourceTs: Date.now(),
     };
     // SimView 鍒绘剰涓庨暅鍍?TaskContext 鐨?notices 妯″瀷涓嶅悓锛堣 simFsmTypes锛夛紝
-    // 姝ゅ涓洪€傞厤灞傝竟鐣岋紝缁?unknown 杞崲瀛樺洖銆?    if (domain === 'mowing') this.mowing = next as unknown as MowingContext;
+    // 姝ゅ涓洪€傞厤灞傝竟鐣岋紝缁?unknown 杞崲瀛樺洖銆?
+    if (domain === 'mowing') this.mowing = next as unknown as MowingContext;
     else this.mapping = next as unknown as MappingContext;
     this.record(domain, { type: 'SIM_SETUP', setup });
     this.emit('changed', this.snapshot());
