@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/mapping/state/mappingBackendRegistry.ts. DO NOT EDIT. !!!
-// Source SHA-256: c0d7269211b356df2f59ee89f38590e643d292aa71e359e6a58db5e34da1e4bb
-// Synced at: 2026-06-11T13:44:16.069Z
+// Source SHA-256: faa4e7883d68ecd4309e60065d395f8aa44e02afedf342ea4d50bc8a0a985b71
+// Synced at: 2026-06-29T07:01:12.946Z
 import type { MappingPhase } from '../../../domain/mapping/MappingSession';
 import type { BackendStatusRegistry } from '../../shared/mapping/BackendStatusMapper';
 
@@ -14,6 +14,9 @@ const now = () => Date.now();
  * 建图完成（云端 WS，§5.4）：
  * 1. `sub_status: exit_mapping` → `MAP_COVERAGE_DONE`
  * 2. `work_status: mapping → idle` → 本表 `mapping→idle`（`MAP_COVERAGE_DONE` + `CMD_CONFIRM`）→ `COMPLETED`
+ *
+ * 急停（`work_status: emergency_stop`）不在本表落普通 `DEVICE_WORK_STATUS`；
+ * 统一由共享 `TaskEventPipeline` 归一为 `DEVICE_ESTOP{active:true|false}`。
  *
  * `mapping→mapping_completed` 仅 BLE/遗留协议；云端不推送 `mapping_completed`。
  */
@@ -95,7 +98,7 @@ export const MAPPING_BACKEND_REGISTRY: BackendStatusRegistry<MappingPhase> = {
     mapping: { events: () => [] },
   },
   fallback: ({ curr }) => {
-    if (typeof curr === 'string' && !['idle', 'mapping', 'mowing', 'charging', 'mapping_completed', 'error'].includes(curr)) {
+    if (typeof curr === 'string' && !['idle', 'mapping', 'mowing', 'charging', 'mapping_completed', 'return_dock', 'emergency_stop', 'error'].includes(curr)) {
       return [{ type: 'LOG_UNKNOWN_BACKEND_STATUS', status: curr }];
     }
     return [];

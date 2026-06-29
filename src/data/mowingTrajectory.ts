@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { CHARGING_DOCK_BACKEND_POINT } from './chargingDock';
 
 const { PNG } = require('pngjs') as {
   PNG: {
@@ -79,11 +78,12 @@ let cachedRoute: TrajectoryPoint[] | null = null;
 let cachedDebugInfo: MowingTrajectoryDebugInfo | null = null;
 
 export function createPoseState(): PoseState {
-  const points = [CHARGING_DOCK_BACKEND_POINT, ...loadMowingTrajectoryPoints()];
+  const route = loadMowingTrajectoryPoints();
+  const points = route.length >= 2 ? [...route] : [...FALLBACK_POINTS];
   const first = points[0] ?? FALLBACK_POINTS[0];
   const second = points[1] ?? first;
   return {
-    points: [...points],
+    points,
     index: 0,
     direction: 1,
     x: first.x,

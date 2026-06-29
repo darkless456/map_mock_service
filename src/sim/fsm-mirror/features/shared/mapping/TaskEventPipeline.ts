@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/shared/mapping/TaskEventPipeline.ts. DO NOT EDIT. !!!
-// Source SHA-256: 042f910d8e1ce6ed1209d5b01dc1c19de6289a2643035943e64cda19a04eecc3
-// Synced at: 2026-06-11T13:44:16.069Z
+// Source SHA-256: 9f2449e24b30766d7e379e3acb65f27098fd86789f5b90d2229d4d0a1dc335d6
+// Synced at: 2026-06-29T07:01:12.946Z
 import type {
   DeviceEventSource,
   RobotWorkStatus,
@@ -12,7 +12,9 @@ import type {
 import { Arbitrator, type ArbitratedEvent } from '../../../infra/events/Arbitrator';
 import { normalizeDevicePayload } from '../../../infra/events/EventAdapter';
 import {
+  isEmergencyStopStatus,
   mapBackendStatus,
+  mapEmergencyStopEdge,
   type BackendMapperEvent,
   type BackendStatusRegistry,
   type UnknownBackendStatusEvent,
@@ -162,16 +164,46 @@ export class TaskEventPipeline<P extends string> {
     meta: { readonly source: DeviceEventSource; readonly ts: number },
   ): void {
     const ctx = this.getContext();
-    if (this.acceptBackendStatus && !this.acceptBackendStatus(status, ctx)) {
+    const releasedFromEmergencyStop =
+      this.prevBackendStatus !== null &&
+      isEmergencyStopStatus(this.prevBackendStatus) &&
+      !isEmergencyStopStatus(status);
+    if (
+      !isEmergencyStopStatus(status) &&
+      !releasedFromEmergencyStop &&
+      this.acceptBackendStatus &&
+      !this.acceptBackendStatus(status, ctx)
+    ) {
       return;
     }
 
+    const estopEvents = mapEmergencyStopEdge(
+      { prev: this.prevBackendStatus, curr: status, ctx },
+      meta,
+    );
     const events = mapBackendStatus(
       { prev: this.prevBackendStatus, curr: status, ctx },
       this.backendRegistry!,
     );
     this.prevBackendStatus = status;
+
+    if (estopEvents.length > 0) {
+      estopEvents.forEach(event => this.forwardMapped(event));
+      if (isEmergencyStopStatus(status)) {
+        return;
+      }
+    }
+
     if (events.length === 0) {
+      if (releasedFromEmergencyStop) {
+        this.arbitrator.dispatch({
+          type: 'DEVICE_WORK_STATUS',
+          status,
+          source: meta.source,
+          ts: meta.ts,
+        });
+        return;
+      }
       this.arbitrator.dispatch({
         type: 'DEVICE_WORK_STATUS',
         status,

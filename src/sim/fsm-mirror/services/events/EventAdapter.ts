@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/infra/events/EventAdapter.ts. DO NOT EDIT. !!!
-// Source SHA-256: 05fb88f66404d503b74af7c6ca07971fea8db71f95421d8e9de84eda6bc4b76a
-// Synced at: 2026-06-11T13:44:16.069Z
+// Source SHA-256: d19845d17dc4b1394e7a34438195ae6c9cdddccae20920cd3b296231beddac5e
+// Synced at: 2026-06-29T07:01:12.946Z
 import type {
   DeviceEventSource,
   RobotWorkStatus,
@@ -171,6 +171,8 @@ function readNumber(value: unknown): number | null {
 
 function readBoolean(value: unknown): boolean | null {
   if (typeof value === 'boolean') return value;
+  if (value === 1) return true;
+  if (value === 0) return false;
   if (value === 'true') return true;
   if (value === 'false') return false;
   return null;

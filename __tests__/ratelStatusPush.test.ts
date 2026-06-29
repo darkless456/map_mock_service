@@ -1,5 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { ChaosController } from '../src/sim/chaos';
+import { ScenarioEngine } from '../src/sim/scenarioEngine';
 import { VirtualRobot } from '../src/sim/virtualRobot';
 import { buildNotifyRatelStatus } from '../src/sim/pushChannels';
 
@@ -63,6 +65,48 @@ describe('pushRatelStatus / NOTIFY_RATEL_STATUS', () => {
     // RETURN_AT_DOCK 不直接完成；需等 work_status idle。
     robot.pushRatelStatus({ work_status: 'idle', sub_status: 'none' });
     assert.equal(robot.snapshot().mowing.state, 'COMPLETED');
+  });
+
+  it('maps mapping emergency_stop into ESTOPPED and requires reset after release', () => {
+    const robot = new VirtualRobot({ sn: 'SN-MAP-ESTOP' });
+    robot.applySetup({ domain: 'mapping', state: 'WORKING', phase: 'MAP_FOLLOW_BOUNDARY' });
+
+    assert.equal(robot.pushRatelStatus({ work_status: 'emergency_stop', sub_status: 'none' }), true);
+    assert.equal(robot.snapshot().mapping.state, 'ESTOPPED');
+    assert.equal(robot.snapshot().mapping.estopActive, true);
+
+    assert.equal(robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'edge_mapping' }), true);
+    assert.equal(robot.snapshot().mapping.state, 'ESTOPPED');
+    assert.equal(robot.snapshot().mapping.estopActive, false);
+
+    robot.dispatchMappingEvent({ type: 'CMD_RESET' });
+    assert.equal(robot.snapshot().mapping.state, 'RESUMING');
+
+    assert.equal(robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'edge_mapping' }), true);
+    assert.equal(robot.snapshot().mapping.state, 'WORKING');
+    assert.equal(robot.snapshot().mapping.phase, 'MAP_FOLLOW_BOUNDARY');
+  });
+
+  it('maps mowing emergency_stop into ESTOPPED and release resumes mowing status flow', () => {
+    const robot = new VirtualRobot({ sn: 'SN-MOW-ESTOP' });
+    robot.applySetup({ domain: 'mowing', state: 'WORKING', phase: 'MOW_RUNNING' });
+
+    assert.equal(robot.pushRatelStatus({ work_status: 'emergency_stop', sub_status: 'none' }), true);
+    assert.equal(robot.snapshot().mowing.state, 'ESTOPPED');
+    assert.equal(robot.snapshot().mowing.estopActive, true);
+
+    assert.equal(robot.pushRatelStatus({ work_status: 'mowing', sub_status: 'mowing' }), true);
+    assert.equal(robot.snapshot().mowing.state, 'WORKING');
+    assert.equal(robot.snapshot().mowing.phase, 'MOW_RUNNING');
+    assert.equal(robot.snapshot().mowing.estopActive, false);
+  });
+
+  it('runs the checked-in mapping emergency-stop scenario to COMPLETED', async () => {
+    const robot = new VirtualRobot({ sn: 'SN-MAP-SCENARIO' });
+    const engine = new ScenarioEngine({ robot, chaos: new ChaosController() });
+    const result = await engine.run({ name: 'mapping_estop_edge_follow' });
+    assert.equal(result.ok, true, result.error);
+    assert.equal(robot.snapshot().mapping.state, 'COMPLETED');
   });
 
   it('startRecharge emits RECHARGE ON_THE_WAY and clears mowing FSM', () => {

@@ -2,7 +2,7 @@
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/shared/LoggerLike.ts. DO NOT EDIT. !!!
 // Source SHA-256: 9eb4d2d4aee3996b649893ad05cc68792b3e88c016a72419b4b84d9923772fe8
-// Synced at: 2026-06-11T13:44:16.069Z
+// Synced at: 2026-06-29T07:01:12.946Z
 /**
  * LoggerLike — the minimal logger contract that the domain layer accepts as
  * a dependency injection. We do NOT depend on `services/log` so the domain

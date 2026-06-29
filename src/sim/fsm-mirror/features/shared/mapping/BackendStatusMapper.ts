@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/shared/mapping/BackendStatusMapper.ts. DO NOT EDIT. !!!
-// Source SHA-256: 0440bd74dde629690b38ce0a00381297eb1a4d8a8c66c01cda5e8544770c3607
-// Synced at: 2026-06-11T13:44:16.069Z
+// Source SHA-256: acb5966355d28fa1a8ee28cab7a7b982a2e2da47d76a56e49ceaf99f3c9c72bc
+// Synced at: 2026-06-29T07:01:12.946Z
 import type {
   RobotWorkStatus,
   TaskContext,
@@ -18,6 +18,10 @@ export interface UnknownBackendStatusEvent {
   readonly status: string;
 }
 
+export function isEmergencyStopStatus(status: BackendStatus): status is 'emergency_stop' {
+  return status === 'emergency_stop';
+}
+
 export type BackendMapperEvent<P extends string> =
   | TaskEvent<P>
   | UnknownBackendStatusEvent;
@@ -26,6 +30,11 @@ export interface MapperInput<P extends string> {
   readonly prev: RobotWorkStatus | null;
   readonly curr: BackendStatus;
   readonly ctx: TaskContext<P>;
+}
+
+export interface BackendStatusEventMeta {
+  readonly source: 'ble' | 'ws';
+  readonly ts: number;
 }
 
 export type MapperOutput<P extends string> = ReadonlyArray<BackendMapperEvent<P>>;
@@ -59,6 +68,33 @@ export function mapBackendStatus<P extends string>(
   }
 
   return registry.fallback?.(input) ?? fallbackUnknown(input.curr);
+}
+
+export function mapEmergencyStopEdge<P extends string>(
+  input: MapperInput<P>,
+  meta: BackendStatusEventMeta,
+): MapperOutput<P> {
+  if (isEmergencyStopStatus(input.curr)) {
+    return [
+      {
+        type: 'DEVICE_ESTOP',
+        active: true,
+        source: meta.source,
+        ts: meta.ts,
+      },
+    ];
+  }
+  if (isEmergencyStopStatus(input.prev) && isRobotWorkStatus(input.curr)) {
+    return [
+      {
+        type: 'DEVICE_ESTOP',
+        active: false,
+        source: meta.source,
+        ts: meta.ts,
+      },
+    ];
+  }
+  return [];
 }
 
 export function edgeKey(prev: RobotWorkStatus | null, curr: BackendStatus): BackendEdge {

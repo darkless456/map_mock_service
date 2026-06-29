@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/shared/TaskFSM.ts. DO NOT EDIT. !!!
-// Source SHA-256: 2c9c799d71edf74a1671b66a2f0e606a16b698ca7598c53c24ccc60874d924fe
-// Synced at: 2026-06-11T13:44:16.069Z
+// Source SHA-256: 95cf9a4408ef0da48270a911b4273280a52c2ab92a933eebc7186de5319132d4
+// Synced at: 2026-06-29T07:01:12.946Z
 import { safeLog, type LoggerLike } from './LoggerLike';
 
 export type TaskState =
@@ -31,6 +31,7 @@ export type RobotWorkStatus =
   | 'mapping'
   | 'mapping_completed'
   | 'return_dock'
+  | 'emergency_stop'
   | 'error';
 
 /**

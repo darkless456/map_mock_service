@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/mapping/MappingSession.ts. DO NOT EDIT. !!!
-// Source SHA-256: 7f8f9605bb455836677a03f45a0d222786db502f0c8c408ce6a56c7ff9b2d5e1
-// Synced at: 2026-06-11T13:44:16.069Z
+// Source SHA-256: f4a71f70e8802619d88d702e138797deff8dd067481051a3edea5a570b32af3b
+// Synced at: 2026-06-29T07:01:12.946Z
 /**
  * MappingSession FSM — task-level `TaskState` + `MappingPhase` tuple from
  * `TaskFSM`. UI binding resolves a `PanelScene` directly from `(state, phase)`
@@ -117,37 +117,76 @@ export function mappingReducer(
     return reduceWorkStatus(ctx, event, logger);
   }
 
-  // 手摇交接：收到后端 edge_mapping（MAP_FOLLOW_BOUNDARY）且当前为手摇模式
-  // → 把控制权交给用户。
-  // `resumeTo` 指向自动沿边，使用户中途「退出遥控」时落回自动沿边（非手摇 phase）。
+  // CMD_SWITCH_MANUAL：标记遥控意图，走后端驱动路径。
+  // - 寻边失败：WORKING + MAP_SCAN_BOUNDARY_FAILED → 直接进入 REMOTE_CONTROL
+  //   （设备已停止，无需暂停，对齐设计 §5.3）。
+  // - 常规切手摇：PAUSED + 能力允许 + 业务阶段适配 → 标记 mode='remote'，
+  //   后续后端 edge_mapping 经升级规则归一为 MAP_FOLLOW_BOUNDARY_MANUAL 后交接。
+  if (event.type === 'CMD_SWITCH_MANUAL') {
+    if (!ctx.capabilities.canSwitchManual) return ctx;
+
+    // 寻边失败：设备已停止，无暂停概念，直接进 REMOTE_CONTROL
+    if (
+      ctx.state === 'WORKING' &&
+      ctx.phase === 'MAP_SCAN_BOUNDARY_FAILED'
+    ) {
+      return commit(
+        ctx,
+        {
+          ...ctx,
+          state: 'REMOTE_CONTROL',
+          mode: 'remote',
+          phase: 'MAP_FOLLOW_BOUNDARY_MANUAL',
+          resumeTo: { state: 'WORKING', phase: 'MAP_FOLLOW_BOUNDARY' },
+          error: null,
+        },
+        event,
+        logger,
+      );
+    }
+
+    // 常规切手摇：仅标记意图，等后端 edge_mapping
+    if (ctx.state !== 'PAUSED') return ctx;
+    if (
+      ctx.phase !== 'MAP_SCAN_BOUNDARY' &&
+      ctx.phase !== 'MAP_FOLLOW_BOUNDARY' &&
+      ctx.phase !== 'MAP_COVERAGE_PROBE'
+    ) {
+      return ctx;
+    }
+    return { ...ctx, mode: 'remote' };
+  }
+
+  // 后端 edge_mapping 在遥控模式下直接升级为 MAP_FOLLOW_BOUNDARY_MANUAL：
+  // - DeviceStart：CMD_START 已设 mode='remote'
+  // - CreateMap：CMD_SWITCH_MANUAL 已设 mode='remote'
+  // 无需等待 BLE scheduler_manual。
   if (
     event.type === 'DEVICE_PHASE' &&
     event.phase === 'MAP_FOLLOW_BOUNDARY' &&
-    ctx.state === 'WORKING' &&
     ctx.mode === 'remote'
   ) {
-    return commit(
+    return mappingReducer(
       ctx,
       {
-        ...ctx,
-        state: 'REMOTE_CONTROL',
+        type: 'DEVICE_PHASE',
         phase: 'MAP_FOLLOW_BOUNDARY_MANUAL',
-        resumeTo: { state: 'WORKING', phase: 'MAP_FOLLOW_BOUNDARY' },
-        error: null,
+        source: event.source,
+        ts: event.ts,
       },
-      event,
       logger,
     );
   }
 
-  // 寻边失败恢复（设计 §5.3）：设备已停止、无暂停概念，用户可在失败态直接切手动遥控围边。
-  // 通用层 `CMD_SWITCH_MANUAL` 守卫要求 PAUSED，故此处显式放行 `WORKING + 失败 phase`；
-  // 落点与自动沿边手摇交接一致（`MAP_FOLLOW_BOUNDARY_MANUAL`，退出遥控回落自动沿边）。
+  // 自动沿边暂停后切手摇：后端 edge_mapping 归一为 MAP_FOLLOW_BOUNDARY_MANUAL
+  // 后经此规则交接到 REMOTE_CONTROL。
   if (
-    event.type === 'CMD_SWITCH_MANUAL' &&
-    ctx.state === 'WORKING' &&
-    ctx.phase === 'MAP_SCAN_BOUNDARY_FAILED' &&
-    ctx.capabilities.canSwitchManual
+    event.type === 'DEVICE_PHASE' &&
+    event.phase === 'MAP_FOLLOW_BOUNDARY_MANUAL' &&
+    ctx.state === 'PAUSED' &&
+    ctx.capabilities.canSwitchManual &&
+    (ctx.phase === 'MAP_FOLLOW_BOUNDARY' ||
+      ctx.phase === 'MAP_COVERAGE_PROBE')
   ) {
     return commit(
       ctx,
@@ -155,6 +194,35 @@ export function mappingReducer(
         ...ctx,
         state: 'REMOTE_CONTROL',
         mode: 'remote',
+        phase: 'MAP_FOLLOW_BOUNDARY_MANUAL',
+        resumeTo: ctx.resumeTo ?? {
+          state: 'WORKING',
+          phase: ctx.phase,
+        },
+        error: null,
+      },
+      event,
+      logger,
+    );
+  }
+
+  // DeviceStart 入口：远程建图先由 HTTP mapping/start 开始任务，再 task=5
+  // 申请遥控。收到 scheduler_manual.manual=true 后归一为
+  // MAP_FOLLOW_BOUNDARY_MANUAL，即可直接交接到横屏手摇宿主。
+  if (
+    event.type === 'DEVICE_PHASE' &&
+    event.phase === 'MAP_FOLLOW_BOUNDARY_MANUAL' &&
+    ctx.mode === 'remote' &&
+    (ctx.state === 'PREPARING' ||
+      ctx.state === 'UNDOCKING' ||
+      ctx.state === 'WORKING' ||
+      ctx.state === 'RESUMING')
+  ) {
+    return commit(
+      ctx,
+      {
+        ...ctx,
+        state: 'REMOTE_CONTROL',
         phase: 'MAP_FOLLOW_BOUNDARY_MANUAL',
         resumeTo: { state: 'WORKING', phase: 'MAP_FOLLOW_BOUNDARY' },
         error: null,

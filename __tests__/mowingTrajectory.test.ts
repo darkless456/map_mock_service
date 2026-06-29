@@ -17,12 +17,17 @@ describe('semantic-zero mowing trajectory', () => {
     assert.equal(debug.source, 'semantic-zero');
     assert.ok(route.length > 10);
     assert.ok(debug.bounds);
-    assert.ok(debug.bounds.minX <= 213);
-    assert.ok(debug.bounds.maxX >= 272);
+    assert.ok(debug.bounds.minX <= 137);
+    assert.ok(debug.bounds.maxX >= 281);
+
+    const minWorldX = Number((debug.bounds.minX * debug.resolutionMPerPx).toFixed(3));
+    const maxWorldX = Number((debug.bounds.maxX * debug.resolutionMPerPx).toFixed(3));
+    const minWorldY = Number((debug.bounds.minY * debug.resolutionMPerPx).toFixed(3));
+    const maxWorldY = Number((debug.bounds.maxY * debug.resolutionMPerPx).toFixed(3));
 
     for (const point of route) {
-      assert.ok(point.x >= 10.65 && point.x <= 14.2, `x ${point.x} should stay in semantic grass bounds`);
-      assert.ok(point.y >= 9.75 && point.y <= 14.75, `y ${point.y} should stay in semantic grass bounds`);
+      assert.ok(point.x >= minWorldX && point.x <= maxWorldX, `x ${point.x} should stay in semantic grass bounds`);
+      assert.ok(point.y >= minWorldY && point.y <= maxWorldY, `y ${point.y} should stay in semantic grass bounds`);
     }
   });
 

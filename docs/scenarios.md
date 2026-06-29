@@ -84,6 +84,15 @@ curl -s -X POST http://localhost:9900/sim/scenario/run \
   -d '{"name":"mapping_happy_auto"}'
 ```
 
+## Emergency-stop scenarios
+
+Two dedicated emergency-stop scenarios are now available:
+
+- `mapping_estop_edge_follow.yaml`: trigger `work_status: emergency_stop` after `MAP_FOLLOW_BOUNDARY`, verify `ESTOPPED`, release via a real `mapping` frame, then `CMD_RESET` into `RESUMING` and continue to `COMPLETED`.
+- `mowing_estop_running.yaml`: trigger `work_status: emergency_stop` during `WORKING/MOW_RUNNING`, verify `ESTOPPED`, release via a real `mowing` frame, then `CMD_RESET` into `RESUMING` and continue to `COMPLETED`.
+
+Both scenarios rely on the mirrored mower FSM where `work_status: emergency_stop` is a protocol input that the shared pipeline normalizes into `DEVICE_ESTOP` instead of forwarding as a normal `DEVICE_WORK_STATUS`.
+
 ## Checked-in scenarios
 
 > 鏇存柊鏃ユ湡锛?026-06-11銆? 涓牳蹇冨満鏅紙涓嶅啀妯℃嫙寮傚父锛夈€備袱涓?stream 鍦烘櫙鍧囦负**鏃犻檺寰幆**锛岄渶鍦?`/sim/panel` 鐐瑰嚮銆屽仠姝㈠満鏅€嶇粨鏉熴€傛墍鏈夊満鏅潎**鑷寘鍚?*锛坄emit CMD_START` 鑷缓浠诲姟锛夛紝鏃犻渶 App 鍏堣皟 HTTP `mapping/start` 鎴?`ratel_task/create`銆?
@@ -93,6 +102,8 @@ curl -s -X POST http://localhost:9900/sim/scenario/run \
 | `mapping_happy_manual.yaml` | 鎵嬪姩閬ユ帶寤哄浘 happy flow锛氬鍒拌竟浜ゆ帴鎵嬫憞娌胯竟锛坄REMOTE_CONTROL`锛夆啋 娌胯竟闂悎 鈫?纭杩涜鐩?鈫?`COMPLETED` | 鑷姩缁撴潫锛堢害 1.5 鍒嗛挓锛?|
 | `mowing_happy_auto.yaml` | 姝ｅ父鍓茶崏 happy flow锛歚map_check 鈫?mowing 鈫?return_dock 鈫?idle` 鈫?`COMPLETE` | 鑷姩缁撴潫锛堢害 40 绉掞級 |
 | `mowing_recharge.yaml` | 鍓茶崏骞跺洖鍏咃紙鍥炴々锛夛細鍓茶崏涓Е鍙戝洖鍏?鈫?`RETURNING_DOCK` 鍥炴々瀛愰樁娈?鈫?`at_dock` 绛?`idle` 鈫?`COMPLETED` | 鑷姩缁撴潫锛堢害 35 绉掞級 |
+| `mapping_estop_edge_follow.yaml` | 建图沿边后急停：`MAP_FOLLOW_BOUNDARY` → `emergency_stop` → `ESTOPPED` → release + `CMD_RESET` → `RESUMING` → `COMPLETED` | 自动结束（约 1 分钟） |
+| `mowing_estop_running.yaml` | 割草执行中急停：`MOW_RUNNING` → `emergency_stop` → `ESTOPPED` → release + `CMD_RESET` → `RESUMING` → `COMPLETED` | 自动结束（约 45 秒） |
 | `mapping_stream_incremental.yaml` | **鏃犻檺寰幆**锛氬湪鍙帹娴佸缓鍥鹃樁娈甸棿寰幆锛屾寔缁箍鎾?`MAP_INCREMENTAL`锛堟祴寤哄浘娓叉煋锛?| 鎵嬪姩鍋滄 |
 | `mowing_trajectory_stream.yaml` | **鏃犻檺寰幆**锛氫繚鎸?`ON_THE_WAY`锛屾部璇箟鍦板浘璺嚎鎸佺画鎺?`ROBOT_LOCATION`锛堟祴鍓茶崏杞ㄨ抗娓叉煋锛?| 鎵嬪姩鍋滄 |
 

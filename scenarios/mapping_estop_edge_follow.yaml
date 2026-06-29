@@ -1,0 +1,79 @@
+name: mapping_estop_edge_follow
+description: >-
+  建图中急停 flow。自建建图任务（emit CMD_START），按云端 NOTIFY_RATEL_STATUS 顺序
+  precondition → leave_dock → find_boundary → edge_mapping 进入沿边后触发 emergency_stop，
+  验证 App / mock FSM 进入 ESTOPPED；解除急停后通过 CMD_RESET 恢复，再继续完成建图。
+guide:
+  title: 建图 — 沿边后急停与恢复
+  domain_label: 建图
+  summary: >-
+    在自动沿边阶段触发急停，验证 ESTOPPED 正交打断、解除急停后的 RESET 恢复路径，
+    以及恢复后继续完成建图主流程。
+  when_to_use: >-
+    验证 work_status: emergency_stop 已被共享 TaskEventPipeline 归一为 DEVICE_ESTOP，
+    App 与 mock FSM 会从 WORKING/MAP_FOLLOW_BOUNDARY 进入 ESTOPPED，并在解除后经
+    CMD_RESET 回到 RESUMING / WORKING。
+  simulates:
+    - emit CMD_START 自建建图任务（IDLE → PREPARING）
+    - precondition → leave_dock → find_boundary → edge_mapping 进入自动沿边
+    - work_status emergency_stop 触发 ESTOPPED
+    - emergency_stop → mapping 解除急停；emit CMD_RESET 恢复
+    - 恢复后继续沿边、覆盖与完成收口
+  prerequisites:
+    - 已启动 map_mock_service（npm start），App mock 指向 http://localhost:9900
+    - App 已登录且 WS 已连接
+  user_steps:
+    - 打开 /sim/panel，选择 mapping_estop_edge_follow
+    - 点击「运行场景」，观察 App 在沿边阶段进入急停态
+    - 确认场景在解除急停后自动 emit CMD_RESET，并恢复到建图流程
+    - 等待场景结束，确认最终 state 为 COMPLETED
+  auto_behavior:
+    - setup 为 IDLE，emit CMD_START 进入 PREPARING
+    - 自动推进到 MAP_FOLLOW_BOUNDARY 后推送 emergency_stop
+    - 推送 mapping/edge_mapping 作为解除急停后的真实状态，再 emit CMD_RESET 进入恢复链
+    - 恢复到 WORKING/MAP_FOLLOW_BOUNDARY 后继续直至 COMPLETED
+  duration: 约 1 分钟
+  pushes:
+    - NOTIFY_RATEL_STATUS（work_status=mapping / emergency_stop / idle）
+domain: mapping
+setup:
+  state: IDLE
+  phase: null
+steps:
+  - emit: { type: CMD_START, mode: auto, taskMode: MAP_BUILD }
+  - notify: { work_status: mapping, sub_status: precondition }
+  - expect: { state: PREPARING }
+  - wait: 3s
+  - notify: { work_status: mapping, sub_status: leave_dock }
+  - expect: { state: UNDOCKING }
+  - wait: 3s
+  - notify: { work_status: mapping, sub_status: find_boundary }
+  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY }
+  - wait: 6s
+  - notify: { work_status: mapping, sub_status: edge_mapping }
+  - expect: { state: WORKING, phase: MAP_FOLLOW_BOUNDARY }
+  - wait: 5s
+  - notify: { work_status: emergency_stop, sub_status: none }
+  - expect: { state: ESTOPPED }
+  - wait: 5s
+  - note: 此时应显示急停态；后续 mapping NOTIFY 只会解除 estopActive，不会自动恢复任务
+  - notify: { work_status: mapping, sub_status: edge_mapping }
+  - expect: { state: ESTOPPED }
+  - wait: 2s
+  - emit: { type: CMD_RESET }
+  - expect: { state: RESUMING }
+  - wait: 2s
+  - notify: { work_status: mapping, sub_status: edge_mapping }
+  - expect: { state: WORKING, phase: MAP_FOLLOW_BOUNDARY }
+  - wait: 5s
+  - notify: { work_status: mapping, sub_status: map_edge_finish }
+  - expect: { state: WORKING, phase: MAP_BOUNDARY_DONE }
+  - wait: 3s
+  - notify: { work_status: mapping, sub_status: bow_cover }
+  - expect: { state: WORKING, phase: MAP_COVERAGE_RUN }
+  - wait: 5s
+  - notify: { work_status: mapping, sub_status: exit_mapping }
+  - expect: { state: WORKING, phase: MAP_COVERAGE_DONE }
+  - wait: 3s
+  - notify: { work_status: idle, sub_status: none }
+  - expect: { state: COMPLETED, phase: MAP_COVERAGE_DONE }

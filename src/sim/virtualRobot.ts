@@ -262,7 +262,9 @@ export class VirtualRobot extends EventEmitter {
     if (sn && sn.trim()) this.sn = sn.trim();
     this.activeDomain = 'mowing';
     this.clearRechargeTimers();
-    // 鍥炲厖缁撴潫褰撳墠鍓茶崏浠诲姟锛氬壊鑽?FSM 褰掍綅 IDLE锛屼娇鍚庣画 return_dock 璁惧鎬佸彲杩涘叆 RETURNING_DOCK銆?    this.mowing = withSimulatorDefaults(initialMowingState, this.mowing.battery ?? 80);
+    // 回充会先结束当前割草任务：将割草 FSM 归位到 IDLE，使后续顶层
+    // `work_status: return_dock` 能按真实设备链路进入 RETURNING_DOCK。
+    this.mowing = withSimulatorDefaults(initialMowingState, this.mowing.battery ?? 80);
     this.lastNotifyWorkStatus = null;
     this.lastNotifySubStatus = null;
     this.inLawn = false;
@@ -463,17 +465,29 @@ export class VirtualRobot extends EventEmitter {
   }
 
   dispatchRaw(event: AnyTaskEvent, domain: RobotDomain = this.activeDomain): void {
+    if ((event as { type?: string }).type === 'CMD_RESET') {
+      this.lastNotifyWorkStatus = null;
+      this.lastNotifySubStatus = null;
+    }
     if (domain === 'mowing') this.dispatchMowing(event as MowingEvent | SimOnlyEvent);
     else this.dispatchMapping(event as MappingEvent | SimOnlyEvent);
   }
 
   /** Used by {@link applyRatelStatusPush} and scenario `emit`. */
   dispatchMappingEvent(event: MappingEvent): void {
+    if (event.type === 'CMD_RESET') {
+      this.lastNotifyWorkStatus = null;
+      this.lastNotifySubStatus = null;
+    }
     this.dispatchMapping(event);
   }
 
   /** Used by {@link applyRatelStatusPush} for mowing-domain notify. */
   dispatchMowingEvent(event: MowingEvent): void {
+    if (event.type === 'CMD_RESET') {
+      this.lastNotifyWorkStatus = null;
+      this.lastNotifySubStatus = null;
+    }
     this.dispatchMowing(event);
   }
 

@@ -3,6 +3,7 @@ import type { RatelNotifyPayload } from './mappingNotify';
 import { ratelNotifyToMappingEvents } from './mappingNotify';
 import { ratelNotifyToMowingEvents } from './mowingNotify';
 import type { MappingEvent } from './fsm-mirror/domain/mapping/MappingSession';
+import type { MowingEvent } from './fsm-mirror/domain/mowing/MowingTask';
 
 export interface RatelStatusPushPayload {
   readonly in_lawn?: number;
@@ -24,12 +25,37 @@ function notifyTargetDomain(
   activeDomain: RobotDomain,
 ): 'mapping' | 'mowing' {
   if (work === 'mowing') return 'mowing';
-  // 鍥炴々锛坮eturn_dock锛夋槸鍓茶崏鍩熻澶囨€侊紙docs 搂13锛夈€?  if (work === 'return_dock') return 'mowing';
+  // `return_dock` 属于割草域设备态（docs §13）。
+  if (work === 'return_dock') return 'mowing';
   if (work === 'mapping' || work === 'mapping_completed') return 'mapping';
   if (prevWork === 'mowing') return 'mowing';
   if (prevWork === 'mapping' || prevWork === 'mapping_completed') return 'mapping';
   if (activeDomain === 'mowing') return 'mowing';
   return 'mapping';
+}
+
+function applyEmergencyStopEdge(
+  robot: VirtualRobot,
+  domain: 'mapping' | 'mowing',
+  prevWork: string | null,
+  work: string,
+): boolean {
+  const now = nowEvent();
+  const dispatch =
+    domain === 'mowing'
+      ? (event: MowingEvent) => robot.dispatchMowingEvent(event)
+      : (event: MappingEvent) => robot.dispatchMappingEvent(event);
+
+  if (work === 'emergency_stop') {
+    dispatch({ type: 'DEVICE_ESTOP', active: true, ...now } as never);
+    return true;
+  }
+
+  if (prevWork === 'emergency_stop') {
+    dispatch({ type: 'DEVICE_ESTOP', active: false, ...now } as never);
+  }
+
+  return false;
 }
 
 /** Mirrors `mappingBackendRegistry` `mapping鈫抜dle` composite for mock FSM only. */
@@ -84,25 +110,31 @@ export function applyRatelStatusPush(
   const domain = notifyTargetDomain(work, prevWork, robot.activeDomain);
   if (domain === 'mowing') {
     robot.activeDomain = 'mowing';
-    for (const event of ratelNotifyToMowingEvents(
-      { sn, work_status: work, sub_status: sub, battery_level: input.battery_level },
-      sn,
-    )) {
-      robot.dispatchMowingEvent(event);
-    }
-    if (prevWork === 'mowing' && work === 'idle') {
-      applyMowingToIdleCompletion(robot);
+    const isEmergencyStop = applyEmergencyStopEdge(robot, 'mowing', prevWork, work);
+    if (!isEmergencyStop) {
+      for (const event of ratelNotifyToMowingEvents(
+        { sn, work_status: work, sub_status: sub, battery_level: input.battery_level },
+        sn,
+      )) {
+        robot.dispatchMowingEvent(event);
+      }
+      if (prevWork === 'mowing' && work === 'idle') {
+        applyMowingToIdleCompletion(robot);
+      }
     }
   } else {
     robot.activeDomain = 'mapping';
-    for (const event of ratelNotifyToMappingEvents(
-      { sn, work_status: work, sub_status: sub, battery_level: input.battery_level },
-      sn,
-    )) {
-      robot.dispatchMappingEvent(event);
-    }
-    if (prevWork === 'mapping' && work === 'idle') {
-      applyMappingToIdleCompletion(robot);
+    const isEmergencyStop = applyEmergencyStopEdge(robot, 'mapping', prevWork, work);
+    if (!isEmergencyStop) {
+      for (const event of ratelNotifyToMappingEvents(
+        { sn, work_status: work, sub_status: sub, battery_level: input.battery_level },
+        sn,
+      )) {
+        robot.dispatchMappingEvent(event);
+      }
+      if (prevWork === 'mapping' && work === 'idle') {
+        applyMappingToIdleCompletion(robot);
+      }
     }
   }
 

@@ -1,0 +1,66 @@
+name: mowing_estop_running
+description: >-
+  割草中急停 flow。自建割草任务（emit CMD_START），按云端 NOTIFY_RATEL_STATUS 顺序
+  map_check → leave_dock → mowing 进入割草后触发 emergency_stop，验证 App / mock FSM
+  进入 ESTOPPED；解除急停后恢复 `work_status: mowing` 会直接回到割草执行态，再继续割草并完成回桩收口。
+guide:
+  title: 割草 — 执行中急停与恢复
+  domain_label: 割草
+  summary: >-
+    在 WORKING/MOW_RUNNING 阶段触发急停，验证 ESTOPPED 正交打断，以及割草域在解除急停后
+    收到真实 `work_status: mowing` 会直接恢复执行并正常完成。
+  when_to_use: >-
+    验证 work_status: emergency_stop 已被共享 TaskEventPipeline 归一为 DEVICE_ESTOP，
+    App 与 mock FSM 会从 WORKING/MOW_RUNNING 进入 ESTOPPED；而割草域在解除后收到真实
+    `work_status: mowing` 时，会按当前 reducer 语义直接回到 WORKING/MOW_RUNNING。
+  simulates:
+    - emit CMD_START 自建割草任务（IDLE → PREPARING）
+    - map_check → leave_dock → mowing 进入 WORKING/MOW_RUNNING
+    - work_status emergency_stop 触发 ESTOPPED
+    - emergency_stop → mowing 解除急停并直接恢复割草执行
+    - 恢复后继续割草，最后 return_dock 子语义 + idle 收口 COMPLETED
+  prerequisites:
+    - 已启动 map_mock_service（npm start），App mock 指向模拟器；WS 已连接
+    - 如需轨迹，App 在割草活跃态发送 LOCATION_REGISTER
+  user_steps:
+    - 打开 /sim/panel，选择 mowing_estop_running
+    - 点击「运行场景」，观察割草过程中进入急停态
+    - 确认场景在解除急停后，收到 mowing 状态会直接恢复到割草流程
+    - 等待场景结束，确认最终任务 COMPLETED
+  auto_behavior:
+    - setup 为 IDLE，emit CMD_START 进入 PREPARING
+    - 自动推进到 WORKING/MOW_RUNNING 后推送 emergency_stop
+    - 推送 mowing/mowing 作为解除急停后的真实状态，按当前割草 reducer 直接恢复执行
+    - 恢复到 WORKING/MOW_RUNNING 后继续割草并正常 return_dock → idle 收口
+  duration: 约 45 秒
+  pushes:
+    - NOTIFY_RATEL_STATUS（work_status=mowing / emergency_stop / idle）
+    - NOTIFY_MOW_STATUS（FSM 变化时）
+    - ROBOT_LOCATION（需 LOCATION_REGISTER + ON_THE_WAY）
+domain: mowing
+setup:
+  state: IDLE
+  phase: null
+steps:
+  - emit: { type: CMD_START, mode: auto, taskMode: MOW_GLOBAL }
+  - expect: { state: PREPARING }
+  - notify: { work_status: mowing, sub_status: map_check }
+  - wait: 2s
+  - notify: { work_status: mowing, sub_status: leave_dock }
+  - expect: { state: UNDOCKING }
+  - wait: 3s
+  - notify: { work_status: mowing, sub_status: mowing }
+  - expect: { state: WORKING, phase: MOW_RUNNING, task_status: ON_THE_WAY }
+  - wait: 8s
+  - notify: { work_status: emergency_stop, sub_status: none }
+  - expect: { state: ESTOPPED }
+  - wait: 5s
+  - note: 当前割草 reducer 语义下，解除急停后收到 mowing 状态会直接回到执行态
+  - notify: { work_status: mowing, sub_status: mowing }
+  - expect: { state: WORKING, phase: MOW_RUNNING, task_status: ON_THE_WAY }
+  - wait: 8s
+  - notify: { work_status: mowing, sub_status: return_dock }
+  - expect: { state: WORKING, phase: returning }
+  - wait: 5s
+  - notify: { work_status: idle, sub_status: none }
+  - expect: { state: COMPLETED, task_status: COMPLETE }
