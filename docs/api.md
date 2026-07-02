@@ -1,4 +1,4 @@
-﻿# Simulator API
+# Simulator API
 
 This document is the S0-S3 API contract for Mower Dev Simulator. Business API paths are intentionally limited to the mower app integration and the backend docs. The old `open-platform-service` mowing paths and legacy `/api/robot/*` helpers are not accepted.
 
@@ -10,28 +10,30 @@ This document is the S0-S3 API contract for Mower Dev Simulator. Business API pa
 | `GET/POST` | `/ratel/api/v1/courtyard/robot/detail` | `{ code, message, data: IDevice }` |
 | `POST` | `/ratel/api/v1/courtyard/robot/info/update` | `{ code, message, data: IDevice }` |
 | `POST` | `/ratel/api/v1/courtyard/robot/unbind` | `{ code, message, data: { robot_code, robot_message } }` |
-| `GET/POST` | `/ratel/map-service/api/v1/ratel/map/list` | `{ code, data: { total, items } }`锛沗items[]` 鍚?`map_url` / `semantic_map_url` / `real_view_map_url` / `map_origin_x` / `map_origin_y` / `resolution` / `base_version` / `unit` / `increments`锛堝懡鍚嶅榻?APP绔帴鍙ｆ枃妗2.md锛?|
+| `GET/POST` | `/ratel/map-service/api/v1/ratel/map/list` | `{ code, data: { total, items } }`；`items[]` 含 `map_url` / `semantic_map_url` / `real_view_map_url` / `map_origin_x` / `map_origin_y` / `resolution` / `base_version` / `unit` / `increments`（命名对齐 APP端接口文档v2.md） |
 | `POST` | `/ratel/map-service/api/v1/ratel/semantic/save` | `{ code, data: { base_version } }` |
 | | | v1.6: body 支持 `name` 字段保存地图名称 |
 | `POST` | `/ratel/api/v1/map/delete` | `{ code, data: { deleted, map_id } }` |
-| `POST` | `/ratel/api/v1/robot/self_check` | `{ code, data: { checked_at, overall, 鈥?} }` 鈥?寤哄浘鍓嶇疆瑙﹀彂鏈哄櫒鑷 |
-| `POST` | `/ratel/api/v1/mapping/check` | `{ code, data: { bluetooth_status, cellular, wifi, 鈥?} }` 鎵佸钩 鈥?寤哄浘鏉′欢妫€娴嬶紙椤诲厛 self_check锛沵ock 娓愯繘杩斿洖锛?|
-| `POST` | `/ratel/api/v1/mapping/start` | `{ code, data: { robot_code, robot_message, map_id } }` |
-| `POST` | `/ratel/api/v1/mapping/pause` | `{ code, data: { robot_code, robot_message } }` |
-| `POST` | `/ratel/api/v1/mapping/resume` | `{ code, data: { robot_code, robot_message } }` |
-| `POST` | `/ratel/api/v1/mapping/stop` | `{ code, data: { robot_code, robot_message } }` 鈥?body `{ sn, save }` |
-| `POST` | `/ratel/api/v1/mapping/mode` | `{ code, data: { robot_code, robot_message } }` 鈥?body `{ sn, mode }` |
+| `POST` | `/ratel/api/v1/robot/self_check` | `{ code, data: { checked_at, overall, … } }` — 建图前置触发机器自检 |
+| `POST` | `/ratel/api/v1/mapping/check` | `{ code, data: { bluetooth_status, cellular, wifi, … } }` 扁平 — 建图条件检测（须先 self_check）；Mock 渐进返回） |
+| `POST` | `/ratel/api/v1/mapping/mode` | `{ code, data: { robot_code, robot_message } }` — body `{ sn, mode }` |
 | `POST` | `/ratel/api/v1/mapping/status` | `{ code, data: { work_status, sub_status, map_id, mode, in_lawn, trajectory_url, passage_checkpoints } }` — 重进恢复状态查询（mapping_api_dvt_gap.md §4） |
 | `POST` | `/ratel/api/v1/mapping/manual` | `{ code, data: { robot_code, robot_message, edge_start, region_closure } }` — 手动建图指令（edge_start / region_closure） |
 | `POST` | `/ratel/api/v1/mapping/add_lawn` | `{ code, data: { robot_code, robot_message } }` — 添加新草坪（记录 passageStartPoint） |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/create` | `{ code, data: { task_id, robot_code, robot_message } }` |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/action` | `{ code, data: { robot_code, robot_message } }` |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/list` | `{ code, data: { total, list, task_info, task_notify } }` |
+| `POST` | `/ratel/central-control-service/api/v1/ratel_mapping_task/create` | `{ code, data: { task_id, robot_code, robot_message } }` — replaces removed `mapping/start` (建图任务API重构方案.md §6.2) |
+| `POST` | `/ratel/central-control-service/api/v1/ratel_mapping_task/action` | `{ code, data: { robot_code, robot_message } }` — body `{ sn, task_id?, action: PAUSE\|RESUME\|STOP, payload?: { save } }`; replaces removed `mapping/pause`\|`resume`\|`stop` |
+| `POST` | `/ratel/central-control-service/api/v1/ratel_mapping_task/list` | `{ code, data: { total, list } }` — `list[]` items: `{ task_id, task_status, task_info, task_notify, create_time, update_time }` |
 | `GET` | `/api/health` | Local health status. |
 
 ### Notes
 
-- `map/list` 鐨?`items[].increments[]` 涓烘爣娉?/ 鐐逛綅澧為噺锛屽崟椤瑰舰濡?`{ element_id, type, shape, points, properties, source }`銆俙type` 鏄?0-255 璇箟鐮侊細绂佸尯 `251`銆佸渾绂佸尯 `201`銆佽櫄鎷熷 `254`銆?*鍏呯數妗?`69`** 绛夈€傚厖鐢垫々涓哄崟鐐逛綅锛屽崗璁棤鍘熺敓 point 褰㈢姸锛屾寜 `shape: 'polygon'` + 1 涓偣锛坄points: [{x, y}]`锛変笅鍙戯紝APP 绔寜 `type` 鍙嶅悜杩佺Щ涓?point 娓叉煋锛涘彲閫?`properties.yawRad`锛圔ackendWorld 椤烘椂閽堬級鎺у埗鏈濆悜銆傚閲忔暟鎹簮鍦?`src/data/annotations.ts`銆?- `increments[].source` = `"robot"` / `"app"`锛屾爣璇嗘暟鎹潵婧愬苟鍐冲畾 APP 绔彲缂栬緫鎬э細`robot`锛堟満鍣ㄤ汉/鍚庣涓婃姤锛屽鍏呯數妗╋級鍙涓嶅彲缂栬緫銆佷笉鍙備笌 `semantic/save` 鍥炰紶锛沗app`锛堢敤鎴风粯鍒讹紝濡傜鍖?铏氭嫙澧欙級鍙紪杈戝彲淇濆瓨銆?*`semantic/save` 鐨勫洖浼?body 涓嶅惈 `source`**锛堜笌 `APP绔帴鍙ｆ枃妗2.md` 涓€鑷达級銆?- `ratel_backend_api.md`锛坄pudu_ratel_app_mower/build-docs/`锛変腑鑻ョず渚嬩娇鐢?`/ratel/open-platform-service/api/v1/ratel_task/{action,list}`锛屾ā鎷熷櫒涓嶅疄鐜拌璺緞銆侻ower App 瀹為檯璋冪敤 `/ratel/central-control-service/api/v1/...`锛屾ā鎷熷櫒涓庝箣瀵归綈銆?- Device detail and map list support `POST` because the mower app's HTTP bridge currently posts to these constants.
+- `map/list` 的 `items[].increments[]` 为标注 / 点位增量，单项形如 `{ element_id, type, shape, points, properties, source }`。`type` 是 0-255 语义码：禁区 `251`、圆禁区 `201`、虚拟墙 `254`、**充电桩 `69`** 等。充电桩为单点位，协议无原生 point 形状，按 `shape: 'polygon'` + 1 个点（`points: [{x, y}]`）下发，APP 端按 `type` 反向迁移为 point 渲染；可选 `properties.yawRad`（BackendWorld 顺时针）控制朝向。增量数据源在 `src/data/annotations.ts`。
+- `increments[].source` = `"robot"` / `"app"`，标识数据来源并决定 APP 端可编辑性：`robot`（机器人/后端上报，如充电桩）只读不可编辑、不参与 `semantic/save` 回传；`app`（用户绘制，如禁区/虚拟墙）可编辑可保存。**`semantic/save` 的回传 body 不含 `source`**（与 `APP端接口文档v2.md` 一致）。
+- `ratel_backend_api.md`（`pudu_ratel_app_mower/build-docs/`）中若示例使用 `/ratel/open-platform-service/api/v1/ratel_task/{action,list}`，模拟器不实现该路径。Mower App 实际调用 `/ratel/central-control-service/api/v1/...`，模拟器与之对齐。
+- Device detail and map list support `POST` because the mower app's HTTP bridge currently posts to these constants.
 - Unknown routes return `404 { code: 404, message: 'deprecated; removed in simulator v1' }`.
 
 ## WebSocket
@@ -67,9 +69,10 @@ All JSON WS messages use:
 |---|---|
 | `NOTIFY_RATEL_STATUS` | `sn`, `work_status`, `sub_status`, `in_lawn`, `edge_start_available`, `region_closeable`, `work_msg`, `battery_level`, `battery`, `signals`, `phase`, `state`; simulator also adds `capabilities`, `estop`, `notices`, `error` for dev parity. |
 | `NOTIFY_MOW_STATUS` | Flattened `task_id`, `task_status`, `task_type`, `task_message`, `task_error_code`, `mow_area`, `mow_progress`, `estimated_time`; also duplicated under `payload`. |
+| `RATEL_MAPPING_TASK` | `sn`, `payload: { task_id, task_status, map_id, task_message, task_error_code }`. Task-level confirmation push for the mapping task model (建图任务API重构方案.md §6.2), independent from phase-driven `NOTIFY_RATEL_STATUS`. Sent on task creation, FSM changes while a mapping task is active, and terminal status; also replayed on new WS connection if an active task exists (`ON_THE_WAY`/`PAUSE`). |
 | `ROBOT_LOCATION` | `sn`, `mac`, `map_id`, `x`, `y`, `yaw`, `angle`, `timestamp`, `notify_time` |
 | `MAP_FIX` | Full map frame on WS connection. |
-| `MAP_INCREMENTAL` | Incremental map patches while mapping FSM is in a streaming phase. `map_header` includes `lawn_area` (m虏, default `width脳height脳resolution虏`). A frame is pushed immediately on streaming-state transitions, then continuously by `PUSH_INTERVAL_MS` while the phase remains streamable. |
+| `MAP_INCREMENTAL` | Incremental map patches while mapping FSM is in a streaming phase. `map_header` includes `lawn_area` (m², default `width×height×resolution²`). A frame is pushed immediately on streaming-state transitions, then continuously by `PUSH_INTERVAL_MS` while the phase remains streamable. |
 
 `map_data` is **plain base64 (no gzip)** by default, matching the real backend's building increment frames. Clients must therefore set `mapConfig.enableGzipDecompression: false`. Set `MMR_GZIP=1` / `MAP_MOCK_GZIP=1` to opt back into `gzip+base64` for exercising the compressed decode path.
 
@@ -101,4 +104,3 @@ On WS connect the simulator sends `MAP_FIX` and an initial `NOTIFY_RATEL_STATUS`
 | `GET` | `/sim/assets/full_rgbmap.png` | Real-scene (RGB) basemap image returned by map list (`real_view_map_url`). |
 | `GET` | `/sim/assets/mapping_trajectory.bin` | Mock trajectory binary file for recovery testing (f32 triplets: x, y, t). |
 | `WS` | `/sim/inspect` | Live reducer transcript stream. |
-

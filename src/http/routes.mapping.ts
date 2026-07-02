@@ -58,37 +58,10 @@ export const handleMappingRoutes: RouteHandler<AppRouteContext> = async (req, re
     return true;
   }
 
-  if (url.pathname === '/ratel/api/v1/mapping/start' && methodIs(req, 'POST')) {
-    const body = await readJsonBody(req);
-    const sn = stringBodyField(body, 'sn') ?? ctx.robot.sn;
-    const mode = stringBodyField(body, 'mode') ?? 'auto';
-    const mapId = stringBodyField(body, 'map_id') ?? undefined;
-    if (!sn) { sendError(res, 400, 'sn is required'); return true; }
-    ctx.robot.startMapping({ sn, mode, map_id: mapId });
-    ctx.robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'precondition' });
-    sendJson(res, 200, { code: 200, message: 'Success', data: robotOkPayload({ map_id: mapId ?? 'mock_map_001' }) });
-    return true;
-  }
-
-  if (url.pathname === '/ratel/api/v1/mapping/pause' && methodIs(req, 'POST')) {
-    ctx.robot.pauseMapping();
-    sendJson(res, 200, { code: 200, message: 'Success', data: robotOkPayload() });
-    return true;
-  }
-
-  if (url.pathname === '/ratel/api/v1/mapping/resume' && methodIs(req, 'POST')) {
-    ctx.robot.resumeMapping();
-    sendJson(res, 200, { code: 200, message: 'Success', data: robotOkPayload() });
-    return true;
-  }
-
-  if (url.pathname === '/ratel/api/v1/mapping/stop' && methodIs(req, 'POST')) {
-    const body = await readJsonBody(req);
-    const save = body.save === true || body.save === 1 || body.save === '1';
-    ctx.robot.dispatchRaw({ type: save ? 'CMD_CONFIRM' : 'CMD_CANCEL' }, 'mapping');
-    sendJson(res, 200, { code: 200, message: 'Success', data: robotOkPayload() });
-    return true;
-  }
+  // NOTE: `/ratel/api/v1/mapping/start|pause|resume|stop` are removed (one-shot cutover,
+  // see 建图任务API重构方案.md §6.2). Replaced by
+  // `ratel_mapping_task/create|action` (routes.mappingTask.ts). Unmatched requests to the
+  // old paths fall through to the generic 404 below — no alias/back-compat branch here.
 
   if (url.pathname === '/ratel/api/v1/mapping/mode' && methodIs(req, 'POST')) {
     const body = await readJsonBody(req);

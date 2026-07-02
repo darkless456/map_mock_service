@@ -1,4 +1,4 @@
-import type { VirtualRobot, MowingTaskRecord, VirtualRobotSnapshot } from './virtualRobot';
+import type { VirtualRobot, MappingTaskRecord, MowingTaskRecord, VirtualRobotSnapshot } from './virtualRobot';
 import type { RatelStatusPushPayload } from './ratelStatusPush';
 import type { SimTaskState, SimView } from './simFsmTypes';
 import { createId } from '../shared/ids';
@@ -194,6 +194,29 @@ export function buildMowStatus(task: MowingTaskRecord): WsEnvelope<Record<string
   };
 }
 
+/**
+ * WS `cmd: RATEL_MAPPING_TASK` — 建图任务级状态推送（建图任务 API 重构方案 §6.2 / APP 接口文档
+ * 「WS建图任务状态推送」）。与 `NOTIFY_MOW_STATUS` 同构：仅承担任务级确认/断线对齐职责，
+ * 不携带相位信息，相位推进仍完全由 `NOTIFY_RATEL_STATUS` 驱动。
+ */
+export function buildMappingTaskStatus(task: MappingTaskRecord): WsEnvelope<Record<string, unknown>> {
+  return {
+    cmd: 'RATEL_MAPPING_TASK',
+    cmd_id: createId(),
+    version: 1,
+    data: {
+      sn: task.sn,
+      payload: {
+        task_id: task.task_id,
+        task_status: task.status,
+        map_id: task.map_id,
+        task_message: task.task_message,
+        task_error_code: task.task_error_code,
+      },
+    },
+  };
+}
+
 /** Cloud `cmd: RECHARGE` — 回充任务过程推送（驱动 App 回充槽按钮，docs §12 / §13）。 */
 export function buildRecharge(payload: {
   readonly sn: string;
@@ -249,5 +272,7 @@ export function changedPushes(robot: VirtualRobot, snapshot?: VirtualRobotSnapsh
   const pushes: WsEnvelope[] = [buildNotifyRatelStatus(robot, buildCurrentRatelStatusPayload(robot))];
   const activeTask = snapshot?.activeTask ?? robot.activeTask();
   if (activeTask) pushes.push(buildMowStatus(activeTask));
+  const activeMappingTask = snapshot?.activeMappingTask ?? robot.activeMappingTask();
+  if (activeMappingTask) pushes.push(buildMappingTaskStatus(activeMappingTask));
   return pushes;
 }

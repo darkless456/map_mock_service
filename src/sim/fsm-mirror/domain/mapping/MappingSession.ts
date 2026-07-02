@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/mapping/MappingSession.ts. DO NOT EDIT. !!!
-// Source SHA-256: f4a71f70e8802619d88d702e138797deff8dd067481051a3edea5a570b32af3b
-// Synced at: 2026-06-29T07:01:12.946Z
+// Source SHA-256: 61de45502aa366a65e0d2de1fe9ddb53c87ba61242d8509a93a8e3f405743dcb
+// Synced at: 2026-07-02T07:40:14.585Z
 /**
  * MappingSession FSM — task-level `TaskState` + `MappingPhase` tuple from
  * `TaskFSM`. UI binding resolves a `PanelScene` directly from `(state, phase)`
@@ -64,7 +64,19 @@ export const initialMappingState: MappingContext =
 
 // ─── Events ────────────────────────────────────────────────────────────
 
-export type MappingEvent = TaskEvent<MappingPhase>;
+/**
+ * `RECONCILE_STARTED` / `RECONCILE_PAUSED` — 任务级 WS 推送（`RATEL_MAPPING_TASK`）
+ * 与建图任务列表对齐时使用的"确认/兜底对齐"事件，镜像 `MowingTask.ts` 的同名事件。
+ *
+ * 与 `DEVICE_PHASE`/`DEVICE_WORK_STATUS` 不同：这两个事件**不携带相位信息**（新任务
+ * 通道只有粗粒度 `task_status`），因此仅在本地 FSM 仍处于 `IDLE`（尚不知晓有任务）时
+ * 才生效，只负责把状态从 IDLE 推进到 WORKING/PAUSED，具体 phase 仍完全依赖
+ * `work_status/sub_status` 遥测通道后续推送来填充——不得用于驱动或抢占相位推进。
+ */
+export type MappingEvent =
+  | TaskEvent<MappingPhase>
+  | { readonly type: 'RECONCILE_STARTED' }
+  | { readonly type: 'RECONCILE_PAUSED' };
 export type MappingEventType = MappingEvent['type'];
 
 /**
@@ -117,6 +129,35 @@ export function mappingReducer(
     return reduceWorkStatus(ctx, event, logger);
   }
 
+  // 任务级 WS 推送（RATEL_MAPPING_TASK）/ 任务列表对齐：仅在本地仍处于 IDLE
+  // （例如重连后发现设备正在建图）时生效，绝不覆盖或倒退已经更靠后的相位——
+  // 具体业务 phase 仍完全交给后续 work_status/sub_status 遥测通道去填充。
+  if (event.type === 'RECONCILE_STARTED') {
+    if (ctx.state !== 'IDLE') return ctx;
+    return commit(
+      ctx,
+      { ...ctx, state: 'WORKING', mode: 'auto', resumeTo: null, error: null },
+      event,
+      logger,
+    );
+  }
+
+  if (event.type === 'RECONCILE_PAUSED') {
+    if (ctx.state !== 'IDLE') return ctx;
+    return commit(
+      ctx,
+      {
+        ...ctx,
+        state: 'PAUSED',
+        mode: 'auto',
+        resumeTo: { state: 'WORKING', phase: ctx.phase },
+        error: null,
+      },
+      event,
+      logger,
+    );
+  }
+
   // CMD_SWITCH_MANUAL：标记遥控意图，走后端驱动路径。
   // - 寻边失败：WORKING + MAP_SCAN_BOUNDARY_FAILED → 直接进入 REMOTE_CONTROL
   //   （设备已停止，无需暂停，对齐设计 §5.3）。
@@ -126,10 +167,7 @@ export function mappingReducer(
     if (!ctx.capabilities.canSwitchManual) return ctx;
 
     // 寻边失败：设备已停止，无暂停概念，直接进 REMOTE_CONTROL
-    if (
-      ctx.state === 'WORKING' &&
-      ctx.phase === 'MAP_SCAN_BOUNDARY_FAILED'
-    ) {
+    if (ctx.state === 'WORKING' && ctx.phase === 'MAP_SCAN_BOUNDARY_FAILED') {
       return commit(
         ctx,
         {
@@ -160,7 +198,6 @@ export function mappingReducer(
   // 后端 edge_mapping 在遥控模式下直接升级为 MAP_FOLLOW_BOUNDARY_MANUAL：
   // - DeviceStart：CMD_START 已设 mode='remote'
   // - CreateMap：CMD_SWITCH_MANUAL 已设 mode='remote'
-  // 无需等待 BLE scheduler_manual。
   if (
     event.type === 'DEVICE_PHASE' &&
     event.phase === 'MAP_FOLLOW_BOUNDARY' &&
@@ -185,8 +222,7 @@ export function mappingReducer(
     event.phase === 'MAP_FOLLOW_BOUNDARY_MANUAL' &&
     ctx.state === 'PAUSED' &&
     ctx.capabilities.canSwitchManual &&
-    (ctx.phase === 'MAP_FOLLOW_BOUNDARY' ||
-      ctx.phase === 'MAP_COVERAGE_PROBE')
+    (ctx.phase === 'MAP_FOLLOW_BOUNDARY' || ctx.phase === 'MAP_COVERAGE_PROBE')
   ) {
     return commit(
       ctx,
@@ -206,8 +242,7 @@ export function mappingReducer(
     );
   }
 
-  // DeviceStart 入口：远程建图先由 HTTP mapping/start 开始任务，再 task=5
-  // 申请遥控。收到 scheduler_manual.manual=true 后归一为
+  // DeviceStart 入口：远程建图先由 HTTP ratel_mapping_task/create 发起任务，再 task=5
   // MAP_FOLLOW_BOUNDARY_MANUAL，即可直接交接到横屏手摇宿主。
   if (
     event.type === 'DEVICE_PHASE' &&
@@ -275,7 +310,13 @@ export function mappingReducer(
   ) {
     return commit(
       ctx,
-      { ...ctx, state: 'WORKING', phase: event.phase, resumeTo: null, error: null },
+      {
+        ...ctx,
+        state: 'WORKING',
+        phase: event.phase,
+        resumeTo: null,
+        error: null,
+      },
       event,
       logger,
     );
@@ -319,7 +360,11 @@ function reduceWorkStatus(
   // 会得到 `WORKING + phase=null`——该组合无任何按钮规则匹配，导致底部按钮消失。这类暂停应
   // 等待设备上报实际 `DEVICE_PHASE`（寻边等）再落 `WORKING`（由通用层宽松匹配处理）。
   const resumePhase = ctx.resumeTo?.phase ?? ctx.phase;
-  if (ctx.state === 'RESUMING' && event.status === 'mapping' && resumePhase !== null) {
+  if (
+    ctx.state === 'RESUMING' &&
+    event.status === 'mapping' &&
+    resumePhase !== null
+  ) {
     return commit(
       ctx,
       {
@@ -375,7 +420,11 @@ function reduceRecoverableError(
 function commit(
   prev: MappingContext,
   next: MappingContext,
-  event: { readonly type: string; readonly source?: DeviceEventSource; readonly ts?: number },
+  event: {
+    readonly type: string;
+    readonly source?: DeviceEventSource;
+    readonly ts?: number;
+  },
   logger?: LoggerLike,
 ): MappingContext {
   const stamped = {
@@ -413,7 +462,10 @@ function sameContext(a: MappingContext, b: MappingContext): boolean {
   );
 }
 
-function sourceFromEvent(event: { readonly type: string; readonly source?: DeviceEventSource }): TaskSource {
+function sourceFromEvent(event: {
+  readonly type: string;
+  readonly source?: DeviceEventSource;
+}): TaskSource {
   if (event.type.startsWith('CMD_')) return 'cmd';
   if (event.type === 'TIMEOUT') return 'timeout';
   if (event.source) return event.source;

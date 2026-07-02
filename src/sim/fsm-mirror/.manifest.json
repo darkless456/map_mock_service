@@ -1,7 +1,7 @@
 {
   "mowerRoot": "/Users/linyang1/Development/pudu_ratel_app_mower",
   "mirrorRoot": "/Users/linyang1/Development/map_mock_service/src/sim/fsm-mirror",
-  "syncedAt": "2026-06-29T07:01:12.946Z",
+  "syncedAt": "2026-07-02T07:40:14.585Z",
   "files": [
     {
       "source": "src/domain/shared/TaskFSM.ts",
@@ -16,7 +16,7 @@
     {
       "source": "src/domain/mapping/MappingSession.ts",
       "dest": "src/sim/fsm-mirror/domain/mapping/MappingSession.ts",
-      "sha256": "f4a71f70e8802619d88d702e138797deff8dd067481051a3edea5a570b32af3b"
+      "sha256": "61de45502aa366a65e0d2de1fe9ddb53c87ba61242d8509a93a8e3f405743dcb"
     },
     {
       "source": "src/domain/mowing/MowingTask.ts",
@@ -71,7 +71,7 @@
     {
       "source": "src/features/shared/mapping/TaskEventPipeline.ts",
       "dest": "src/sim/fsm-mirror/features/shared/mapping/TaskEventPipeline.ts",
-      "sha256": "9f2449e24b30766d7e379e3acb65f27098fd86789f5b90d2229d4d0a1dc335d6"
+      "sha256": "c9d04358296b69bb0fd2b43ebdf517b602a27145ef5864a1dce44596f3b00e76"
     }
   ]
 }

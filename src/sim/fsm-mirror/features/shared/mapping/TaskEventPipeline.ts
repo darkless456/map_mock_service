@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/shared/mapping/TaskEventPipeline.ts. DO NOT EDIT. !!!
-// Source SHA-256: 9f2449e24b30766d7e379e3acb65f27098fd86789f5b90d2229d4d0a1dc335d6
-// Synced at: 2026-06-29T07:01:12.946Z
+// Source SHA-256: c9d04358296b69bb0fd2b43ebdf517b602a27145ef5864a1dce44596f3b00e76
+// Synced at: 2026-07-02T07:40:14.585Z
 import type {
   DeviceEventSource,
   RobotWorkStatus,
@@ -90,9 +90,13 @@ export class TaskEventPipeline<P extends string> {
       unknownSubStatus,
     } = normalizeDevicePayload<P>(raw, source);
     const workStatus = rawWorkStatus ?? 'idle';
-    const skipPhaseEvents =
-      subStatus !== null && subStatus === this.prevSubStatus;
     const ctx = this.getContext();
+    // Never skip DEVICE_PHASE while RESUMING: the FSM needs it to exit RESUMING
+    // into WORKING (e.g. after CMD_RESET following an emergency-stop).
+    const skipPhaseEvents =
+      ctx.state !== 'RESUMING' &&
+      subStatus !== null &&
+      subStatus === this.prevSubStatus;
 
     logMappingWsPipeline('dispatch_raw', {
       source,
@@ -190,20 +194,18 @@ export class TaskEventPipeline<P extends string> {
     if (estopEvents.length > 0) {
       estopEvents.forEach(event => this.forwardMapped(event));
       if (isEmergencyStopStatus(status)) {
+        this.prevSubStatus = null;
         return;
+      }
+      // React reducers do not synchronously update `getContext()` within the same
+      // WS frame. Use the pre-release context captured above to decide whether
+      // the release edge should auto-confirm recovery.
+      if (releasedFromEmergencyStop && ctx.state === 'ESTOPPED' && ctx.resumeTo !== null) {
+        this.arbitrator.dispatch({ type: 'CMD_RESET' });
       }
     }
 
     if (events.length === 0) {
-      if (releasedFromEmergencyStop) {
-        this.arbitrator.dispatch({
-          type: 'DEVICE_WORK_STATUS',
-          status,
-          source: meta.source,
-          ts: meta.ts,
-        });
-        return;
-      }
       this.arbitrator.dispatch({
         type: 'DEVICE_WORK_STATUS',
         status,

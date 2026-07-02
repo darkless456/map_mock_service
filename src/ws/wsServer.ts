@@ -5,6 +5,7 @@ import type WebSocket from 'ws';
 import { verifyTicket } from '../auth/ticket';
 import {
   buildCurrentRatelStatusPayload,
+  buildMappingTaskStatus,
   buildMowStatus,
   buildNotifyRatelStatus,
   buildRecharge,
@@ -107,6 +108,12 @@ export function createWsServer({
     // 导致重新进入割草页后收不到 ROBOT_LOCATION、机器人与轨迹都不刷新。
     if (activeTask && (activeTask.status === 'ON_THE_WAY' || activeTask.status === 'PAUSE')) {
       outbound.sendJson(ws, buildMowStatus(activeTask));
+    }
+    // 同上：新连接补发建图任务级状态（RATEL_MAPPING_TASK），仅在存在活跃任务时补发，
+    // 供 App 侧断线重连后的任务对齐（建图任务 API 重构方案 §6.2）。
+    const activeMappingTask = robot.activeMappingTask();
+    if (activeMappingTask && (activeMappingTask.status === 'ON_THE_WAY' || activeMappingTask.status === 'PAUSE')) {
+      outbound.sendJson(ws, buildMappingTaskStatus(activeMappingTask));
     }
 
     ws.on('message', raw => handleInboundMessage(ws, raw, outbound, recorder, {

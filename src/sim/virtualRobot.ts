@@ -65,6 +65,26 @@ export interface MowingTaskRecord {
 
 /**
  * 鍥炲厖锛堝洖妗╋級浠诲姟璁板綍銆備笌鍓茶崏浠诲姟鐩镐簰鐙珛锛圓pp 渚?`rechargeTaskSlice`锛宒ocs 搂12锛夈€? * 鐢?`POST /robot/recharge/task` 鍒涘缓锛學S `cmd: RECHARGE` 鎺ㄩ€?`task_status` 椹卞姩鎸夐挳銆? */
+/**
+ * Mapping task record — created via `POST ratel_mapping_task/create`, addressed by
+ * `task_id` (or by `sn` fallback lookup) via `ratel_mapping_task/action`. Independent
+ * from the phase-driven mapping FSM (`MappingSession.ts`): this only tracks task-level
+ * status for the `RATEL_MAPPING_TASK` WS push and `ratel_mapping_task/list`, mirroring
+ * `MowingTaskRecord`. Phase progression is still driven entirely by scenario YAML
+ * `notify`/`emit` against `work_status`/`sub_status` (mapping task API refactor plan §6.2).
+ */
+export interface MappingTaskRecord {
+  readonly task_id: string;
+  readonly sn: string;
+  status: 'ON_THE_WAY' | 'PAUSE' | 'COMPLETE' | 'CANCEL' | 'FAILED';
+  readonly map_id: string;
+  readonly mode: string;
+  task_message: string;
+  task_error_code: number;
+  readonly created_at: number;
+  updated_at: number;
+}
+
 export interface RechargeTaskRecord {
   readonly task_id: string;
   readonly sn: string;
@@ -100,6 +120,9 @@ export interface VirtualRobotSnapshot {
   readonly mapping: MappingContext;
   readonly mowing: MowingContext;
   readonly activeTask: MowingTaskRecord | null;
+  readonly mappingTasks: readonly MappingTaskRecord[];
+  readonly latestMappingTaskBySn: Readonly<Record<string, string>>;
+  readonly activeMappingTask: MappingTaskRecord | null;
   readonly events: readonly RecordedEvent[];
 }
 
@@ -188,6 +211,8 @@ export class VirtualRobot extends EventEmitter {
   private readonly events: RecordedEvent[] = [];
   private readonly tasks = new Map<string, MowingTaskRecord>();
   private readonly latestTaskBySn = new Map<string, string>();
+  private readonly mappingTasks = new Map<string, MappingTaskRecord>();
+  private readonly latestMappingTaskBySn = new Map<string, string>();
   /** 褰撳墠鍥炲厖锛堝洖妗╋級浠诲姟锛堜笌鍓茶崏浠诲姟鐙珛锛宒ocs 搂12 / 搂13锛夈€?*/
   private rechargeTask: RechargeTaskRecord | null = null;
   private rechargeTimers: ReturnType<typeof setTimeout>[] = [];
@@ -218,6 +243,9 @@ export class VirtualRobot extends EventEmitter {
       mapping: this.mapping,
       mowing: this.mowing,
       activeTask: this.activeTask(),
+      mappingTasks: [...this.mappingTasks.values()],
+      latestMappingTaskBySn: Object.fromEntries(this.latestMappingTaskBySn),
+      activeMappingTask: this.activeMappingTask(),
       events: [...this.events],
     };
   }
@@ -245,6 +273,8 @@ export class VirtualRobot extends EventEmitter {
     this.trajectoryLog = [];
     this.tasks.clear();
     this.latestTaskBySn.clear();
+    this.mappingTasks.clear();
+    this.latestMappingTaskBySn.clear();
     this.clearRechargeTimers();
     this.rechargeTask = null;
     this.record(null, { type: 'SIM_RESET' });
@@ -416,6 +446,138 @@ export class VirtualRobot extends EventEmitter {
     this.lastRobotY = 0;
     this.trajectoryLog = [];
     this.pushRatelStatus({ work_status: 'mapping', sub_status: sub });
+  }
+
+  /**
+   * `POST ratel_mapping_task/create`：新建建图任务记录并触发 FSM `CMD_START`
+   * （复用 {@link dispatchMapping} 通路，相位驱动机制不受影响）。
+   */
+  createMappingTask(input: { sn: string; map_id: string; mode: string }): MappingTaskRecord {
+    this.sn = input.sn;
+    this.activeDomain = 'mapping';
+    const task = this.createMappingTaskRecord(input.sn, input.map_id, input.mode);
+    this.dispatchMapping({
+      type: 'CMD_START',
+      mode: input.mode === 'remote' ? 'remote' : 'auto',
+      taskMode: 'MAP_BUILD',
+    });
+    this.pushRatelStatus({ work_status: 'mapping', sub_status: 'precondition' });
+    return task;
+  }
+
+  /**
+   * `POST ratel_mapping_task/action`（PAUSE/RESUME/STOP）：按 `taskId` 精确寻址，缺省按
+   * `latestMappingTaskBySn` 回退；两者都找不到则报错终止（不做静默兜底，对齐建图任务 API
+   * 重构方案 §6.2 的“fail fast”要求）。复用既有 `pauseMapping/resumeMapping/dispatchRaw`
+   * FSM 派发通路，STOP 的 save=true/false 分别映射为 `CMD_CONFIRM`/`CMD_CANCEL`。
+   */
+  applyMappingTaskAction(input: { sn: string; taskId?: string; action: string; save?: boolean }): string | null {
+    const task = this.resolveMappingTask(input.sn, input.taskId);
+    if (!task) {
+      return input.taskId
+        ? `mapping task ${input.taskId} not found`
+        : `no active mapping task for sn ${input.sn}`;
+    }
+    this.sn = input.sn;
+    this.activeDomain = 'mapping';
+    switch (input.action) {
+      case 'PAUSE':
+        this.pauseMapping();
+        break;
+      case 'RESUME':
+        this.resumeMapping();
+        break;
+      case 'STOP':
+        this.dispatchRaw({ type: input.save ? 'CMD_CONFIRM' : 'CMD_CANCEL' }, 'mapping');
+        break;
+      default:
+        return `unknown mapping action ${input.action}`;
+    }
+    return null;
+  }
+
+  listMappingTasks(sn?: string): MappingTaskRecord[] {
+    return [...this.mappingTasks.values()]
+      .filter(task => !sn || task.sn === sn)
+      .sort((a, b) => b.created_at - a.created_at);
+  }
+
+  activeMappingTask(): MappingTaskRecord | null {
+    const taskId = this.latestMappingTaskBySn.get(this.sn);
+    return taskId ? this.mappingTasks.get(taskId) ?? null : null;
+  }
+
+  private resolveMappingTask(sn: string, taskId?: string): MappingTaskRecord | undefined {
+    if (taskId) return this.mappingTasks.get(taskId);
+    const latest = this.latestMappingTaskBySn.get(sn);
+    return latest ? this.mappingTasks.get(latest) : undefined;
+  }
+
+  private createMappingTaskRecord(sn: string, mapId: string, mode: string): MappingTaskRecord {
+    const now = Date.now();
+    const task: MappingTaskRecord = {
+      task_id: createCompactId('mock-mapping-task'),
+      sn,
+      status: 'ON_THE_WAY',
+      map_id: mapId,
+      mode,
+      task_message: '',
+      task_error_code: 0,
+      created_at: now,
+      updated_at: now,
+    };
+    this.mappingTasks.set(task.task_id, task);
+    this.latestMappingTaskBySn.set(sn, task.task_id);
+    return task;
+  }
+
+  /** Mirrors {@link syncActiveTaskFromContext} for the mapping domain (task-level status only). */
+  private syncActiveMappingTaskFromContext(): void {
+    const task = this.activeMappingTask();
+    if (!task) return;
+    const before = task.status;
+    switch (this.mapping.state) {
+      case 'WORKING':
+      case 'RESUMING':
+      case 'PREPARING':
+      case 'UNDOCKING':
+        task.status = 'ON_THE_WAY';
+        task.task_message = '';
+        break;
+      case 'PAUSED':
+      case 'REMOTE_CONTROL':
+        task.status = 'PAUSE';
+        task.task_message = 'Paused by user';
+        break;
+      case 'COMPLETED':
+        task.status = 'COMPLETE';
+        task.task_message = task.task_message || 'Mapping complete';
+        break;
+      case 'CANCELLED':
+        task.status = 'CANCEL';
+        task.task_message = 'Cancelled by user';
+        break;
+      case 'ERRORED':
+        task.status = 'FAILED';
+        task.task_message = this.mapping.error?.code ?? 'Mapping failed';
+        task.task_error_code = -1;
+        break;
+      default:
+        break;
+    }
+    if (task.status !== before) task.updated_at = Date.now();
+  }
+
+  /**
+   * Scenario YAML `emit: { type: CMD_START }` bypasses the HTTP create route entirely
+   * (see `scenarios/mapping_*.yaml`); mirrors {@link ensureScenarioMowingTask} so those
+   * scripts still produce a `task_id`-bearing `MappingTaskRecord` for `RATEL_MAPPING_TASK`
+   * pushes and `/sim/state` inspection, without requiring YAML changes.
+   */
+  private ensureScenarioMappingTask(event: MappingEvent | SimOnlyEvent): void {
+    if (event.type !== 'CMD_START' || this.activeMappingTask()) return;
+    const mode = 'mode' in event && typeof event.mode === 'string' ? event.mode : 'auto';
+    this.createMappingTaskRecord(this.sn, 'mock_map_001', mode);
   }
 
   createMowingTask(input: { sn: string; task_info: Record<string, unknown> }): MowingTaskRecord {
@@ -630,8 +792,10 @@ export class VirtualRobot extends EventEmitter {
     this.emitControlIntent(event as { type?: string });
     const before = this.snapshot();
     const prev = this.mapping;
+    this.ensureScenarioMappingTask(event);
     this.mapping = mappingReducer(this.mapping, event as MappingEvent);
     this.record('mapping', event);
+    this.syncActiveMappingTaskFromContext();
     const after = this.snapshot();
     this.emitTranscript('mapping', event, before, after, this.mapping !== prev);
     if (this.mapping !== prev) this.emit('changed', after);
