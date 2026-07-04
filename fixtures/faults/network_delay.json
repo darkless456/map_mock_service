@@ -1,0 +1,9 @@
+{
+  "name": "network_delay",
+  "description": "Add fixed WS latency and jitter to simulate a slow connection.",
+  "chaos": {
+    "latencyMs": 800,
+    "dropRate": 0,
+    "reorderWindowMs": 400
+  }
+}

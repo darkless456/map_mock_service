@@ -24,6 +24,7 @@ Default URL: `http://localhost:9900`.
 |---|---|
 | `npm start` | Run `tsx src/server.ts`. |
 | `npm run build` | Type-check the TypeScript simulator. |
+| `npm run check-fixtures` | Validate hot-loaded fixture JSON/JSONC files. |
 | `npm test` | Run Node's TS unit and e2e scenario test suite. |
 | `npm run lint` | Alias to `tsc --noEmit`. |
 | `npm run sync-fsm-mirror` | Copy the mower FSM mirror into `src/sim/fsm-mirror/`. |
@@ -33,7 +34,7 @@ Default URL: `http://localhost:9900`.
 | Variable | Default | Description |
 |---|---:|---|
 | `PORT` | `9900` | HTTP and WebSocket port. |
-| `MOCK_DATA_DIR` | `data3` | Dataset directory: `data`, `data2`, `data3`, or `data4`. |
+| `MOCK_DATA_DIR` | `mapping_happy` | Dataset name under `fixtures/datasets`: `mapping_happy`, `mowing_trajectory`, `recharge_return`, or `fixed_maps`. |
 | `ROBOT_SN` | `MOCK:00:11:22:33:44` | Default robot SN. |
 | `PUSH_INTERVAL_MS` | `200` | Map incremental frame interval. |
 | `MAP_MOCK_SLICE_BYTES` / `MMR_SLICE_BYTES` | disabled | Force map-frame base64 slicing for RustKit fragment reassembly tests. Slice boundaries are rounded down to a 4-character base64 boundary. |
@@ -73,6 +74,12 @@ Each `map/list` item carries both basemap URLs and shared world metadata:
 - `map_url` / `semantic_map_url` → `/sim/assets/full_semanticmap.png` (套色板灰度语义图)。
 - `real_view_map_url` → `/sim/assets/full_rgbmap.png` (RGB 实景图)。
 - `map_origin_x` / `map_origin_y` 与 `resolution`：语义图与实景图共享同一世界坐标系。origin 为 BackendWorld(Y-down) 下图片左上角的世界坐标，mock 默认 `resolution=0.05`、`origin=(2.5, 2.2)`，取自 `APP端接口文档v2.md` 示例并参考 `地图管理系统设计方案.md` 的 `full_semanticmap.xml`(map_id/resolution/origin)。字段命名严格对齐 `APP端接口文档v2.md` 的 `Rsp.data.items`。
+
+## Test Data Fixtures
+
+Hot-editable API response data lives in `fixtures/`. Edit `fixtures/**/*.jsonc` or `fixtures/maps/map_list.json`; the next request uses the new content without restarting the simulator. Static map increments and charging dock points come from `fixtures/maps/map_list.json`; `semantic/save` only creates in-memory runtime overrides.
+
+Run `npm run check-fixtures` after editing fixtures. See [docs/fixtures-guide.md](docs/fixtures-guide.md) and [docs/data-dictionary.md](docs/data-dictionary.md).
 
 ## WebSocket API
 
@@ -150,6 +157,8 @@ Useful rendering scenarios:
 ## More docs
 
 - [docs/api.md](docs/api.md)
+- [docs/fixtures-guide.md](docs/fixtures-guide.md)
+- [docs/data-dictionary.md](docs/data-dictionary.md)
 - [docs/fsm-mirror.md](docs/fsm-mirror.md)
 - [docs/mowing_trajectory.md](docs/mowing_trajectory.md)
 - [docs/scenarios.md](docs/scenarios.md)

@@ -1,0 +1,25 @@
+# Data Dictionary
+
+## Fixtures
+
+| Path | Type | Notes |
+|---|---|---|
+| `fixtures/maps/map_list.json` | Real backend-style JSON | Static `map/list` response source. Keep as plain JSON for copy/paste replacement. |
+| `fixtures/maps/metadata.jsonc` | Editable JSONC | Map `resolution` and origin fallback/overrides. |
+| `fixtures/device/self_check.jsonc` | Editable JSONC | Self-check response body. `checked_at` is replaced at request time. |
+| `fixtures/mapping/check_conditions.jsonc` | Editable JSONC | Mapping check full condition state; battery is computed from robot state. |
+| `fixtures/mowing/trajectory_fallback.jsonc` | Editable JSONC | Fallback route point array. |
+| `fixtures/recharge/notify_sequence.jsonc` | Editable JSONC | Return-dock status push schedule. |
+| `fixtures/sim/realism.jsonc` | Editable JSONC | Default realism latency profile; runtime overrides use `/sim/realism`. |
+| `fixtures/faults/*.json` | Fault preset JSON | Named fault injection presets. Supports `chaos`, `dataset`, `setup`, `notify`, and future `fixtures` metadata. |
+
+## Runtime Data
+
+| Source | Notes |
+|---|---|
+| `src/fixtures/semanticOverrides.ts` | In-memory overrides written by `semantic/save`; cleared on process restart. |
+| `fixtures/datasets/mapping_happy/frames` | Former `data3`; default map-frame dataset. |
+| `fixtures/datasets/mowing_trajectory/frames` | Former `data2`; mowing trajectory frame dataset. |
+| `fixtures/datasets/recharge_return/frames` | Former `data`; recharge/return frame dataset. |
+| `fixtures/datasets/fixed_maps/frames` | Former `data4`; small fixed-map sample set. |
+| `recordings/<label>_<timestamp>.jsonl` | Runtime recorder output. Replayed through `POST /sim/recorder/replay`. |

@@ -143,4 +143,53 @@ steps:
     assert.equal(result.ok, false);
     assert.match(result.error ?? '', /expected/);
   });
+
+  it('switches dataset declared by a scenario before running steps', async () => {
+    const robot = new VirtualRobot();
+    const switched: string[] = [];
+    const engine = new ScenarioEngine({
+      robot,
+      chaos: new ChaosController(),
+      switchDataset: (name) => {
+        switched.push(name);
+        return { ok: true, name, patchCount: 3 };
+      },
+    });
+    const result = await engine.run({
+      inline: {
+        name: 'dataset smoke',
+        dataset: 'mowing_trajectory',
+        domain: 'mapping',
+        setup: { state: 'IDLE', phase: null },
+        steps: [{ expect: { state: 'IDLE' } }],
+      },
+    });
+
+    assert.equal(result.ok, true, result.error);
+    assert.deepEqual(switched, ['mowing_trajectory']);
+    assert.equal(result.logs[0]?.kind, 'dataset');
+  });
+
+  it('applies realism scenario steps', async () => {
+    const robot = new VirtualRobot();
+    const chaos = new ChaosController();
+    const engine = new ScenarioEngine({ robot, chaos });
+    const result = await engine.run({
+      inline: {
+        name: 'realism smoke',
+        domain: 'mapping',
+        setup: { state: 'IDLE', phase: null },
+        steps: [
+          { realism: { enabled: true, httpDelayMinMs: 1, httpDelayMaxMs: 1, wsDelayMinMs: 2, wsDelayMaxMs: 2 } },
+          { expect: { state: 'IDLE' } },
+        ],
+      },
+    });
+
+    assert.equal(result.ok, true, result.error);
+    assert.equal(result.logs[1]?.kind, 'realism');
+    assert.equal(chaos.realismSnapshot().enabled, true);
+    assert.equal(chaos.httpDelayMs(), 1);
+    assert.equal(chaos.wsDelayMs(), 2);
+  });
 });

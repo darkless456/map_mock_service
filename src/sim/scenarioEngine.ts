@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
-import type { ChaosController, ChaosConfig } from './chaos';
+import { fixtureLoader } from '../fixtures';
+import type { ChaosController, ChaosConfig, RealismConfig } from './chaos';
+import type { FaultApplyResult } from './faults';
 import type { Recorder } from './recorder';
 import type { RobotDomain, VirtualRobot, VirtualRobotSetup } from './virtualRobot';
 import type { SimView } from './simFsmTypes';
@@ -28,6 +30,8 @@ export type ScenarioStep =
   | { readonly wait: string | number | { readonly until?: Record<string, unknown>; readonly timeout?: string | number } }
   | { readonly loop: LoopStep }
   | { readonly chaos: ChaosConfig }
+  | { readonly realism: RealismConfig }
+  | { readonly fault: string | { readonly name?: string } }
   | { readonly note: string }
   | { readonly include: string }
   | { readonly record: boolean | string | Record<string, unknown> }
@@ -48,6 +52,8 @@ export interface ScenarioDefinition {
   readonly name: string;
   readonly description?: string;
   readonly domain?: RobotDomain;
+  readonly dataset?: string;
+  readonly fixtures?: Readonly<Record<string, unknown>>;
   readonly setup?: VirtualRobotSetup;
   readonly steps: readonly ScenarioStep[];
 }
@@ -81,13 +87,21 @@ export interface ScenarioEngineOptions {
   readonly chaos: ChaosController;
   readonly recorder?: Recorder;
   readonly scenarioRoot?: string;
+  readonly switchDataset?: (name: string) => ScenarioDatasetSwitchResult;
+  readonly applyFault?: (name: string) => FaultApplyResult;
 }
+
+export type ScenarioDatasetSwitchResult =
+  | { readonly ok: true; readonly name: string; readonly patchCount: number }
+  | { readonly ok: false; readonly error: string };
 
 export class ScenarioEngine {
   private readonly robot: VirtualRobot;
   private readonly chaos: ChaosController;
   private readonly recorder?: Recorder;
   private readonly scenarioRoot: string;
+  private readonly switchDataset?: (name: string) => ScenarioDatasetSwitchResult;
+  private readonly applyFault?: (name: string) => FaultApplyResult;
   private abortRequested = false;
   private paused = false;
   private running: string | null = null;
@@ -97,6 +111,8 @@ export class ScenarioEngine {
     this.chaos = options.chaos;
     this.recorder = options.recorder;
     this.scenarioRoot = options.scenarioRoot ?? SCENARIO_ROOT;
+    this.switchDataset = options.switchDataset;
+    this.applyFault = options.applyFault;
     // 任意来源（Web 面板 / App API）下发的暂停 / 恢复都会经机器人广播控制意图，
     // 这里订阅后即可暂停 / 恢复脚本循环本身，而不只是机器人 FSM。
     this.robot.on('controlPause', () => this.pause());
@@ -220,7 +236,39 @@ export class ScenarioEngine {
     logs: ScenarioRunLog[],
     includeStack: Set<string>,
   ): Promise<void> {
+    await fixtureLoader.withOverrides(scenario.fixtures, async () => {
+      if (scenario.fixtures) {
+        logs.push({
+          index: logs.length,
+          kind: 'fixtures',
+          ok: true,
+          detail: Object.keys(scenario.fixtures).sort(),
+        });
+      }
+      await this.executeScenarioBody(scenario, logs, includeStack);
+    });
+  }
+
+  private async executeScenarioBody(
+    scenario: ScenarioDefinition,
+    logs: ScenarioRunLog[],
+    includeStack: Set<string>,
+  ): Promise<void> {
     const domain = readDomain(scenario.domain, 'mapping');
+    if (scenario.dataset) {
+      if (this.switchDataset) {
+        const result = this.switchDataset(scenario.dataset);
+        logs.push({ index: logs.length, kind: 'dataset', ok: result.ok, detail: result });
+        if (!result.ok) throw new Error(result.error);
+      } else {
+        logs.push({
+          index: logs.length,
+          kind: 'dataset',
+          ok: true,
+          detail: { name: scenario.dataset, skipped: true, reason: 'dataset switcher not configured' },
+        });
+      }
+    }
     if (scenario.setup) {
       this.robot.applySetup({ ...scenario.setup, domain: readDomain(scenario.setup.domain, domain) });
       logs.push({ index: logs.length, kind: 'setup', ok: true, detail: scenario.setup });
@@ -302,6 +350,26 @@ export class ScenarioEngine {
       return;
     }
 
+    if ('realism' in step) {
+      const next = this.chaos.updateRealism(step.realism);
+      logs.push({ index, kind: 'realism', ok: true, detail: next });
+      return;
+    }
+
+    if ('fault' in step) {
+      const name = typeof step.fault === 'string'
+        ? step.fault
+        : typeof step.fault.name === 'string'
+          ? step.fault.name
+          : '';
+      if (!name) throw new Error(`step ${index}: fault.name is required`);
+      if (!this.applyFault) throw new Error(`step ${index}: fault applier is not configured`);
+      const result = this.applyFault(name);
+      logs.push({ index, kind: 'fault', ok: result.ok, detail: result });
+      if (!result.ok) throw new Error(result.error ?? `fault failed: ${name}`);
+      return;
+    }
+
     if ('note' in step) {
       this.recorder?.record({ dir: 'fsm', kind: 'note', note: step.note });
       logs.push({ index, kind: 'note', ok: true, detail: step.note });
@@ -319,7 +387,7 @@ export class ScenarioEngine {
     }
 
     if ('record' in step) {
-      const label = typeof step.record === 'string' ? step.record : undefined;
+      const label = typeof step.record === 'string' ? step.record : scenarioNameFromStack(includeStack);
       this.recorder?.start(label);
       logs.push({ index, kind: 'record', ok: true, detail: this.recorder?.snapshot() ?? null });
       return;
@@ -405,6 +473,10 @@ function normalizeScenario(value: unknown, fallbackName: string): ScenarioDefini
     name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : fallbackName,
     description: typeof raw.description === 'string' ? raw.description : undefined,
     domain: readDomain(raw.domain, 'mapping'),
+    dataset: typeof raw.dataset === 'string' && raw.dataset.trim() ? raw.dataset.trim() : undefined,
+    fixtures: typeof raw.fixtures === 'object' && raw.fixtures !== null && !Array.isArray(raw.fixtures)
+      ? raw.fixtures as Readonly<Record<string, unknown>>
+      : undefined,
     setup: typeof raw.setup === 'object' && raw.setup !== null && !Array.isArray(raw.setup)
       ? raw.setup as VirtualRobotSetup
       : undefined,
@@ -455,6 +527,10 @@ function parseDuration(value: string | number): number {
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function scenarioNameFromStack(includeStack: Set<string>): string | undefined {
+  return [...includeStack][includeStack.size - 1];
 }
 
 function matchExpectation(

@@ -26,8 +26,8 @@ import {
   getMowingTrajectoryDebugInfo,
   resetPoseState,
   type PoseState,
-} from '../data/mowingTrajectory';
-import { logger } from '../shared/logger';
+} from '../trajectory/mowingTrajectory';
+import { logger } from '../infra/logger';
 
 const DEFAULT_PUSH_INTERVAL_MS = 200;
 const WS_TERMINATE_GRACE_MS = 250;

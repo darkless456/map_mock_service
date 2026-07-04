@@ -1,0 +1,68 @@
+// 编辑指南：
+//   地图 resolution/origin 元数据覆盖表。
+//   default 用于未命中 map_id 的兜底；maps 中的 key 为 map_id。
+//   保存后无需重启，下次请求即生效。
+{
+  "default": {
+    "resolution": 0.05,
+    "origin_x": 2.5,
+    "origin_y": 2.2
+  },
+  "maps": {
+    "mock_map_001": {
+      "resolution": 0.05,
+      "origin_x": 2.5,
+      "origin_y": 2.2
+    },
+    "4245b2a8-5394-4259-9a2f-0379c8f82f03": {
+      "resolution": 0.05,
+      "origin_x": -12.8,
+      "origin_y": -12.8
+    },
+    "7923da82-4803-47e4-b541-782e4ada3a10": {
+      "resolution": 0.05,
+      "origin_x": -12.8,
+      "origin_y": -12.8
+    },
+    "ae277bb2-d99e-4411-b900-4a26af41cfb4": {
+      "resolution": 0.05,
+      "origin_x": -12.8,
+      "origin_y": -12.8
+    },
+    "ed01fe3c-d2f1-4429-aec9-81ec4cb736e8": {
+      "resolution": 0.05,
+      "origin_x": -12.8,
+      "origin_y": -12.8
+    },
+    "04377a8f-df99-4630-8883-d967f255f383": {
+      "resolution": 0.05,
+      "origin_x": -12.8,
+      "origin_y": -12.8
+    },
+    "cf640c1d-4f1c-4f15-b292-71fbcae50e63": {
+      "resolution": 0.05,
+      "origin_x": -12.8,
+      "origin_y": -12.8
+    },
+    "f755fe0f-5958-4b0a-9fd5-47159ba440de": {
+      "resolution": 0.05,
+      "origin_x": -12.8,
+      "origin_y": -12.8
+    },
+    "2a27fcb3-c123-43fe-9653-5b5e31aff895": {
+      "resolution": 0.05,
+      "origin_x": -12.8,
+      "origin_y": -12.8
+    },
+    "04e5afc6-085c-4522-956e-a89379515621": {
+      "resolution": 0.05,
+      "origin_x": -12.8,
+      "origin_y": -12.8
+    },
+    "first_map": {
+      "resolution": 0.05,
+      "origin_x": 0,
+      "origin_y": 0
+    }
+  }
+}

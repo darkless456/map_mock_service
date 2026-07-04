@@ -1,7 +1,7 @@
 import type { VirtualRobot, MappingTaskRecord, MowingTaskRecord, VirtualRobotSnapshot } from './virtualRobot';
 import type { RatelStatusPushPayload } from './ratelStatusPush';
 import type { SimTaskState, SimView } from './simFsmTypes';
-import { createId } from '../shared/ids';
+import { createId } from '../infra/ids';
 
 export interface WsEnvelope<TData = Record<string, unknown>> {
   readonly cmd: string;

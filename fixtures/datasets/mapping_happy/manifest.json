@@ -1,0 +1,19 @@
+{
+  "name": "mapping_happy",
+  "scenario": "建图正常自动流程",
+  "source": "原 data3",
+  "frameCount": 749,
+  "resolution": 0.05000000074505806,
+  "world": {
+    "origin_x": 10.300000190734863,
+    "origin_y": 6.449999809265137,
+    "cols": 40,
+    "rows": 40
+  },
+  "notes": "原 data3，默认建图数据集。",
+  "compatibleScenarios": [
+    "mapping_happy_auto.yaml",
+    "mapping_happy_manual.yaml",
+    "mapping_stream_incremental.yaml"
+  ]
+}

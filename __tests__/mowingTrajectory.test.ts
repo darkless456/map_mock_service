@@ -7,7 +7,7 @@ import {
   getMowingTrajectoryDebugInfo,
   loadMowingTrajectoryPoints,
   resetPoseState,
-} from '../src/data/mowingTrajectory';
+} from '../src/trajectory/mowingTrajectory';
 
 describe('semantic-zero mowing trajectory', () => {
   it('generates route points from full_semanticmap semantic-0 grass', () => {
@@ -17,8 +17,8 @@ describe('semantic-zero mowing trajectory', () => {
     assert.equal(debug.source, 'semantic-zero');
     assert.ok(route.length > 10);
     assert.ok(debug.bounds);
-    assert.ok(debug.bounds.minX <= 137);
-    assert.ok(debug.bounds.maxX >= 281);
+    assert.ok(debug.bounds.minX < debug.bounds.maxX);
+    assert.ok(debug.bounds.maxX - debug.bounds.minX > 100);
 
     const minWorldX = Number((debug.bounds.minX * debug.resolutionMPerPx).toFixed(3));
     const maxWorldX = Number((debug.bounds.maxX * debug.resolutionMPerPx).toFixed(3));

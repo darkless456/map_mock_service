@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { VirtualRobot } from '../src/sim/virtualRobot';
 import { buildMowStatus, buildNotifyRatelStatus, buildCurrentRatelStatusPayload } from '../src/sim/pushChannels';
-import { buildTaskListData } from '../src/sim/taskBridge';
+import { buildTaskListData } from '../src/sim/task/MowingTaskBridge';
 
 describe('VirtualRobot mapping domain', () => {
   it('starts mapping in PREPARING and reaches a streamable phase via sub_status notify', () => {

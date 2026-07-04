@@ -1,0 +1,12 @@
+{
+  "name": "recharge_failed",
+  "description": "Switch to the recharge dataset and push an error-like return dock status.",
+  "dataset": "recharge_return",
+  "setup": {
+    "domain": "mowing"
+  },
+  "notify": {
+    "work_status": "return_dock",
+    "sub_status": "seek_charger_dock"
+  }
+}

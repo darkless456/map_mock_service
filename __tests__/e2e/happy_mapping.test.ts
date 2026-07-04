@@ -8,7 +8,7 @@ import { MapStream } from '../../src/sim/mapStream';
 import { ScenarioEngine } from '../../src/sim/scenarioEngine';
 import { VirtualRobot } from '../../src/sim/virtualRobot';
 import { createWsServer } from '../../src/ws/wsServer';
-import { createPoseState, currentRobotPose } from '../../src/data/mowingTrajectory';
+import { createPoseState, currentRobotPose } from '../../src/trajectory/mowingTrajectory';
 
 function waitForOpen(ws: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {

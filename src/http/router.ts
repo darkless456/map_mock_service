@@ -5,16 +5,16 @@ import type { MapStream } from '../sim/mapStream';
 import type { ChaosController } from '../sim/chaos';
 import type { ScenarioEngine } from '../sim/scenarioEngine';
 import type { Recorder } from '../sim/recorder';
-import { setCorsHeaders, sendError, type HttpRouteDeps, type RouteHandler } from '../shared/http';
-import { handleAccRoutes } from './routes.acc';
-import { handleHealthRoutes } from './routes.health';
-import { handleDeviceRoutes } from './routes.device';
-import { handleMapRoutes } from './routes.map';
-import { handleMappingRoutes } from './routes.mapping';
-import { handleMappingTaskRoutes } from './routes.mappingTask';
-import { handleTaskRoutes } from './routes.task';
-import { handleRechargeRoutes } from './routes.recharge';
-import { handleSimRoutes } from './routes.sim';
+import { setCorsHeaders, sendError, type HttpRouteDeps, type RouteHandler } from './shared/http';
+import { handleAccRoutes } from './routes/auth.routes';
+import { handleHealthRoutes } from './routes/health.routes';
+import { handleDeviceRoutes } from './routes/device.routes';
+import { handleMapRoutes } from './routes/map.routes';
+import { handleMappingRoutes } from './routes/mapping.routes';
+import { handleMappingTaskRoutes } from './routes/mappingTask.routes';
+import { handleTaskRoutes } from './routes/task.routes';
+import { handleRechargeRoutes } from './routes/recharge.routes';
+import { handleSimRoutes } from './routes/sim.routes';
 
 export interface AppRouteContext extends HttpRouteDeps {
   readonly port: number;
@@ -50,6 +50,8 @@ export function createHttpHandler(ctx: AppRouteContext) {
     const url = new URL(req.url ?? '/', `http://${req.headers.host || `localhost:${ctx.port}`}`);
     try {
       ctx.recorder.recordHttp(req, url.pathname);
+      const delayMs = shouldDelayHttp(url.pathname) ? ctx.chaos.httpDelayMs() : 0;
+      if (delayMs > 0) await delay(delayMs);
       for (const route of ROUTES) {
         if (await route(req, res, url, ctx)) return;
       }
@@ -63,4 +65,12 @@ export function createHttpHandler(ctx: AppRouteContext) {
       sendError(res, error instanceof SyntaxError ? 400 : 500, message);
     }
   };
+}
+
+function shouldDelayHttp(pathname: string): boolean {
+  return pathname !== '/api/health' && !pathname.startsWith('/sim/');
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }

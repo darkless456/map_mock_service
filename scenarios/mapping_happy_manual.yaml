@@ -43,6 +43,7 @@ guide:
     - NOTIFY_RATEL_STATUS（work_status=mapping / idle）
     - MAP_INCREMENTAL（寻边 / 手摇沿边 / 内部覆盖等 shouldStreamMap 阶段，按 PUSH_INTERVAL_MS 持续推送增量帧）
 domain: mapping
+dataset: mapping_happy
 setup:
   state: IDLE
   phase: null

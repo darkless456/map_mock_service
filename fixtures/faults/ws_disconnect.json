@@ -1,0 +1,9 @@
+{
+  "name": "ws_disconnect",
+  "description": "Drop all outbound WS frames until chaos is reset.",
+  "chaos": {
+    "latencyMs": 0,
+    "dropRate": 1,
+    "reorderWindowMs": 0
+  }
+}

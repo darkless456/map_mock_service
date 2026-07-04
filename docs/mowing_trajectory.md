@@ -7,7 +7,7 @@ The simulator generates its mowing `ROBOT_LOCATION` stream from the semantic cla
 ## Artifact Design
 
 - Source image: [full_semanticmap.png](../full_semanticmap.png).
-- Generator: [src/data/mowingTrajectory.ts](../src/data/mowingTrajectory.ts).
+- Generator: [src/trajectory/mowingTrajectory.ts](../src/trajectory/mowingTrajectory.ts).
 - Stream integration: [src/ws/wsServer.ts](../src/ws/wsServer.ts).
 - Test coverage: [__tests__/mowingTrajectory.test.ts](../__tests__/mowingTrajectory.test.ts) and [__tests__/e2e/happy_mapping.test.ts](../__tests__/e2e/happy_mapping.test.ts).
 

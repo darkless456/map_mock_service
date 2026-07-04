@@ -1,0 +1,12 @@
+// 编辑指南：
+//   回桩过程中按时间推送的 sub_status 序列。
+//   atMs 为进入回桩后的相对毫秒数；保存后无需重启，下次回桩任务生效。
+{
+  "idleDelayMs": 12000,
+  "steps": [
+    { "atMs": 0, "subStatus": "go_to_pre_dock_point" },
+    { "atMs": 3000, "subStatus": "seek_charger_dock" },
+    { "atMs": 6000, "subStatus": "enter_dock" },
+    { "atMs": 9000, "subStatus": "at_dock" }
+  ]
+}

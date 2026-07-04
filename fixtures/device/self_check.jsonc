@@ -1,0 +1,13 @@
+// 编辑指南：
+//   机器人自检返回 data。协议变动时可直接粘贴真实 data 覆盖。
+//   checked_at 会在运行时自动替换为当前时间。
+//   保存后无需重启，下次 self_check 即生效。
+{
+  "checked_at": 0,
+  "blade": "normal",
+  "wheel": "normal",
+  "sensor": "normal",
+  "motor": "normal",
+  "gps": "normal",
+  "overall": "ok"
+}

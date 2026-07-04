@@ -1,0 +1,11 @@
+{
+  "name": "mapping_estop",
+  "description": "Push a mapping emergency stop notification.",
+  "setup": {
+    "domain": "mapping"
+  },
+  "notify": {
+    "work_status": "emergency_stop",
+    "sub_status": "pressed"
+  }
+}

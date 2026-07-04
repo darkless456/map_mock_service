@@ -31,6 +31,7 @@ guide:
     - NOTIFY_RATEL_STATUS
     - MAP_INCREMENTAL（进入可推流 phase 后由 mapTimer 自动持续广播）
 domain: mapping
+dataset: mapping_happy
 setup:
   state: IDLE
   phase: null

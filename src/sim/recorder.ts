@@ -52,8 +52,9 @@ export class Recorder {
 
   start(label?: string): RecorderSnapshot {
     fs.mkdirSync(this.recordingRoot, { recursive: true });
-    const safeLabel = label ? `-${sanitizeFileStem(label)}` : '';
-    const filename = `${new Date().toISOString().replace(/[:.]/g, '-')}${safeLabel}.jsonl`;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const prefix = label ? `${sanitizeFileStem(label)}_` : '';
+    const filename = `${prefix}${timestamp}.jsonl`;
     this.activeFile = path.join(this.recordingRoot, filename);
     this.activeEntries = 0;
     this.startedAt = new Date().toISOString();

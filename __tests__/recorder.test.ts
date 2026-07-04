@@ -13,6 +13,7 @@ describe('Recorder', () => {
     const recorder = new Recorder(dir);
     recorder.attachRobot(robot);
     const started = recorder.start('unit');
+    assert.match(started.file ?? '', /^unit_\d{4}-\d{2}-\d{2}T.*\.jsonl$/);
 
     robot.applySetup({ domain: 'mapping', state: 'PREPARING', phase: null });
     robot.dispatchRatelNotify({ work_status: 'mapping', sub_status: 'leave_dock' });

@@ -37,6 +37,7 @@ guide:
     - NOTIFY_MOW_STATUS（FSM 变化时）
     - ROBOT_LOCATION（需 LOCATION_REGISTER；回桩中继续推送）
 domain: mowing
+dataset: recharge_return
 setup:
   state: IDLE
   phase: null

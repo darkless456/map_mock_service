@@ -28,6 +28,7 @@ guide:
   pushes:
     - NOTIFY_RATEL_STATUS（work_status=mapping / idle）
 domain: mapping
+dataset: mapping_happy
 setup:
   state: IDLE
   phase: null

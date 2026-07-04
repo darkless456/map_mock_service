@@ -1,4 +1,4 @@
-import type { MapPatch } from '../data/patches';
+import type { MapPatch } from '../assets/PatchLoader';
 import { encodeMapMessageSliced } from '../ws/protocol';
 
 export interface MapFrameOptions {
@@ -10,10 +10,24 @@ export class MapStream {
   private patchIndex = 0;
   private frameId = 0;
 
-  constructor(private readonly patches: readonly MapPatch[]) {}
+  constructor(
+    private patches: readonly MapPatch[],
+    private datasetName = 'custom',
+  ) {}
+
+  get dataset(): string {
+    return this.datasetName;
+  }
 
   get patchCount(): number {
     return this.patches.length;
+  }
+
+  switchDataset(name: string, patches: readonly MapPatch[]): void {
+    this.datasetName = name;
+    this.patches = patches;
+    this.patchIndex = 0;
+    this.frameId = 0;
   }
 
   nextFrame({ sn, cmd = 'MAP_INCREMENTAL' }: MapFrameOptions): string[] {

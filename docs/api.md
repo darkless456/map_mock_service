@@ -30,7 +30,7 @@ This document is the S0-S3 API contract for Mower Dev Simulator. Business API pa
 
 ### Notes
 
-- `map/list` 的 `items[].increments[]` 为标注 / 点位增量，单项形如 `{ element_id, type, shape, points, properties, source }`。`type` 是 0-255 语义码：禁区 `251`、圆禁区 `201`、虚拟墙 `254`、**充电桩 `69`** 等。充电桩为单点位，协议无原生 point 形状，按 `shape: 'polygon'` + 1 个点（`points: [{x, y}]`）下发，APP 端按 `type` 反向迁移为 point 渲染；可选 `properties.yawRad`（BackendWorld 顺时针）控制朝向。增量数据源在 `src/data/annotations.ts`。
+- `map/list` 的 `items[].increments[]` 为标注 / 点位增量，单项形如 `{ element_id, type, shape, points, properties, source }`。`type` 是 0-255 语义码：禁区 `251`、圆禁区 `201`、虚拟墙 `254`、**充电桩 `69`** 等。静态增量数据源为 `fixtures/maps/map_list.json`；`semantic/save` 写入的运行时覆盖保存在内存中，并在后续 `map/list` 中覆盖对应地图项。
 - `increments[].source` = `"robot"` / `"app"`，标识数据来源并决定 APP 端可编辑性：`robot`（机器人/后端上报，如充电桩）只读不可编辑、不参与 `semantic/save` 回传；`app`（用户绘制，如禁区/虚拟墙）可编辑可保存。**`semantic/save` 的回传 body 不含 `source`**（与 `APP端接口文档v2.md` 一致）。
 - `ratel_backend_api.md`（`pudu_ratel_app_mower/build-docs/`）中若示例使用 `/ratel/open-platform-service/api/v1/ratel_task/{action,list}`，模拟器不实现该路径。Mower App 实际调用 `/ratel/central-control-service/api/v1/...`，模拟器与之对齐。
 - Device detail and map list support `POST` because the mower app's HTTP bridge currently posts to these constants.
@@ -98,6 +98,12 @@ On WS connect the simulator sends `MAP_FIX` and an initial `NOTIFY_RATEL_STATUS`
 | `GET` | `/sim/recorder/list` | Recorder status and files. |
 | `POST` | `/sim/reset` | Reset robot and task state. |
 | `POST` | `/sim/chaos` | Set `{ latencyMs?, dropRate?, reorderWindowMs? }`. |
+| `GET` | `/sim/realism` | Current real-world latency config. |
+| `POST` | `/sim/realism` | Toggle/update `{ enabled?, httpDelayMinMs?, httpDelayMaxMs?, wsDelayMinMs?, wsDelayMaxMs? }`. |
+| `GET` | `/sim/dataset` | Current map-frame dataset `{ name, patchCount }`. |
+| `POST` | `/sim/dataset` | Switch map-frame dataset. Body/query: `{ name }`. |
+| `GET` | `/sim/faults` | List `fixtures/faults/*.json` presets. |
+| `POST` | `/sim/fault` | Apply a fault preset. Body/query: `{ name }`. |
 | `POST` | `/sim/ble/register` | S1 placeholder endpoint. |
 | `POST` | `/sim/ble/notify` | S1 placeholder endpoint. |
 | `GET` | `/sim/assets/full_semanticmap.png` | Semantic basemap image returned by map list (`map_url` / `semantic_map_url`). |

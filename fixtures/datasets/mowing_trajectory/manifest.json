@@ -1,0 +1,18 @@
+{
+  "name": "mowing_trajectory",
+  "scenario": "割草轨迹数据集",
+  "source": "原 data2",
+  "frameCount": 793,
+  "resolution": 0.05000000074505806,
+  "world": {
+    "origin_x": 29.049999237060547,
+    "origin_y": 21.200000762939453,
+    "cols": 40,
+    "rows": 40
+  },
+  "notes": "原 data2，时间戳帧重命名为序号帧。",
+  "compatibleScenarios": [
+    "mowing_trajectory_stream.yaml",
+    "mowing_happy_auto.yaml"
+  ]
+}

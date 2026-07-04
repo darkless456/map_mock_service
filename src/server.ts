@@ -1,32 +1,49 @@
 import http from 'node:http';
-import { loadAllPatches } from './data/patches';
+import { loadAllPatches } from './assets/PatchLoader';
 import { createHttpHandler } from './http/router';
 import { ChaosController } from './sim/chaos';
+import { applyFault } from './sim/faults';
 import { MapStream } from './sim/mapStream';
 import { Recorder } from './sim/recorder';
+import { readRealismConfig } from './sim/realismConfig';
 import { ScenarioEngine } from './sim/scenarioEngine';
 import { VirtualRobot } from './sim/virtualRobot';
 import { createWsServer } from './ws/wsServer';
-import { logger } from './shared/logger';
+import { logger } from './infra/logger';
 
 const PORT = Number.parseInt(process.env.PORT || '9900', 10);
-const MOCK_DATA_DIR = process.env.MOCK_DATA_DIR || 'data3';
+const MOCK_DATA_DIR = process.env.MOCK_DATA_DIR || 'mapping_happy';
 
-logger.info(`Loading map patches from ${MOCK_DATA_DIR}/ ...`);
+logger.info(`Loading map patches from dataset ${MOCK_DATA_DIR} ...`);
 const patches = loadAllPatches(MOCK_DATA_DIR);
 logger.info(`Loaded ${patches.length} map patches.`);
 
 if (patches.length === 0) {
-  logger.error(`No patches found in ${MOCK_DATA_DIR}/. Exiting.`);
+  logger.error(`No patches found in dataset ${MOCK_DATA_DIR}. Exiting.`);
   process.exit(1);
 }
 
 const robot = new VirtualRobot();
-const mapStream = new MapStream(patches);
-const chaos = new ChaosController();
+const mapStream = new MapStream(patches, MOCK_DATA_DIR);
+const chaos = new ChaosController(readRealismConfig());
 const recorder = new Recorder();
 recorder.attachRobot(robot);
-const scenarioEngine = new ScenarioEngine({ robot, chaos, recorder });
+
+function switchDataset(name: string) {
+  const nextPatches = loadAllPatches(name);
+  if (nextPatches.length === 0) return { ok: false as const, error: `dataset not found or empty: ${name}` };
+  mapStream.switchDataset(name, nextPatches);
+  logger.info(`Switched map dataset to ${name} (${nextPatches.length} patches)`);
+  return { ok: true as const, name, patchCount: nextPatches.length };
+}
+
+const scenarioEngine = new ScenarioEngine({
+  robot,
+  chaos,
+  recorder,
+  switchDataset,
+  applyFault: (name) => applyFault(name, { robot, chaos, switchDataset }),
+});
 
 const server = http.createServer(createHttpHandler({
   port: PORT,
@@ -74,7 +91,7 @@ process.on('SIGTERM', shutdown);
 
 server.listen(PORT, '0.0.0.0', () => {
   logger.info(`Mower Dev Simulator running on http://0.0.0.0:${PORT}`);
-  logger.info(`  Data dir:        ${MOCK_DATA_DIR}/`);
+  logger.info(`  Dataset:         ${MOCK_DATA_DIR}`);
   logger.info(`  Robot SN:        ${robot.sn}`);
   logger.info('  Auth endpoint:   POST /ratel/api/v1/wss/acc_ticket');
   logger.info(`  WebSocket:       ws://localhost:${PORT}/acc?ticket=<ticket>`);

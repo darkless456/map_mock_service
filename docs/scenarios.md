@@ -141,6 +141,31 @@ The `mapping_happy_manual.yaml` scenario now supports the full DVT remote mappin
 | `expect` | Assert mock FSM snapshot |
 | `wait` | Delay between WS pushes锛堝湪 `loop` 鍐呭彲琚€屽仠姝㈠満鏅€嶄腑鏂紝绾?50ms 绮掑害锛?|
 | `loop` | 閲嶅鍐呭眰 `steps`锛涚渷鐣?`maxIterations`锛堟垨 `<= 0`锛夊嵆鏃犻檺寰幆锛岀洿鍒板満鏅鍋滄 |
+| `chaos` | Update WS chaos config: `{ latencyMs, dropRate, reorderWindowMs }` |
+| `realism` | Toggle/update real-world latency: `{ enabled, httpDelayMinMs, httpDelayMaxMs, wsDelayMinMs, wsDelayMaxMs }` |
+| `fault` | Apply a named preset from `fixtures/faults/*.json`, e.g. `fault: mapping_estop` |
+| `record` / `stopRecord` | Start/stop JSONL recording. `record: true` uses the scenario name as file prefix. |
+
+Top-level scenario fields now also support:
+
+| Field | Purpose |
+|---|---|
+| `dataset` | Switch `MapStream` to `fixtures/datasets/<dataset>/frames` before steps run. |
+| `fixtures` | Temporarily override fixture reads while the scenario is running. |
+
+Example:
+
+```yaml
+name: self_check_fault_smoke
+domain: mapping
+dataset: mapping_happy
+fixtures:
+  device/self_check.jsonc: { overall: "error", blade: "warning" }
+steps:
+  - fault: network_delay
+  - realism: { enabled: true, httpDelayMinMs: 500, httpDelayMaxMs: 3000, wsDelayMinMs: 2000, wsDelayMaxMs: 8000 }
+  - emit: { type: CMD_START, mode: auto, taskMode: MAP_BUILD }
+```
 
 ### `loop` 鐢ㄦ硶
 
@@ -156,4 +181,3 @@ steps:
 鏃犻檺寰幆鍦烘櫙涓嬶紝寮曟搸浼氳嚜鍔ㄩ檺鍒惰繍琛屾棩蹇楁暟閲忥紙鏈€澶氫繚鐣欐渶杩?500 鏉★級锛屽苟鍦ㄥ仠姝㈡椂杩斿洖 `{ ok: true, stopped: true }`锛圥anel 鏄剧ず銆屽満鏅凡鍋滄銆嶏紝闈炲け璐ワ級銆?
 > **鍋滄鍗冲仠鎺ㄦ祦**锛歚POST /sim/scenario/stop`锛圥anel銆屽仠姝㈠満鏅€嶏級鍦ㄤ腑姝㈣繍琛屼腑鐨勮剼鏈惊鐜悗浼氫竴骞?`robot.reset()`銆傚惁鍒欐満鍣ㄤ汉浼氬仠鐣欏湪 `WORKING`/`ON_THE_WAY`锛宍mapTimer`/`locationTimer` 浠嶆寜鐘舵€佹寔缁箍鎾?`MAP_INCREMENTAL` / `ROBOT_LOCATION`銆傚浣嶅悗 `activeTask` 缃┖銆乣shouldStreamMap` 杞?false锛屾帹娴佺珛鍗冲仠姝€?
 See [backend-status-mapper-update.md](../../pudu_ratel_app_mower/build-docs/backend-status-mapper-update.md) and APP 绔帴鍙ｆ枃妗?搂WS鎺ユ敹鏈哄櫒鐘舵€佸彉鍖?
-

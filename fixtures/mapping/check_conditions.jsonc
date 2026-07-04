@@ -1,0 +1,13 @@
+// 编辑指南：
+//   建图条件检测完整态返回 data。
+//   battery 字段会根据机器人当前电量动态计算，其他字段按此文件返回。
+//   保存后无需重启，下次 mapping/check 即生效。
+{
+  "bluetooth_status": "ok",
+  "bluetooth_msg": "",
+  "cellular": "ok",
+  "wifi": "ok",
+  "battery": "ok",
+  "docking_station": "ok",
+  "light": "ok"
+}

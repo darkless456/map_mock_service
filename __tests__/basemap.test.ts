@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMapListResponse } from '../src/data/basemap';
+import { buildMapListResponse } from '../src/fixtures/mapList.fixture';
 
 describe('basemap fixture data', () => {
   it('builds map/list response from map_list.json with local asset URLs', () => {

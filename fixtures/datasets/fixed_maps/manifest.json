@@ -1,0 +1,15 @@
+{
+  "name": "fixed_maps",
+  "scenario": "固定地图小样本",
+  "source": "原 data4",
+  "frameCount": 8,
+  "resolution": 0.05,
+  "world": {
+    "origin_x": -12.800000190734863,
+    "origin_y": -12.800000190734863,
+    "cols": 512,
+    "rows": 512
+  },
+  "notes": "原 data4，保留 fixed 语义后缀。",
+  "compatibleScenarios": []
+}

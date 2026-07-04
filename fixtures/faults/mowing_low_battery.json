@@ -1,0 +1,12 @@
+{
+  "name": "mowing_low_battery",
+  "description": "Push a mowing low battery status frame.",
+  "setup": {
+    "domain": "mowing"
+  },
+  "notify": {
+    "work_status": "mowing",
+    "sub_status": "low_battery",
+    "battery_level": 12
+  }
+}

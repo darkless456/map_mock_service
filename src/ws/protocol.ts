@@ -1,6 +1,6 @@
 import zlib from 'node:zlib';
-import { createId } from '../shared/ids';
-import { crc32 } from '../shared/crc';
+import { createId } from '../infra/ids';
+import { crc32 } from '../infra/crc';
 
 const FORCE_SLICE_BYTES = (() => {
   const raw = process.env.MMR_SLICE_BYTES || process.env.MAP_MOCK_SLICE_BYTES;

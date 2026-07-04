@@ -1,0 +1,9 @@
+// Real-world latency profile. Hot-loaded when the simulator starts; runtime
+// changes can be made through POST /sim/realism.
+{
+  "enabled": false,
+  "httpDelayMinMs": 500,
+  "httpDelayMaxMs": 3000,
+  "wsDelayMinMs": 2000,
+  "wsDelayMaxMs": 8000
+}

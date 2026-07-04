@@ -1,0 +1,17 @@
+{
+  "name": "recharge_return",
+  "scenario": "回桩返回数据集",
+  "source": "原 data",
+  "frameCount": 1521,
+  "resolution": 0.05000000074505806,
+  "world": {
+    "origin_x": 24.100000381469727,
+    "origin_y": 24.149999618530273,
+    "cols": 40,
+    "rows": 40
+  },
+  "notes": "原 data，时间戳帧重命名为序号帧。",
+  "compatibleScenarios": [
+    "mowing_recharge.yaml"
+  ]
+}
