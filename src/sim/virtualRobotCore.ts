@@ -47,6 +47,7 @@ export type {
   AnyTaskEvent,
   MappingTaskRecord,
   MowingTaskRecord,
+  NonNullableRobotDomain,
   RechargeStatusPush,
   RechargeTaskRecord,
   RecordedEvent,
@@ -55,6 +56,10 @@ export type {
   VirtualRobotSetup,
   VirtualRobotSnapshot,
   VirtualRobotTranscript,
+} from './virtualRobotTypes';
+export {
+  parseRobotDomain,
+  requireRobotDomain,
 } from './virtualRobotTypes';
 
 function nowEvent<P extends string>(source: 'ws' | 'ble' = 'ws') {
@@ -398,11 +403,6 @@ export class VirtualRobot extends EventEmitter {
     if (!applied) return false;
     this.emit('ratelStatus', applied);
     return true;
-  }
-
-  /** @deprecated Use {@link pushRatelStatus} */
-  dispatchRatelNotify(payload: RatelNotifyPayload): void {
-    this.pushRatelStatus(payload);
   }
 
   progressMowing(delta = 2): void {

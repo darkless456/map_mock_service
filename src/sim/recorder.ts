@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { IncomingMessage } from 'node:http';
+import { parseRobotDomain } from './virtualRobot';
 import type { RobotDomain, VirtualRobot, VirtualRobotTranscript } from './virtualRobot';
 
 const SERVICE_ROOT = path.resolve(__dirname, '..', '..');
@@ -157,10 +158,10 @@ export class Recorder {
       previousTs = entry.ts;
 
       if (entry.dir === 'fsm' && entry.kind === 'transcript' && isRecord(entry.event)) {
-        robot.dispatchRaw(entry.event as never, readDomain(entry.domain));
+        robot.dispatchRaw(entry.event as never, parseRobotDomain(entry.domain, 'mapping'));
         replayed += 1;
       } else if (entry.dir === 'fsm' && isRecord(entry.event)) {
-        robot.dispatchRaw(entry.event as never, readDomain(entry.domain));
+        robot.dispatchRaw(entry.event as never, parseRobotDomain(entry.domain, 'mapping'));
         replayed += 1;
       } else {
         skipped += 1;
@@ -182,10 +183,6 @@ function sanitizeFileStem(value: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function readDomain(value: unknown): RobotDomain {
-  return value === 'mowing' || value === 'mapEdit' || value === 'mapping' ? value : 'mapping';
 }
 
 function delay(ms: number): Promise<void> {

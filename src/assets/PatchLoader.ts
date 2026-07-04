@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { XMLParser } from 'fast-xml-parser';
 import { FIXTURE_ROOT } from '../fixtures';
+import { logger } from '../infra/logger';
 
 const ALLOWED_DATASETS = new Set(['recharge_return', 'mowing_trajectory', 'mapping_happy', 'fixed_maps']);
 
@@ -29,9 +30,30 @@ export function resolveDatasetDir(name: string): string | null {
   return path.join(FIXTURE_ROOT, 'datasets', name, 'frames');
 }
 
-function numberValue(value: unknown, fallback = 0): number {
+function numberValue(value: unknown): number {
   const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+/**
+ * 关键几何元数据缺失或非数值即抛错（refactor-audit-critical §B2）。
+ * `timestamp_ms` 缺失允许回退 `Date.now()` 但需 warn，避免掩盖破损 fixture。
+ */
+function requiredNumber(value: unknown, field: string, xmlFile: string): number {
+  const parsed = numberValue(value);
+  if (Number.isNaN(parsed)) {
+    throw new Error(`${xmlFile}: required field "${field}" missing or non-numeric (raw=${JSON.stringify(value)})`);
+  }
+  return parsed;
+}
+
+function timestampOrNow(value: unknown, xmlFile: string): number {
+  const parsed = numberValue(value);
+  if (Number.isNaN(parsed)) {
+    logger.warn('frame missing timestamp_ms; using Date.now()', { xmlFile });
+    return Date.now();
+  }
+  return parsed;
 }
 
 export function loadAllPatches(dataset = 'mapping_happy'): MapPatch[] {
@@ -49,16 +71,18 @@ export function loadAllPatches(dataset = 'mapping_happy'): MapPatch[] {
     const xmlContent = fs.readFileSync(path.join(dataDir, xmlFile), 'utf8');
     const parsed = xmlParser.parse(xmlContent) as { opencv_storage?: Record<string, unknown> };
     const storage = parsed.opencv_storage;
-    if (!storage) continue;
+    if (!storage) {
+      throw new Error(`${xmlFile}: missing opencv_storage root; not a valid map frame XML`);
+    }
 
     partial.push({
       id: basename,
-      timestampMs: numberValue(storage.timestamp_ms, Date.now()),
-      resolution: numberValue(storage.resolution, 0.05),
-      originX: numberValue(storage.origin_x, 0),
-      originY: numberValue(storage.origin_y, 0),
-      mapCols: Math.trunc(numberValue(storage.map_cols, 0)),
-      mapRows: Math.trunc(numberValue(storage.map_rows, 0)),
+      timestampMs: timestampOrNow(storage.timestamp_ms, xmlFile),
+      resolution: requiredNumber(storage.resolution, 'resolution', xmlFile),
+      originX: requiredNumber(storage.origin_x, 'origin_x', xmlFile),
+      originY: requiredNumber(storage.origin_y, 'origin_y', xmlFile),
+      mapCols: Math.trunc(requiredNumber(storage.map_cols, 'map_cols', xmlFile)),
+      mapRows: Math.trunc(requiredNumber(storage.map_rows, 'map_rows', xmlFile)),
       imageData: fs.readFileSync(pngPath),
     });
   }

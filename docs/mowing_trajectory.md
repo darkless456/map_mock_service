@@ -2,11 +2,11 @@
 
 ## Overview
 
-The simulator generates its mowing `ROBOT_LOCATION` stream from the semantic class `0` grass area in [full_semanticmap.png](../full_semanticmap.png). This replaces the previous hard-coded rectangle so the POC mowing screen can render the robot icon, trajectory line, and mowed-area coverage over the actual black grass region in the static semantic map.
+The simulator generates its mowing `ROBOT_LOCATION` stream from the semantic class `0` grass area in [`fixtures/maps/assets/full_semanticmap.png`](../fixtures/maps/assets/full_semanticmap.png). This replaces the previous hard-coded rectangle so the POC mowing screen can render the robot icon, trajectory line, and mowed-area coverage over the actual black grass region in the static semantic map.
 
 ## Artifact Design
 
-- Source image: [full_semanticmap.png](../full_semanticmap.png).
+- Source image: [`fixtures/maps/assets/full_semanticmap.png`](../fixtures/maps/assets/full_semanticmap.png) (read exclusively via [`src/assets/BasemapAsset.ts`](../src/assets/BasemapAsset.ts)).
 - Generator: [src/trajectory/mowingTrajectory.ts](../src/trajectory/mowingTrajectory.ts).
 - Stream integration: [src/ws/wsServer.ts](../src/ws/wsServer.ts).
 - Test coverage: [__tests__/mowingTrajectory.test.ts](../__tests__/mowingTrajectory.test.ts) and [__tests__/e2e/happy_mapping.test.ts](../__tests__/e2e/happy_mapping.test.ts).
@@ -20,7 +20,7 @@ The generator reads the PNG at startup, treats pixels with RGB values `<= 1` as 
 | Pose step | `0.1 m` | Smooth 300ms robot-location movement. |
 | Edge margin | `0.1 m` | Keeps route points inside the grass pixels. |
 
-If the PNG is missing or unreadable, the generator falls back to the old deterministic sample route so the simulator still starts.
+The generator reads the PNG via `readSemanticMapPngBytes()` and **fails fast** if the asset is missing, the PNG is corrupt, or it contains no semantic-class-0 region: such errors surface at startup instead of silently degrading. An explicit `fixtures/mowing/trajectory_fallback.jsonc` route is available for tests by setting `MOWING_TRAJECTORY_SOURCE=fallback` — it is no longer a silent fallback path.
 
 ## Usage
 
@@ -44,7 +44,7 @@ Alternatively create a task via `POST /ratel/central-control-service/api/v1/rate
 ## Change Points
 
 - `ROBOT_LOCATION` no longer follows a fixed rectangular field.
-- The initial pose and subsequent route points are derived from [full_semanticmap.png](../full_semanticmap.png), so changing the semantic map changes the simulated trajectory without changing WS code.
+- The initial pose and subsequent route points are derived from [`fixtures/maps/assets/full_semanticmap.png`](../fixtures/maps/assets/full_semanticmap.png), so changing the semantic map asset changes the simulated trajectory without changing WS code.
 - The route reverses at the end instead of jumping back to the first point, avoiding a long artificial trajectory segment during long visual checks.
 
 ## Key Considerations

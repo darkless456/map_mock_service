@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { fixtureLoader, FIXTURE_ROOT } from '../fixtures';
+import { logger } from '../infra/logger';
 
 /**
  * 地图元数据（resolution / origin）。
@@ -23,7 +24,12 @@ interface MapMetadataFixture {
 
 export function getMapMetadata(mapId: string): MapMetadata {
   const fixture = readMapMetadataFixture();
-  return fixture.maps[mapId] ?? fixture.default;
+  const explicit = fixture.maps[mapId];
+  if (explicit) return explicit;
+  // 未知 mapId 不再静默回退 default（refactor-audit-critical §B3）：
+  // map_list.json 新增地图却漏在 metadata.jsonc 登记时需有可见信号。
+  logger.warn('map metadata not registered for map_id; using default', { mapId });
+  return fixture.default;
 }
 
 function readMapMetadataFixture(): MapMetadataFixture {

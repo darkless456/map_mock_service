@@ -5,7 +5,9 @@
 | Path | Type | Notes |
 |---|---|---|
 | `fixtures/maps/map_list.json` | Real backend-style JSON | Static `map/list` response source. Keep as plain JSON for copy/paste replacement. |
-| `fixtures/maps/metadata.jsonc` | Editable JSONC | Map `resolution` and origin fallback/overrides. |
+| `fixtures/maps/assets/full_semanticmap.png` | Binary PNG asset | Semantic basemap served at `GET /sim/assets/full_semanticmap.png`; also the mowing trajectory source. Path resolved exclusively by [`src/assets/BasemapAsset.ts`](../src/assets/BasemapAsset.ts). |
+| `fixtures/maps/assets/full_rgbmap.png` | Binary PNG asset | Real-scene (RGB) basemap served at `GET /sim/assets/full_rgbmap.png`. |
+| `fixtures/maps/metadata.jsonc` | Editable JSONC | Map `resolution` and origin overrides. Unknown `map_id` logs a warning and falls back to `default` — register new maps here when adding them to `map_list.json`. |
 | `fixtures/device/self_check.jsonc` | Editable JSONC | Self-check response body. `checked_at` is replaced at request time. |
 | `fixtures/mapping/check_conditions.jsonc` | Editable JSONC | Mapping check full condition state; battery is computed from robot state. |
 | `fixtures/mowing/trajectory_fallback.jsonc` | Editable JSONC | Fallback route point array. |

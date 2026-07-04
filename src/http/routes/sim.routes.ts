@@ -3,15 +3,11 @@ import { methodIs, readJsonBody, sendError, sendJson, sendOk } from '../shared/h
 import { loadAllPatches } from '../../assets/PatchLoader';
 import { applyFault, listFaults } from '../../sim/faults';
 import { renderPanelHtml } from '../../sim/panel';
-import type { RobotDomain } from '../../sim/virtualRobot';
+import { parseRobotDomain, type RobotDomain } from '../../sim/virtualRobot';
 import type { AppRouteContext } from '../router';
 
 function simDisabled(): boolean {
   return process.env.SIM_PANEL === '0';
-}
-
-function readDomain(value: unknown, fallback: RobotDomain): RobotDomain {
-  return value === 'mapping' || value === 'mowing' || value === 'mapEdit' ? value : fallback;
 }
 
 function normalizeEvent(body: Record<string, unknown>): Record<string, unknown> | null {
@@ -125,7 +121,7 @@ export const handleSimRoutes: RouteHandler<AppRouteContext> = async (req, res, u
       sendError(res, 400, 'type is required');
       return true;
     }
-    const domain = readDomain(body.domain, ctx.robot.activeDomain ?? 'mapping');
+    const domain = parseRobotDomain(body.domain, ctx.robot.activeDomain ?? 'mapping');
     ctx.robot.dispatchRaw(event as never, domain);
     sendOk(res, ctx.robot.snapshot());
     return true;

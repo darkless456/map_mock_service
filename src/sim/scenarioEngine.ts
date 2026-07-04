@@ -5,6 +5,7 @@ import { fixtureLoader } from '../fixtures';
 import type { ChaosController, ChaosConfig, RealismConfig } from './chaos';
 import type { FaultApplyResult } from './faults';
 import type { Recorder } from './recorder';
+import { parseRobotDomain, requireRobotDomain, type NonNullableRobotDomain } from './virtualRobot';
 import type { RobotDomain, VirtualRobot, VirtualRobotSetup } from './virtualRobot';
 import type { SimView } from './simFsmTypes';
 import {
@@ -51,7 +52,7 @@ const MAX_SCENARIO_LOGS = 500;
 export interface ScenarioDefinition {
   readonly name: string;
   readonly description?: string;
-  readonly domain?: RobotDomain;
+  readonly domain: NonNullableRobotDomain;
   readonly dataset?: string;
   readonly fixtures?: Readonly<Record<string, unknown>>;
   readonly setup?: VirtualRobotSetup;
@@ -254,7 +255,7 @@ export class ScenarioEngine {
     logs: ScenarioRunLog[],
     includeStack: Set<string>,
   ): Promise<void> {
-    const domain = readDomain(scenario.domain, 'mapping');
+    const domain = scenario.domain;
     if (scenario.dataset) {
       if (this.switchDataset) {
         const result = this.switchDataset(scenario.dataset);
@@ -270,7 +271,7 @@ export class ScenarioEngine {
       }
     }
     if (scenario.setup) {
-      this.robot.applySetup({ ...scenario.setup, domain: readDomain(scenario.setup.domain, domain) });
+      this.robot.applySetup({ ...scenario.setup, domain: parseRobotDomain(scenario.setup.domain, domain) });
       logs.push({ index: logs.length, kind: 'setup', ok: true, detail: scenario.setup });
     }
 
@@ -297,7 +298,7 @@ export class ScenarioEngine {
     if ('emit' in step) {
       const event = normalizeEvent(step.emit);
       if (!event) throw new Error(`step ${index}: emit.type is required`);
-      const eventDomain = readDomain(step.emit.domain, domain);
+      const eventDomain = parseRobotDomain(step.emit.domain, domain);
       this.robot.dispatchRaw(event as never, eventDomain);
       logs.push({ index, kind: 'emit', ok: true, detail: { domain: eventDomain, event } });
       return;
@@ -472,7 +473,7 @@ function normalizeScenario(value: unknown, fallbackName: string): ScenarioDefini
   return {
     name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : fallbackName,
     description: typeof raw.description === 'string' ? raw.description : undefined,
-    domain: readDomain(raw.domain, 'mapping'),
+    domain: requireRobotDomain(raw.domain, `scenario "${raw.name ?? fallbackName}"`),
     dataset: typeof raw.dataset === 'string' && raw.dataset.trim() ? raw.dataset.trim() : undefined,
     fixtures: typeof raw.fixtures === 'object' && raw.fixtures !== null && !Array.isArray(raw.fixtures)
       ? raw.fixtures as Readonly<Record<string, unknown>>
@@ -510,10 +511,6 @@ function normalizeEvent(body: Record<string, unknown>): Record<string, unknown> 
     };
   }
   return event;
-}
-
-function readDomain(value: unknown, fallback: RobotDomain): RobotDomain {
-  return value === 'mapping' || value === 'mowing' || value === 'mapEdit' ? value : fallback;
 }
 
 function parseDuration(value: string | number): number {

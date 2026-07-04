@@ -18,6 +18,40 @@ import type { SimOnlyEvent, SimTaskNotice } from './simFsmTypes';
 
 export type RobotDomain = 'mapping' | 'mowing' | 'mapEdit' | null;
 
+/** A `RobotDomain` value whose validity has been confirmed (i.e. not `null`). */
+export type NonNullableRobotDomain = 'mapping' | 'mowing' | 'mapEdit';
+
+const ROBOT_DOMAIN_VALUES: ReadonlySet<string> = new Set(['mapping', 'mowing', 'mapEdit']);
+
+function isNonNullableRobotDomain(value: unknown): value is NonNullableRobotDomain {
+  return typeof value === 'string' && ROBOT_DOMAIN_VALUES.has(value);
+}
+
+/**
+ * Coerce an untrusted `value` to a `NonNullableRobotDomain`, returning `fallback`
+ * when the value is absent or illegal. Used at HTTP and recording boundaries,
+ * where an absent domain is a legitimate "use whatever the robot is already in"
+ * signal rather than a config defect.
+ */
+export function parseRobotDomain(value: unknown, fallback: NonNullableRobotDomain): NonNullableRobotDomain {
+  return isNonNullableRobotDomain(value) ? value : fallback;
+}
+
+/**
+ * Coerce a declaratively-sourced `value` (e.g. a scenario YAML field) to a
+ * `NonNullableRobotDomain`, throwing when the value is absent or illegal so a
+ * broken scenario surfaces immediately instead of silently rerouting to
+ * `mapping`. Pass a human-readable `source` to identify the offending config.
+ */
+export function requireRobotDomain(value: unknown, source: string): NonNullableRobotDomain {
+  if (!isNonNullableRobotDomain(value)) {
+    throw new Error(
+      `${source}: domain must be one of ${[...ROBOT_DOMAIN_VALUES].join('/')} (got ${JSON.stringify(value)})`,
+    );
+  }
+  return value;
+}
+
 export type AnyTaskEvent =
   | TaskEvent<MappingPhase>
   | TaskEvent<MowingPhase>

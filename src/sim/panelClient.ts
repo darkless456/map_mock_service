@@ -1,34 +1,26 @@
+import { PANEL_GRAPH_JSON } from './panelGraph';
+import { PANEL_TIMELINE_SCRIPT } from './panelTimeline';
+
+/**
+ * Panel client script — §6.7 split. The FSM phase graph is compiled server-side
+ * from the read-only fsm-mirror enums (panelGraph.ts); the timeline rendering
+ * lives in panelTimeline.ts. This module owns data fetching, scenario control,
+ * metric cards, and the lane renderer that draws edges between adjacent nodes
+ * and animates the incoming edge to the active phase.
+ */
 export const PANEL_CLIENT_SCRIPT = `
+const PHASE_GRAPH = ${PANEL_GRAPH_JSON};
+${PANEL_TIMELINE_SCRIPT}
 let guideOpen = false;
 let catalog = [];
 let currentState = {};
-let scenarioRunning = false;
-let events = [];
-
-const mappingNodes = [
-  ['IDLE', 'IDLE'],
-  ['PREPARING', 'PREPARING'],
-  ['UNDOCKING', 'UNDOCKING'],
-  ['MAP_SCAN_BOUNDARY', 'SCAN'],
-  ['MAP_FOLLOW_BOUNDARY', 'EDGE'],
-  ['MAP_COVERAGE_RUN', 'COVERAGE'],
-  ['COMPLETED', 'DONE']
-];
-const mowingNodes = [
-  ['IDLE', 'IDLE'],
-  ['PREPARING', 'PREPARING'],
-  ['UNDOCKING', 'UNDOCKING'],
-  ['MOW_RUNNING', 'MOWING'],
-  ['RETURNING_DOCK', 'RETURN'],
-  ['COMPLETED', 'DONE']
-];
 
 function escapeHtml(value) {
   return String(value == null ? '' : value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/&/g, '&')
+    .replace(/</g, '<')
+    .replace(/>/g, '>')
+    .replace(/"/g, '"');
 }
 
 async function json(url, opts) {
@@ -104,25 +96,49 @@ function renderMetrics(data) {
   ].join('');
 }
 
-function nodeClass(data, nodeKey, domain) {
+/**
+ * Resolve the class for a lane node:
+ * - 'active' — matches the current state/phase
+ * - 'error'  — matches ERRORED/ESTOPPED
+ * - 'done'   — an earlier phase in the ordered sequence (already traversed)
+ */
+function nodeClass(data, nodeKey, domain, nodeIndex, activeIndex) {
   const ctx = domain === 'mowing' ? data.mowing : data.mapping;
   if (!ctx) return '';
   if (ctx.state === 'ERRORED' || ctx.state === 'ESTOPPED') return nodeKey === ctx.state ? 'active error' : '';
   if (ctx.phase === nodeKey || ctx.state === nodeKey) return 'active';
+  if (activeIndex >= 0 && nodeIndex < activeIndex) return 'done';
   return '';
 }
 
-function renderLane(title, nodes, data, domain) {
-  return '<div class="lane"><div class="lane-title">' + title + '</div><div class="nodes">' +
-    nodes.map(item => '<div class="node ' + nodeClass(data, item[0], domain) + '">' + escapeHtml(item[1]) + '</div>').join('') +
-    '</div></div>';
+/** Index of the active node within a lane (-1 when none matches). */
+function activeNodeIndex(data, lane) {
+  const ctx = lane.domain === 'mowing' ? data.mowing : data.mapping;
+  if (!ctx) return -1;
+  if (ctx.state === 'ERRORED' || ctx.state === 'ESTOPPED') {
+    return lane.nodes.findIndex(n => n.key === ctx.state);
+  }
+  return lane.nodes.findIndex(n => n.key === ctx.phase || n.key === ctx.state);
+}
+
+/** Render one lane: nodes joined by arrow connectors; incoming edge animates. */
+function renderLane(lane, data) {
+  const activeIdx = activeNodeIndex(data, lane);
+  const parts = lane.nodes.map((node, i) => {
+    const cls = nodeClass(data, node.key, lane.domain, i, activeIdx);
+    // The edge leading INTO this node animates when this node is the active target
+    // and the previous node is not also active (i.e. a genuine transition target).
+    const edgeCls = (i > 0 && i === activeIdx) ? 'edge active-edge' : 'edge';
+    const arrow = i > 0 ? '<div class="' + edgeCls + '" aria-hidden="true">→</div>' : '';
+    return arrow + '<div class="node ' + cls + '">' + escapeHtml(node.label) + '</div>';
+  });
+  return '<div class="lane"><div class="lane-title">' + escapeHtml(lane.title) + '</div><div class="nodes">' +
+    parts.join('') + '</div></div>';
 }
 
 function renderGraph(data) {
-  document.getElementById('fsm-graph').innerHTML = [
-    renderLane('Mapping', mappingNodes, data, 'mapping'),
-    renderLane('Mowing', mowingNodes, data, 'mowing')
-  ].join('');
+  document.getElementById('fsm-graph').innerHTML =
+    PHASE_GRAPH.lanes.map(lane => renderLane(lane, data)).join('');
 }
 
 function renderRawState(data) {
@@ -150,7 +166,7 @@ async function refresh() {
   const payload = await json('/sim/state');
   const data = payload.data;
   currentState = data;
-  scenarioRunning = !!(data.scenario && data.scenario.running);
+  const scenarioRunning = !!(data.scenario && data.scenario.running);
   const scenarioPaused = !!(data.scenario && data.scenario.paused);
   document.getElementById('btn-run').disabled = scenarioRunning;
   document.getElementById('btn-stop').disabled = !scenarioRunning;
@@ -195,7 +211,6 @@ function toggleGuide() {
 
 async function runScenario() {
   const name = selectedScenario();
-  scenarioRunning = true;
   document.getElementById('btn-run').disabled = true;
   document.getElementById('btn-stop').disabled = false;
   setStatus('场景运行中：' + name, 'run');
@@ -220,7 +235,7 @@ async function stopScenario() {
 
 async function pauseActive() {
   const domain = activeDomain();
-  if (scenarioRunning) await postJson('/sim/scenario/pause', {});
+  await postJson('/sim/scenario/pause', {});
   await postJson('/sim/event', { domain, type: 'CMD_PAUSE' });
   setStatus('已暂停：' + domain, 'ok');
   await refresh();
@@ -228,7 +243,7 @@ async function pauseActive() {
 
 async function resumeActive() {
   const domain = activeDomain();
-  if (scenarioRunning) await postJson('/sim/scenario/resume', {});
+  await postJson('/sim/scenario/resume', {});
   await postJson('/sim/event', { domain, type: 'CMD_RESUME' });
   if (domain === 'mowing') {
     await postJson('/sim/event', { domain, type: 'DEVICE_WORK_STATUS', status: 'mowing', source: 'ws' });
@@ -285,46 +300,6 @@ async function stopRecording() {
   await postJson('/sim/recorder/stop', {});
   setStatus('已停止录制', 'ok');
   await refresh();
-}
-
-function classifyEvent(payload) {
-  const cmd = payload.cmd || payload.kind || '';
-  if (cmd === 'NOTIFY_RATEL_STATUS' || String(cmd).indexOf('NOTIFY') >= 0) return 'notify';
-  if (cmd === 'transcript' || payload.kind === 'transcript') return 'fsm';
-  if (payload.error) return 'error';
-  return 'cmd';
-}
-
-function eventTitle(payload) {
-  if (payload.cmd) return payload.cmd;
-  if (payload.kind) return payload.kind;
-  if (payload.event && payload.event.type) return payload.event.type;
-  return 'event';
-}
-
-function eventMeta(payload) {
-  const data = payload.data || payload.after || payload;
-  const parts = [];
-  if (data.work_status) parts.push('work=' + data.work_status);
-  if (data.sub_status) parts.push('sub=' + data.sub_status);
-  if (data.task_status) parts.push('task=' + data.task_status);
-  if (data.state) parts.push('state=' + data.state);
-  if (data.phase) parts.push('phase=' + data.phase);
-  return parts.join(' / ');
-}
-
-function pushEvent(payload) {
-  events.unshift({ ts: new Date(), payload });
-  events = events.slice(0, 80);
-  const list = document.getElementById('timeline');
-  list.innerHTML = events.map(item => {
-    const klass = classifyEvent(item.payload);
-    return '<article class="event-card ' + klass + '">' +
-      '<div class="event-head"><div class="event-title">' + escapeHtml(eventTitle(item.payload)) + '</div><div class="event-time">' + item.ts.toLocaleTimeString() + '</div></div>' +
-      '<div class="event-meta">' + escapeHtml(eventMeta(item.payload) || klass) + '</div>' +
-      '<details><summary>payload</summary><pre>' + escapeHtml(JSON.stringify(item.payload, null, 2)) + '</pre></details>' +
-      '</article>';
-  }).join('');
 }
 
 loadScenarios().then(loadFaults).then(refresh);

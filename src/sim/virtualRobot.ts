@@ -3,6 +3,7 @@ export type {
   AnyTaskEvent,
   MappingTaskRecord,
   MowingTaskRecord,
+  NonNullableRobotDomain,
   RechargeStatusPush,
   RechargeTaskRecord,
   RecordedEvent,
@@ -11,4 +12,8 @@ export type {
   VirtualRobotSetup,
   VirtualRobotSnapshot,
   VirtualRobotTranscript,
+} from './virtualRobotCore';
+export {
+  parseRobotDomain,
+  requireRobotDomain,
 } from './virtualRobotCore';

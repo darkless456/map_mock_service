@@ -1,14 +1,15 @@
 # map_mock_service 重构实施审计报告
 
-> 审计对象：P1 ~ P5 阶段落地情况
+> 审计对象：P1 ~ P5 阶段落地情况 + 关键审计整改（P0/P1）
 > 对应方案：[`refactor-plan.md`](refactor-plan.md)
+> 关键审计：[`refactor-audit-critical.md`](refactor-audit-critical.md)
 > 运行验证：`npm test` 64 pass / 0 fail，`npm run check-fixtures` fixtures ok
 
 ---
 
 ## 执行摘要
 
-**结论：P1 ~ P5 全部阶段已成功落地，达到重构目标。**
+**结论：P1 ~ P5 全部阶段已成功落地，达到重构目标；关键审计 P0/P1 已清零（见 §10）。**
 
 | 指标 | 结果 |
 |------|------|
@@ -76,8 +77,8 @@
 | [`virtualRobot.ts`](../src/sim/virtualRobot.ts) | 963 行 | **15 行**（纯 re-export） | ✅ |
 | [`virtualRobotCore.ts`](../src/sim/virtualRobotCore.ts) | — | 538 行，仅持有 EventEmitter + 状态快照，协调子模块 | ✅ |
 | [`DeviceProfile.ts`](../src/sim/DeviceProfile.ts) | — | 独立，`buildDeviceInfo` 抽出 | ✅ |
-| [`task/MappingTaskService.ts`](../src/sim/task/MappingTaskService.ts) | — | 89 行，吸收 `mappingTaskBridge.ts` | ✅ |
-| [`task/MowingTaskService.ts`](../src/sim/task/MowingTaskService.ts) | — | 97 行，吸收 `taskBridge.ts` | ✅ |
+| [`task/MappingTaskService.ts`](../src/sim/task/MappingTaskService.ts) | — | 89 行，`MappingTaskBridge.ts` 保留为 HTTP 适配层（调用 `robot.*`） | ✅ |
+| [`task/MowingTaskService.ts`](../src/sim/task/MowingTaskService.ts) | — | 97 行，`MowingTaskBridge.ts` 保留为 HTTP 适配层（调用 `robot.*`） | ✅ |
 | [`task/RechargeTaskService.ts`](../src/sim/task/RechargeTaskService.ts) | — | 101 行，回充任务 + rechargeSequence | ✅ |
 | [`push/rechargeSequence.ts`](../src/sim/push/rechargeSequence.ts) | — | 30 行，时序 fixture 加载 | ✅ |
 
@@ -109,7 +110,7 @@
 |---|--------|------|
 | 1 | 所有 API 返回数据可通过编辑 `fixtures/**/*.jsonc` 修改，无需重启 | ✅ |
 | 2 | `src/data/` 目录消失（含 `chargingDock.ts`），职责拆入 `fixtures/`/`assets/`/`trajectory/` | ✅ |
-| 3 | `src/sim/` 下无遗留文件未分类（`pushChannels.ts`/`taskBridge.ts`/`mappingTaskBridge.ts`/`scenarioGuide.ts`/`simFsmTypes.ts` 均有归属） | ✅ |
+| 3 | `src/sim/` 下无遗留文件未分类（`pushChannels.ts`/`scenarioGuide.ts`/`simFsmTypes.ts` 均有归属；原 `taskBridge.ts`/`mappingTaskBridge.ts` 为零引用 re-export 垫片，已于关键审计整改中删除） | ✅ |
 | 4 | `data/data2/data3/data4` 消失，替换为 `fixtures/datasets/<语义名>/` + manifest | ✅ |
 | 5 | `virtualRobot.ts` < 300 行，回充/任务/设备逻辑各自独立文件 | ✅（15 行） |
 | 6 | `npm run check-fixtures` 通过 | ✅ |
@@ -136,11 +137,28 @@
 
 ## 8. 遗留问题与建议
 
-### 8.1 P5b 控制台 UI 重构 —— 未实施
+### 8.1 P5b 控制台 UI 重构 —— 已实施
 
-[`refactor-plan.md §6.7`](refactor-plan.md) 提议的 FSM 泳道图、事件流卡片、三栏布局**未在本轮落地**。当前 [`panel.ts`](../src/sim/panel.ts) 已拆分为 [`panelHtml.ts`](../src/sim/panelHtml.ts) / [`panelStyles.ts`](../src/sim/panelStyles.ts) / [`panelClient.ts`](../src/sim/panelClient.ts)，但 UI 仍为 JSON dump + 文本 timeline。
+[`refactor-plan.md §6.7`](refactor-plan.md) 提议的 FSM 泳道图、事件流卡片、三栏布局**已落地**（原自报审计误称「未实施」）。实现拆分为：
 
-**建议**：独立排期 P5b，优先级可后置，不阻塞业务功能。
+| 文件 | 职责 |
+|------|------|
+| [`panelHtml.ts`](../src/sim/panelHtml.ts) | 三栏 HTML 壳（操作｜FSM 图+指标卡｜事件流） |
+| [`panelStyles.ts`](../src/sim/panelStyles.ts) | CSS：指标卡语义色、泳道节点、边箭头 + 动画、事件卡颜色 |
+| [`panelGraph.ts`](../src/sim/panelGraph.ts) | **`phaseGraphFromFsm()`** —— 从只读 fsm-mirror 的 `MAPPING_PHASES` / `RETURN_DOCK_PHASES` 编译泳道图数据，UI 只渲染 |
+| [`panelTimeline.ts`](../src/sim/panelTimeline.ts) | 事件流卡片渲染：分类着色 + 业务字段摘要 + 点击展开 payload |
+| [`panelClient.ts`](../src/sim/panelClient.ts) | 数据拉取/轮询、场景控制、指标卡、泳道渲染（边箭头 + 已完成态 + 入边动画） |
+
+功能清单：
+
+- ✅ **(1) 状态机泳道图**：mapping/mowing 两条泳道，节点来自 fsm-mirror 枚举，相邻节点间渲染 `→` 边，活跃节点的入边脉冲动画，早于活跃节点的节点标记为 `.done`（绿）。
+- ✅ **(2) 事件流卡片**：倒序卡片，按 `CMD_*`（蓝）/`NOTIFY_*`（绿）/`transcript`（紫）/`error`（红）着色，点击 `<details>` 展开完整 payload。
+- ✅ **(3) 关键指标常驻顶栏**：`work_status`/`phase`/`sub_status`/`battery`/`dataset`/`realism`，语义色（idle 灰/mapping 紫/mowing 绿/estop 红），1.5s 轮询。
+- ✅ **(5) WS 推送实时预览**：`eventMeta()` 解析出 `work_status`/`sub_status`/`task_status`/`state`/`phase` 业务字段，只展示这些 + 折叠原文。
+- ✅ **(6) 三栏布局**：操作｜FSM 图+指标卡｜事件流时间线；窄屏降级两栏/单栏。
+- ✅ **(7) panel 拆分**：`panelHtml` + `panelStyles` + `panelGraph` + `panelTimeline` + `panelClient` 五模块，不再有内联 HTML/JS 单文件。
+
+测试覆盖：[`panel.test.ts`](../__tests__/panel.test.ts) 6 项断言（壳结构 + 图注入 + 泳道编译 + 节点顺序 + JSON 序列化）。
 
 ### 8.2 §4.5 真实响应一键捕获 —— 未实施
 
@@ -183,14 +201,45 @@
 
 ---
 
-## 10. 结论
+## 10. 关键审计整改（P0 / P1）
 
-**P1~P5 全部阶段成功落地，五大重构目标（G1~G5）全部达成。**
+独立审计（详见 [`refactor-audit-critical.md`](refactor-audit-critical.md)）发现自报审计存在若干不准确项与遗留的兼容性/兜底逻辑。本轮已清完 P0（阻断项）与 P1（兜底移除）。
+
+### 10.1 P0 阻断项
+
+| # | 问题 | 整改 | 状态 |
+|---|------|------|------|
+| P0-A1 | `src/sim/taskBridge.ts`、`src/sim/mappingTaskBridge.ts` 为零引用 re-export 垫片（自报审计误称已「吸收」） | 删除两个垫片文件 | ✅ |
+| P0-A2 | `full_semanticmap.png` / `full_rgbmap.png` 仍在仓库根目录，路径在 `BasemapAsset.ts` 与 `mowingTrajectory.ts` 各硬编码一份（DRP 违反） | 迁至 [`fixtures/maps/assets/`](../fixtures/maps/assets/)；[`BasemapAsset.ts`](../src/assets/BasemapAsset.ts) 升级为唯一路径解析点，新增 `readSemanticMapPngBytes()` 在缺失时抛错 | ✅ |
+| P0-A3 | `virtualRobotCore.ts` 仍保留 `@deprecated dispatchRatelNotify()`，3 个测试文件引用 | 删除废弃方法；[`virtualRobot.test.ts`](../__tests__/virtualRobot.test.ts) / [`recorder.test.ts`](../__tests__/recorder.test.ts) 改用 `pushRatelStatus` | ✅ |
+| P0-C4 | `mowingTrajectory.ts` 重复声明 `FULL_SEMANTIC_MAP_PATH` 并静默 `try/catch {}` 兜底 | 改调 `readSemanticMapPngBytes()`；移除静默兜底（见 P1-B1） | ✅ |
+
+### 10.2 P1 兜底逻辑移除（fail-fast，让配置错误尽早暴露）
+
+| # | 位置 | 原行为 | 整改后 |
+|---|------|--------|--------|
+| P1-B1 | [`mowingTrajectory.ts`](../src/trajectory/mowingTrajectory.ts) | PNG 解析失败静默 `catch {}` 回退到 fallback JSONC | 默认 `semantic-zero` 解析失败即抛错；仅 `MOWING_TRAJECTORY_SOURCE=fallback` 显式 opt-in 时加载 fallback 并 `logger.warn` |
+| P1-B2 | [`PatchLoader.ts`](../src/assets/PatchLoader.ts) | `numberValue` 对缺失/非数值字段静默填默认值；缺 `opencv_storage` 时 `continue` 跳过 | `resolution/origin_x/origin_y/map_cols/map_rows` 改用 `requiredNumber()` 缺失即抛；`timestamp_ms` 用 `timestampOrNow()` 缺失告警 + `Date.now()`；缺 `opencv_storage` 抛错 |
+| P1-B3 | [`mapMetadata.fixture.ts`](../src/fixtures/mapMetadata.fixture.ts) | 未知 `map_id` 静默回退 default | 未知 `map_id` 时 `logger.warn` 告警后再回退 default（保留可恢复性，但不再静默） |
+| P1-B4 | `sim.routes.ts` / `scenarioEngine.ts` / `recorder.ts` | `readDomain()` 三份重复实现，非法值静默回退 | 抽取至 [`virtualRobotTypes.ts`](../src/sim/virtualRobotTypes.ts) 的 `parseRobotDomain(value, fallback)`（HTTP/录制边界，保留 fallback 语义）与 `requireRobotDomain(value, source)`（声明式场景配置，非法值即抛）；`ScenarioDefinition.domain` 类型收紧为 `NonNullableRobotDomain` |
+
+### 10.3 文档同步
+
+- [`mowing_trajectory.md`](mowing_trajectory.md)：PNG 链接更新为 `../fixtures/maps/assets/full_semanticmap.png`；补充 `MOWING_TRAJECTORY_SOURCE=fallback` 显式 opt-in 说明。
+- [`data-dictionary.md`](data-dictionary.md)：登记 `full_semanticmap.png` / `full_rgbmap.png` 二进制资产。
+- 本节（§10）新增，纠正自报审计的不准确表述。
+
+---
+
+## 11. 结论
+
+**P1~P5 全部阶段成功落地，五大重构目标（G1~G5）全部达成；关键审计 P0/P1 已清零，兼容性与兜底逻辑已移除。**
 
 核心价值交付：
 1. 测试数据改完即生效，开发期无需重启 `tsx`；
 2. 代码单一职责重组，维护边界清晰；
 3. 场景驱动 + 故障注入，复现客户问题路径打通；
-4. 文档单一入口索引化，新人快速定位。
+4. 文档单一入口索引化，新人快速定位；
+5. fail-fast 原则贯彻：配置/数据错误即时抛出，不再被静默兜底掩盖。
 
-遗留低优先级项（P5b UI 重构、§4.5 一键捕获、帧文件语义命名）不影响核心功能，可按需排期。
+遗留低优先级项（§4.5 一键捕获、帧文件语义命名、`hostBaseUrl` Host 头兜底）不影响核心功能，可按需排期；P5b 控制台 UI 重构已落地（见 §8.1）。

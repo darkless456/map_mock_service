@@ -13,8 +13,13 @@
 ## Reading State
 
 - `work status`, `phase`, `sub status`, `battery`, and `dataset` are pulled from `/sim/state` every 1.5 seconds.
-- The FSM lanes highlight the current mapping and mowing state/phase.
-- Event cards are color-coded by broad type: command/control, notify, FSM transcript, or error.
+- The FSM lanes are compiled server-side from the read-only fsm-mirror phase enums ([`panelGraph.ts`](../src/sim/panelGraph.ts) `phaseGraphFromFsm()`), so the swim-lane stays in sync with the FSM source of truth — adding a phase to `MAPPING_PHASES` / `MowingPhase` surfaces in the panel without a separate client edit.
+- Each lane is an ordered sequence of phase nodes joined by `→` connectors:
+  - **Active node** (blue) — matches the current `state`/`phase`.
+  - **Done nodes** (green) — phases earlier in the sequence than the active node, showing progress.
+  - **Error node** (red) — matches `ERRORED`/`ESTOPPED`.
+  - The **incoming edge** to the active node pulses to indicate a transition just landed.
+- Event cards are color-coded by broad type: command/control (blue), notify (green), FSM transcript (violet), or error (red). Each card shows a one-line `work/sub/task/state/phase` summary parsed from the payload; expand `payload` for the full JSON.
 
 ## Common Flows
 

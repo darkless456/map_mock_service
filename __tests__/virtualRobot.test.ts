@@ -13,9 +13,9 @@ describe('VirtualRobot mapping domain', () => {
     assert.equal(robot.snapshot().mapping.phase, null);
     assert.equal(robot.shouldStreamMap(), false);
 
-    robot.dispatchRatelNotify({ work_status: 'mapping', sub_status: 'leave_dock' });
+    robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'leave_dock' });
     assert.equal(robot.snapshot().mapping.state, 'UNDOCKING');
-    robot.dispatchRatelNotify({ work_status: 'mapping', sub_status: 'find_boundary' });
+    robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'find_boundary' });
     assert.equal(robot.snapshot().mapping.state, 'WORKING');
     assert.equal(robot.snapshot().mapping.phase, 'MAP_SCAN_BOUNDARY');
     assert.equal(robot.shouldStreamMap(), true);
@@ -24,8 +24,8 @@ describe('VirtualRobot mapping domain', () => {
   it('pauses then resumes mapping, broadcasting a confirming frame that clears RESUMING', () => {
     const robot = new VirtualRobot({ sn: 'SN-R' });
     robot.startMapping({ sn: 'SN-R', mode: 'auto' });
-    robot.dispatchRatelNotify({ work_status: 'mapping', sub_status: 'leave_dock' });
-    robot.dispatchRatelNotify({ work_status: 'mapping', sub_status: 'find_boundary' });
+    robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'leave_dock' });
+    robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'find_boundary' });
     assert.equal(robot.snapshot().mapping.state, 'WORKING');
 
     robot.pauseMapping();
