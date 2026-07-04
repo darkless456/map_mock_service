@@ -1,6 +1,6 @@
-﻿import type { RouteHandler } from '../shared/http';
+import type { RouteHandler } from '../shared/http';
 import { hostBaseUrl, methodIs, readJsonBody, sendError, sendJson, sendOk, stringBodyField } from '../shared/http';
-import { buildMapList, readBasemapAsset, readRealsceneAsset } from '../data/basemap';
+import { buildMapListResponse, readBasemapAsset, readRealsceneAsset } from '../data/basemap';
 import { deleteAnnotationPackage, setAnnotationPackage, type IncrementPackage } from '../data/annotations';
 import type { AppRouteContext } from './router';
 
@@ -16,7 +16,7 @@ export const handleMapRoutes: RouteHandler<AppRouteContext> = async (req, res, u
     url.pathname === '/ratel/map-service/api/v1/ratel/map/list' &&
     methodIs(req, 'GET', 'POST')
   ) {
-    sendOk(res, buildMapList(hostBaseUrl(req, ctx.port)));
+    sendJson(res, 200, buildMapListResponse(hostBaseUrl(req, ctx.port)));
     return true;
   }
 

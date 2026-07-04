@@ -1,4 +1,4 @@
-﻿import { CHARGING_DOCK_BACKEND_POINT } from './chargingDock';
+import { CHARGING_DOCK_BACKEND_POINT } from './chargingDock';
 
 export interface ProtocolPoint {
   readonly x: number;
@@ -7,7 +7,7 @@ export interface ProtocolPoint {
 
 export type ProtocolShape = 'line' | 'polygon' | 'rect' | 'point';
 export type ProtocolUnit = 'meter' | 'px' | 'pixel' | '';
-/** 鏍囨敞鏉ユ簮锛歚robot` 鏈哄櫒浜?鍚庣鎷ユ湁锛圓PP 鍙锛夛紱`app` 鐢ㄦ埛缁樺埗锛堝彲缂栬緫锛夈€?*/
+/** 标注来源：`robot` 为机器/后端拥有（APP 只读）；`app` 为用户绘制（可编辑）。 */
 export type AnnotationSource = 'robot' | 'app';
 
 export interface ProtocolIncrement {
@@ -17,7 +17,7 @@ export interface ProtocolIncrement {
   readonly shape: ProtocolShape;
   readonly points: readonly ProtocolPoint[];
   readonly properties?: Record<string, unknown>;
-  /** 鏁版嵁鏉ユ簮锛沵ap/list 涓嬭鎼哄甫锛屽喅瀹?APP 绔彲缂栬緫鎬с€俿emantic/save 涓嶅洖浼犮€?*/
+  /** 数据来源：随 map/list 下行携带，决定 APP 端可编辑性；semantic/save 不回传。 */
   readonly source?: AnnotationSource;
 }
 

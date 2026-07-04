@@ -1,40 +1,43 @@
-﻿import fs from 'node:fs';
+import fs from 'node:fs';
 import path from 'node:path';
 import type { IncrementPackage } from './annotations';
-import { getAnnotationPackage, listAnnotationPackages } from './annotations';
 
 const SERVICE_ROOT = path.resolve(__dirname, '..', '..');
 const FULL_SEMANTIC_MAP_PATH = path.join(SERVICE_ROOT, 'full_semanticmap.png');
 const FULL_RGB_MAP_PATH = path.join(SERVICE_ROOT, 'full_rgbmap.png');
+const MAP_LIST_PATH = path.join(SERVICE_ROOT, 'map_list.json');
 
 const SEMANTIC_ASSET_PATH = '/sim/assets/full_semanticmap.png';
 const RGB_ASSET_PATH = '/sim/assets/full_rgbmap.png';
 
 /**
- * 鍦板浘鍏冩暟鎹紙resolution / origin锛夈€? *
- * 璇箟鍥句笌瀹炴櫙鍥惧叡浜悓涓€涓栫晫鍧愭爣绯伙細鍚屼竴 `resolution` 涓庡悓涓€ `origin`
- * 锛堣 pudu-rn-poc/docs/map_world_frame_realscene_robot_design.md 搂2.4 / 搂3.2锛夈€? * `origin_x / origin_y` 涓哄悗绔?BackendWorld锛圷-down锛変笅鍥剧墖宸︿笂瑙掑儚绱犲搴旂殑涓栫晫鍧愭爣锛? * 鏉ユ簮浜?`鏈哄櫒绔帴鍙ｆ枃妗?md` 澧為噺甯?header 涓?`鍦板浘绠＄悊绯荤粺璁捐鏂规.md` 搂1.2.2
- * 涓殑 `full_semanticmap.xml`锛堝惈 map_id / resolution / origin锛夈€? */
+ * 地图元数据（resolution / origin）。
+ *
+ * 语义图与实景图共享同一世界坐标系：同一 `resolution` 与同一 `origin`。
+ * `origin_x / origin_y` 为后端 BackendWorld(Y-down) 下图片左上角像素对应的世界坐标。
+ */
 export interface MapMetadata {
-  /** 绫?/ cell锛堢背 / 鍍忕礌锛夈€?*/
+  /** 米 / 像素。 */
   readonly resolution: number;
-  /** 鍥剧墖宸︿笂瑙掑湪 BackendWorld(Y-down) 涓殑 X 鍧愭爣锛堢背锛夈€?*/
+  /** 图片左上角在 BackendWorld(Y-down) 中的 X 坐标（米）。 */
   readonly origin_x: number;
-  /** 鍥剧墖宸︿笂瑙掑湪 BackendWorld(Y-down) 涓殑 Y 鍧愭爣锛堢背锛夈€?*/
+  /** 图片左上角在 BackendWorld(Y-down) 中的 Y 坐标（米）。 */
   readonly origin_y: number;
 }
 
 /**
- * Mock 榛樿鍏冩暟鎹€? *
- * 512脳512 搴曞浘 脳 0.05 m/px 鈮?25.6m 瑙佹柟锛沷rigin 鍙?APP绔帴鍙ｆ枃妗2.md 绀轰緥鍊? * `(2.5, 2.2)`锛屾棦浣撶幇闈為浂鍘熺偣鍋忕Щ锛堢敤浜庨獙璇?Phase 3 origin 钀藉湴锛夛紝
- * 鍙堣兘璁╂棦鏈夋爣娉紙涓栫晫鍧愭爣 x鈮?~17銆亂鈮?~15锛夊畬鏁磋惤鍦ㄥ簳鍥捐寖鍥村唴銆? */
+ * Mock 默认元数据。
+ *
+ * 512x512 底图 * 0.05 m/px 约等于 25.6m 见方。origin 取 APP 端接口示例值
+ * `(2.5, 2.2)`，既能体现非零原点偏移，也能让已有标注完整落在底图范围内。
+ */
 const DEFAULT_MAP_METADATA: MapMetadata = {
   resolution: 0.05,
   origin_x: 2.5,
   origin_y: 2.2,
 };
 
-/** 宸茬煡鍦板浘鐨勫厓鏁版嵁瑕嗙洊琛紙缂虹渷鍥炶惤鍒?DEFAULT_MAP_METADATA锛夈€?*/
+/** 已知地图的元数据覆盖表；未命中时回退到 DEFAULT_MAP_METADATA。 */
 const MAP_METADATA: Readonly<Record<string, MapMetadata>> = {
   mock_map_001: DEFAULT_MAP_METADATA,
   '4245b2a8-5394-4259-9a2f-0379c8f82f03': { resolution: 0.05, origin_x: -12.8, origin_y: -12.8 },
@@ -54,25 +57,28 @@ export function getMapMetadata(mapId: string): MapMetadata {
 }
 
 /**
- * `map/list` 鍒楄〃椤癸紝瀛楁鍛藉悕涓ユ牸瀵归綈 `APP绔帴鍙ｆ枃妗2.md` 鐨?`Rsp.data.items`銆? */
-export interface MapItem {
+ * `map/list` 列表项，字段命名对齐 APP 端接口文档的 `Rsp.data.items`。
+ */
+export interface MapItem extends Record<string, unknown> {
   readonly map_id: string;
-  /** 鏈哄櫒绔殑鍦板浘鍖?URL锛圓PP绔帴鍙ｆ枃妗2.md `map_url`锛夈€?*/
+  /** 机器端地图 URL（APP 端接口文档 `map_url`）。 */
   readonly map_url: string;
-  /** 鏈哄櫒涓婃姤鐨勮涔夊湴鍥?URL锛圓PP绔帴鍙ｆ枃妗2.md `semantic_map_url`锛夈€?*/
+  /** 机器上报的语义地图 URL（APP 端接口文档 `semantic_map_url`）。 */
   readonly semantic_map_url: string;
-  /** 鏈哄櫒涓婃姤鐨勫疄鏅湴鍥?URL锛圓PP绔帴鍙ｆ枃妗2.md `real_view_map_url`锛夈€?*/
+  /** 机器上报的实景地图 URL（APP 端接口文档 `real_view_map_url`）。 */
   readonly real_view_map_url: string;
   readonly base_version: number;
   readonly unit: string;
-  /** 鏄惁涓哄綋鍓嶄娇鐢ㄤ腑鐨勫湴鍥撅紙APP绔帴鍙ｆ枃妗2.md `is_use`锛夈€?*/
+  /** 是否为当前使用中的地图（APP 端接口文档 `is_use`）。 */
   readonly is_use: boolean;
   /**
-   * 绫?/ 鍍忕礌锛岃涔夊浘涓庡疄鏅浘鍏变韩銆?   * 娉細APP绔帴鍙ｆ枃妗2.md 鐨?items 鏈垪璇ュ瓧娈碉紝real backend 鏉ユ簮浜?   * `full_semanticmap.xml`锛堝湴鍥剧鐞嗙郴缁熻璁℃柟妗?md 搂1.2.2锛夛紱mock 鍦ㄦ闅忓垪琛ㄩ」涓€骞朵笅鍙戙€?   */
+   * 米 / 像素，语义图与实景图共享。
+   * APP 端接口文档的 items 未列该字段，mock 随列表项一起下发，方便客户端落图。
+   */
   readonly resolution: number;
-  /** 鍦板浘鍘熺偣 X锛圓PP绔帴鍙ｆ枃妗2.md `map_origin_x`锛夛紝BackendWorld(Y-down) 鍥剧墖宸︿笂瑙掍笘鐣屽潗鏍囷紝鍗曚綅绫炽€?*/
+  /** 地图原点 X（APP 端接口文档 `map_origin_x`），BackendWorld(Y-down) 图片左上角世界坐标，单位米。 */
   readonly map_origin_x: number;
-  /** 鍦板浘鍘熺偣 Y锛圓PP绔帴鍙ｆ枃妗2.md `map_origin_y`锛夛紝BackendWorld(Y-down) 鍥剧墖宸︿笂瑙掍笘鐣屽潗鏍囷紝鍗曚綅绫炽€?*/
+  /** 地图原点 Y（APP 端接口文档 `map_origin_y`），BackendWorld(Y-down) 图片左上角世界坐标，单位米。 */
   readonly map_origin_y: number;
   readonly increments: IncrementPackage['increments'];
   readonly timestamp?: number;
@@ -87,6 +93,12 @@ export interface MapItem {
 export interface MapListData {
   readonly total: number;
   readonly items: readonly MapItem[];
+}
+
+export interface MapListResponse {
+  readonly code: number;
+  readonly message: string;
+  readonly data: MapListData;
 }
 
 export function hasBasemapAsset(): boolean {
@@ -115,34 +127,40 @@ export function buildRealsceneAssetUrl(baseUrl: string, mapId = 'mock_map_001'):
   return `${baseUrl}${RGB_ASSET_PATH}?map_id=${encodeURIComponent(mapId)}`;
 }
 
-export function buildMapList(baseUrl: string): MapListData {
-  const packages = listAnnotationPackages();
-  const fallback = getAnnotationPackage('mock_map_001');
-  const items = packages.length > 0 ? packages : fallback ? [fallback] : [];
-  const mapped = items.map<MapItem>(pkg => {
-    const meta = getMapMetadata(pkg.map_id);
-    const semanticUrl = buildMapAssetUrl(baseUrl, pkg.map_id);
-    const realsceneUrl = buildRealsceneAssetUrl(baseUrl, pkg.map_id);
+function readMapListFixture(): MapListResponse {
+  const parsed = JSON.parse(fs.readFileSync(MAP_LIST_PATH, 'utf8')) as unknown;
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    !('data' in parsed) ||
+    typeof parsed.data !== 'object' ||
+    parsed.data === null ||
+    !Array.isArray((parsed.data as { items?: unknown }).items)
+  ) {
+    throw new Error('map_list.json must contain { data: { items: [...] } }');
+  }
+  return parsed as MapListResponse;
+}
+
+export function buildMapListResponse(baseUrl: string): MapListResponse {
+  const fixture = readMapListFixture();
+  const items = fixture.data.items.map<MapItem>(item => {
+    const semanticUrl = buildMapAssetUrl(baseUrl, item.map_id);
+    const realsceneUrl = buildRealsceneAssetUrl(baseUrl, item.map_id);
     return {
-      map_id: pkg.map_id,
+      ...item,
       map_url: semanticUrl,
       semantic_map_url: semanticUrl,
       real_view_map_url: realsceneUrl,
-      base_version: pkg.base_version,
-      unit: pkg.unit ?? '',
-      is_use: pkg.is_use ?? false,
-      resolution: meta.resolution,
-      map_origin_x: meta.origin_x,
-      map_origin_y: meta.origin_y,
-      increments: pkg.increments,
-      timestamp: pkg.timestamp,
-      name: pkg.name ?? `地图_${pkg.map_id.slice(0, 8)}`,
-      area: pkg.area ?? 150.5,
-      thumbnail_url: semanticUrl,
-      create_time: pkg.timestamp ?? Date.now() - 86400000,
-      update_time: pkg.timestamp ?? Date.now(),
     };
   });
-  return { total: mapped.length, items: mapped };
-}
 
+  return {
+    ...fixture,
+    data: {
+      ...fixture.data,
+      total: items.length,
+      items,
+    },
+  };
+}
