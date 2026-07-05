@@ -243,3 +243,27 @@
 5. fail-fast 原则贯彻：配置/数据错误即时抛出，不再被静默兜底掩盖。
 
 遗留低优先级项（§4.5 一键捕获、帧文件语义命名、`hostBaseUrl` Host 头兜底）不影响核心功能，可按需排期；P5b 控制台 UI 重构已落地（见 §8.1）。
+
+---
+
+## 11. 冗余数据 / 死代码清理（P7）
+
+> 状态：已落地。依据 [`refactor-plan.md`](refactor-plan.md) §5.4「`map_list.json` → `fixtures/maps/map_list.json`」，对仓库根残留的迁移前死数据进行清理。
+
+| 清理项 | 性质 | 处置 | 验证 |
+|--------|------|------|------|
+| 根目录 `map_list.json` | 与 [`fixtures/maps/map_list.json`](../fixtures/maps/map_list.json) **字节级一致**（同为 2,783,830 字节）的迁移前 duplicate，P1 后已被 fixture 加载层取代，全仓零引用 | 删除根目录文件 | `findstr /C:"map_list.json"` 确认仅 `src/fixtures/mapList.fixture.ts` 引用 `maps/map_list.json`（相对 FIXTURE_ROOT）；70 tests / 0 fail |
+| `.DS_Store` | macOS 文件系统元数据 cruft，曾被误纳入版本控制 | `git rm --cached` 解除跟踪 + `.gitignore` 新增 `.DS_Store` | `git ls-files` 不再含该文件 |
+
+**保留项（非死代码，已逐项核对）**：
+
+- [`src/sim/virtualRobot.ts`](../src/sim/virtualRobot.ts)（15 行 facade re-export）——被 `server.ts`、`router.ts`、`wsServer.ts`、`sim.routes.ts`、`mappingCheck.builder.ts` 及 9 个测试文件共 15 处 import，是公共导出面，**不是垫片**（区别于已删除的 `taskBridge.ts`/`mappingTaskBridge.ts` 零引用垫片）；保留。
+- `CHANGELOG.md` / `CONTRIBUTING.md` / `README.md` / `docs/refactor-audit-critical.md`——均为活文档，保留。
+- `recordings/`（`*.jsonl` 已在 `.gitignore`）与 `scenarios/`——运行时产物 / 活配置，保留。
+
+清理后回归验证：
+
+```
+npm run check-fixtures  →  fixtures ok
+npm test                 →  70 pass / 0 fail / 22 suites
+```
