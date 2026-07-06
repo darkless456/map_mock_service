@@ -113,6 +113,9 @@ export interface VirtualRobotSnapshot {
   readonly latestMappingTaskBySn: Readonly<Record<string, string>>;
   readonly activeMappingTask: MappingTaskRecord | null;
   readonly events: readonly RecordedEvent[];
+  /** Last WS `NOTIFY_RATEL_STATUS` projection — surfaced for the panel metric cards. */
+  readonly lastNotifyWorkStatus: string | null;
+  readonly lastNotifySubStatus: string | null;
 }
 
 export interface RecordedEvent {

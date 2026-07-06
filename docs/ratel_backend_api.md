@@ -1,77 +1,81 @@
-﻿# Ratel App 鍚庣 API 鍙傝€?
-> 鏂囨。鐗堟湰锛?026-06-04  
-> 鑼冨洿锛歐ebSocket锛堟崲绁ㄣ€佸湴鍥惧閲忋€佹満鍣ㄧ姸鎬併€佸壊鑽夎繘搴︺€佷綅缃祦锛? HTTP锛堝缓鍥句换鍔°€佸壊鑽変换鍔★級  
-> 鏁村悎鑷細`robot_status_ws.md`銆乣mowing_api.md`銆乣mapbuilder_api.md`锛屽苟鍙傜収 `APP绔帴鍙ｆ枃妗?md` 琛ュ叏瀛楁  
-> 鍏宠仈锛歚build-docs/mapping-mowing-button-transport.md`銆乣build-docs/backend-status-mapper-update.md`
+﻿# Ratel App 后端 API 参考
+
+> 文档版本：2026-06-04  
+> 范围：WebSocket（换票、地图增量、机器状态、割草进度、位置流） HTTP（建图任务、割草任务）  
+> 整合自：`robot_status_ws.md`、`mowing_api.md`、`mapbuilder_api.md`，并参照 `APP端接口文档.md` 补全字段  
+> 关联：`build-docs/mapping-mowing-button-transport.md`、`build-docs/backend-status-mapper-update.md`
 
 ---
 
-## 鐜涓庡叕鍏辩害瀹?
-| 椤圭洰 | 璇存槑 |
+## 环境与公共约定
+
+| 项目 | 说明 |
 |------|------|
-| 娴嬭瘯 Gateway | `https://ratel-cxg-test-internal.pudu.work`锛堜笌 `{{ratel-gateway}}` 绛変环锛?|
-| HTTP 鍗忚 | HTTPS REST锛宍Content-Type: application/json` |
-| WS 鍗忚 | 鍏堟崲绁ㄥ啀鎻℃墜锛岃 [搂1 WebSocket 鎺ュ叆](#1-websocket-鎺ュ叆) |
-| 閴存潈 | Header `Authorization`锛歊atel 鐧诲綍鎬?access token锛屾敮鎸?`Bearer <token>` 涓庤８ token |
-| 璁惧澶达紙鎺ㄨ崘锛?| `platform: ratel`锛沗X-Device-Id`锛沗X-Device`锛堝 `Android:google:Pixel 8`锛夛紱`X-Device-Version` |
-| HTTP 鎴愬姛 | 鍝嶅簲浣?`code === 200` |
-| 鏈哄櫒渚ч敊璇?| 閮ㄥ垎鎺ュ彛鍦?`code === -1` 鏃讹紝`data` 鍐呮惡甯?`robot_code` / `robot_message` |
+| 测试 Gateway | `https://ratel-cxg-test-internal.pudu.work`（与 `{{ratel-gateway}}` 等价）|
+| HTTP 协议 | HTTPS REST，`Content-Type: application/json` |
+| WS 协议 | 先换票再握手，见 [§1 WebSocket 接入](#1-websocket-接入) |
+| 鉴权 | Header `Authorization`：Ratel 登录态 access token，支持 `Bearer <token>` 与裸 token |
+| 设备头（推荐）| `platform: ratel`；`X-Device-Id`；`X-Device`（如 `Android:google:Pixel 8`）；`X-Device-Version` |
+| HTTP 成功 | 响应体 `code === 200` |
+| 机器侧错误 | 部分接口在 `code === -1` 时，`data` 内携带 `robot_code` / `robot_message` |
 
-### WS 娑堟伅閫氱敤缁撴瀯
+### WS 消息通用结构
 
-鎵€鏈?WebSocket 娑堟伅鍧囬伒寰互涓嬬粨鏋勶紙瀹㈡埛绔笂琛屻€佹湇鍔＄涓嬭涓€鑷达級锛?
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 鎻忚堪 |
+所有 WebSocket 消息均遵循以下结构（客户端上行、服务端下行一致）：
+
+| 字段 | 类型 | 必填 | 描述 |
 |------|------|------|------|
-| `cmd` | string | Y | 鎸囦护鏋氫妇 |
-| `cmd_id` | string | Y | 娑堟伅鍞竴 ID锛圲UID锛夛紱鍥炲鏃跺甫涓婃敹鍒扮殑 `cmd_id` |
-| `version` | int32 | N | 鍗忚鐗堟湰锛屽綋鍓嶅浐瀹氫负 `1` |
-| `data` | object | N | 涓氬姟杞借嵎锛岀粨鏋勯殢 `cmd` 鑰屽畾 |
+| `cmd` | string | Y | 指令枚举 |
+| `cmd_id` | string | Y | 消息唯一 ID（UUID）；回复时带上收到的 `cmd_id` |
+| `version` | int32 | N | 协议版本，当前固定为 `1` |
+| `data` | object | N | 业务载荷，结构随 `cmd` 而定 |
 
 ---
 
-## 鐩綍
+## 目录
 
-1. [WebSocket 鎺ュ叆](#1-websocket-鎺ュ叆)
-2. [鏈哄櫒浜虹姸鎬佹帹閫侊紙WS锛塢(#2-鏈哄櫒浜虹姸鎬佹帹閫亀s)
-3. [鍦板浘澧為噺鎺ㄩ€侊紙WS锛塢(#3-鍦板浘澧為噺鎺ㄩ€亀s)
-4. [寤哄浘浠诲姟锛圚TTP锛塢(#4-寤哄浘浠诲姟http)
-5. [鍓茶崏浠诲姟锛圚TTP锛塢(#5-鍓茶崏浠诲姟http)
-6. [鍓茶崏杩涘害涓庝綅缃紙WS锛塢(#6-鍓茶崏杩涘害涓庝綅缃畐s)
-7. [鍏叡鏁版嵁缁撴瀯](#7-鍏叡鏁版嵁缁撴瀯)
-8. [寰呬笌鍚庣瀵归綈椤筣(#8-寰呬笌鍚庣瀵归綈椤?
-9. [鍓嶇瀹炵幇瀵圭収](#9-鍓嶇瀹炵幇瀵圭収)
+1. [WebSocket 接入](#1-websocket-接入)
+2. [机器人状态推送（WS）](#2-机器人状态推送ws)
+3. [地图增量推送（WS）](#3-地图增量推送ws)
+4. [建图任务（HTTP）](#4-建图任务http)
+5. [割草任务（HTTP）](#5-割草任务http)
+6. [割草进度与位置（WS）](#6-割草进度与位置ws)
+7. [公共数据结构](#7-公共数据结构)
+8. [待与后端对齐项](#8-待与后端对齐项)
+9. [前端实现对照](#9-前端实现对照)
 
 ---
 
-## 1. WebSocket 鎺ュ叆
+## 1. WebSocket 接入
 
-寤虹珛 WebSocket 鍓嶏紝APP 椤诲厛鑾峰彇涓€娆℃€?`ticket`銆?
-### 1.1 鑾峰彇 ticket
+建立 WebSocket 前，APP 须先获取一次性 `ticket`。
 
-| 椤圭洰 | 鍊?|
+### 1.1 获取 ticket
+
+| 项目 | 值 |
 |------|-----|
-| 鏂规硶 | `POST` |
-| 璺緞 | `/ratel/api/v1/wss/acc_ticket` |
+| 方法 | `POST` |
+| 路径 | `/ratel/api/v1/wss/acc_ticket` |
 
-**璇锋眰 Headers**
+**请求 Headers**
 
-| Header | 绫诲瀷 | 蹇呭～ | 璇存槑 |
+| Header | 类型 | 必填 | 说明 |
 |--------|------|------|------|
-| `Authorization` | string | 鏄?| 涓庣櫥褰曟€佷竴鑷寸殑 access token |
-| `platform` | string | 鏄?| 璋冪敤鏂瑰钩鍙版爣璇嗭紙澶у皬鍐欎笉鏁忔劅锛夛紝濡?`ratel`锛涢儴鍒嗙幆澧冧害鏀寔 `1001` / `1002` / `1003` |
-| `Content-Type` | string | 鏄?| `application/json` |
+| `Authorization` | string | 是 | 与登录态一致的 access token |
+| `platform` | string | 是 | 调用方平台标识（大小写不敏感），如 `ratel`；部分环境亦支持 `1001` / `1002` / `1003` |
+| `Content-Type` | string | 是 | `application/json` |
 
-**鍝嶅簲 Body**
+**响应 Body**
 
-| 瀛楁 | 绫诲瀷 | 璇存槑 |
+| 字段 | 类型 | 说明 |
 |------|------|------|
-| `code` | int | `200` 琛ㄧず鎴愬姛 |
-| `message` | string | 鎻忚堪鏂囨 |
-| `ticket` | string | 鍗佸叚杩涘埗瀛楃涓诧紝浠呯敤浜?WS 鎻℃墜鏌ヨ鍙傛暟 |
-| `expire_seconds` | int | 绁ㄦ嵁鏈夋晥绉掓暟锛堥粯璁?120锛?|
-| `wss_path_hint` | string | 鎻愮ず锛屽 `ws://host/acc?ticket=<ticket>` |
+| `code` | int | `200` 表示成功 |
+| `message` | string | 描述文案 |
+| `ticket` | string | 十六进制字符串，仅用于 WS 握手查询参数 |
+| `expire_seconds` | int | 票据有效秒数（默认 120）|
+| `wss_path_hint` | string | 提示，如 `ws://host/acc?ticket=<ticket>` |
 
-**鎴愬姛绀轰緥**
+**成功示例**
 
 ```json
 {
@@ -91,26 +95,26 @@ curl -X POST 'https://ratel-cxg-test-internal.pudu.work/ratel/api/v1/wss/acc_tic
   -d '{}'
 ```
 
-**甯歌澶辫触**
+**常见失败**
 
-- `400`锛氱己灏?`Authorization` / `platform`銆佹湭鐭?platform
-- `401`锛歵oken 鏍￠獙澶辫触
-- `503`锛氫笟鍔′笉鍙敤
+- `400`：缺失 `Authorization` / `platform`、未知 platform
+- `401`：token 校验失败
+- `503`：业务不可用
 
-### 1.2 WebSocket 鎻℃墜
+### 1.2 WebSocket 握手
 
 ```
 ws://<WSS_HOST>:<WSS_PORT>/acc?ticket=<ticket>
 wss://<WSS_HOST>:<WSS_PORT>/acc?ticket=<ticket>
 ```
 
-- 蹇呴』甯︽煡璇㈠弬鏁?`ticket`锛涚己澶辨椂鏈嶅姟绔繑鍥?401
-- 绁ㄦ嵁涓?*涓€娆℃€?*锛氭彙鎵嬫垚鍔熷嵆澶辨晥锛涙柇绾块噸杩為』**閲嶆柊鎹㈢エ**
-- 鎻℃墜鎴愬姛鍚庢湇鍔＄绔嬪嵆寤虹珛鐧诲綍鎬侊紝**鏃?* WS 鍐?login 鎸囦护
+- 必须带查询参数 `ticket`；缺失时服务端返回 401
+- 票据为 *一次性*：握手成功即失效；断线重连须**重新换票**
+- 握手成功后服务端立即建立登录态，**无需** WS 发 login 指令
 
-### 1.3 蹇冭烦
+### 1.3 心跳
 
-**瀹㈡埛绔姹?*
+**客户端请求**
 
 ```json
 {
@@ -122,12 +126,12 @@ wss://<WSS_HOST>:<WSS_PORT>/acc?ticket=<ticket>
 }
 ```
 
-**鏈嶅姟绔搷搴?*
+**服务端响应**
 
 ```json
 {
-  "cmd_id": "涓庤姹備竴鑷?,
-  "cmd": "涓庤姹備竴鑷?,
+  "cmd_id": "与请求一致",
+  "cmd": "与请求一致",
   "data": {
     "code": 200,
     "codeMsg": "Success",
@@ -138,98 +142,100 @@ wss://<WSS_HOST>:<WSS_PORT>/acc?ticket=<ticket>
 
 ---
 
-## 2. 鏈哄櫒浜虹姸鎬佹帹閫侊紙WS锛?
-| 灞炴€?| 鍊?|
+## 2. 机器人状态推送（WS）
+
+| 属性 | 值 |
 |------|-----|
-| 鏂瑰悜 | 鏈嶅姟绔?鈫?瀹㈡埛绔紙Server Push锛?|
-| 鎸囦护 | `NOTIFY_RATEL_STATUS` |
-| 瑙﹀彂鏃舵満 | 鏈哄櫒浜虹姸鎬佸彂鐢熷彉鍖栨椂涓诲姩鎺ㄩ€?|
+| 方向 | 服务端 → 客户端（Server Push）|
+| 指令 | `NOTIFY_RATEL_STATUS` |
+| 触发时机 | 机器人状态发生变化时主动推送 |
 
-> 鐘舵€佸瓧娈垫槧灏勮 `build-docs/backend-status-mapper-update.md`銆?
-### 2.1 椤跺眰瀛楁
+> 状态字段映射见 `build-docs/backend-status-mapper-update.md`。
 
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 鎻忚堪 |
+### 2.1 顶层字段
+
+| 字段 | 类型 | 必填 | 描述 |
 |------|------|------|------|
-| `cmd` | string | Y | 鍥哄畾鍊?`"NOTIFY_RATEL_STATUS"` |
-| `cmd_id` | string | Y | 娑堟伅鍞竴 ID锛圲UID锛?|
-| `version` | int | Y | 鍗忚鐗堟湰锛屽綋鍓嶅浐瀹氫负 `1` |
-| `data` | object | Y | 涓氬姟鏁版嵁锛岃涓嬭〃 |
+| `cmd` | string | Y | 固定值 `"NOTIFY_RATEL_STATUS"` |
+| `cmd_id` | string | Y | 消息唯一 ID（UUID）|
+| `version` | int | Y | 协议版本，当前固定为 `1` |
+| `data` | object | Y | 业务数据，见下表 |
 
-### 2.2 `data` 瀛楁
+### 2.2 `data` 字段
 
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 鎻忚堪 |
+| 字段 | 类型 | 必填 | 描述 |
 |------|------|------|------|
-| `sn` | string | Y | 鏈哄櫒 SN |
-| `mac` | string | N | 鏈哄櫒 MAC |
-| `work_status` | string | Y | 鏈哄櫒宸ヤ綔鐘舵€侊紝瑙?[work_status 鏋氫妇](#work_status-鏋氫妇) |
-| `sub_status` | string | N | 涓荤姸鎬佸唴闃舵锛沗none` 鎴栫┖琛ㄧず鏃犳湁鏁堝瓙鐘舵€侊紙App 浼氬洖閫€璇?legacy `phase`锛?|
-| `work_msg` | string | N | `work_status` 琛ュ厖璇存槑锛堝鏁呴殰鍘熷洜锛?|
-| `battery` | object | N | 鐢垫睜鐘舵€侊紝瑙?[battery](#data-battery) |
-| `signals` | object | N | 缃戠粶淇″彿锛岃 [signals](#data-signals) |
-| `phase` | string | N | **閬楃暀瀛楁**锛氶儴鍒?mock/鏃у浐浠跺湪 `sub_status` 鏃犳晥鏃舵惡甯﹂樁娈靛悕锛堝 `MOW_RUNNING`锛?|
-| `state` | string | N | **璋冭瘯/杈呭姪**锛氭湇鍔＄ FSM 蹇収锛堝 `PREPARING`銆乣WORKING`锛夛紝闈?App 涓绘秷璐硅矾寰?|
-| `capabilities` | object | N | 鑳藉姏寮€鍏筹紙濡?`can_switch_manual`銆乣can_switch_auto`锛?|
-| `estop` | object | N | 鎬ュ仠鐘舵€侊紙濡?`{ "active": false }`锛?|
-| `notices` | array | N | 閫氱煡鍒楄〃 |
-| `error` | object | N | 閿欒璇︽儏 |
+| `sn` | string | Y | 机器 SN |
+| `mac` | string | N | 机器 MAC |
+| `work_status` | string | Y | 机器工作状态，见 [work_status 枚举](#work_status-枚举) |
+| `sub_status` | string | N | 主状态内阶段；`none` 或空表示无有效子状态（App 会回退读取 legacy `phase`）|
+| `work_msg` | string | N | `work_status` 补充说明（如故障原因）|
+| `battery` | object | N | 电池状态，见 [battery](#databattery) |
+| `signals` | object | N | 网络信号，见 [signals](#datasignals) |
+| `phase` | string | N | **遗留字段**：部分 mock/旧固件在 `sub_status` 无效时携带阶段名（如 `MOW_RUNNING`）|
+| `state` | string | N | **调试/辅助**：服务端 FSM 快照（如 `PREPARING`、`WORKING`），非 App 主消费路径 |
+| `capabilities` | object | N | 能力开关（如 `can_switch_manual`、`can_switch_auto`）|
+| `estop` | object | N | 急停状态（如 `{ "active": false }`）|
+| `notices` | array | N | 通知列表 |
+| `error` | object | N | 错误详情 |
 
-#### `work_status` 鏋氫妇
+#### `work_status` 枚举
 
-| 鍊?| 鍚箟 |
+| 值 | 含义 |
 |----|------|
-| `idle` | 绌洪棽涓?|
-| `mowing` | 鍓茶崏涓?|
-| `charging` | 鍏呯數涓?|
-| `mapping` | 寤哄浘涓?|
-| `error` | 鏁呴殰 |
+| `idle` | 空闲中 |
+| `mowing` | 割草中 |
+| `charging` | 充电中 |
+| `mapping` | 建图中 |
+| `error` | 故障 |
 
 ### 2.3 `data.battery`
 
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 鎻忚堪 |
+| 字段 | 类型 | 必填 | 描述 |
 |------|------|------|------|
-| `level` | int | Y | 鐢甸噺鐧惧垎姣旓紙0 ~ 100锛?|
-| `charging` | int | Y | 鏄惁鍏呯數锛歚1` = 鍏呯數涓紝`-1` = 鏈厖鐢?|
-| `temperature` | float | Y | 鐢垫睜娓╁害锛堚剝锛?|
-| `cycles` | int | Y | 鍏呯數寰幆娆℃暟 |
+| `level` | int | Y | 电量百分比（0 ~ 100）|
+| `charging` | int | Y | 是否充电：`1` = 充电中，`-1` = 未充电 |
+| `temperature` | float | Y | 电池温度（℃）|
+| `cycles` | int | Y | 充电循环次数 |
 
 ### 2.4 `data.signals`
 
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 鎻忚堪 |
+| 字段 | 类型 | 必填 | 描述 |
 |------|------|------|------|
-| `bluetooth` | object | N | 瑙佷笅琛?|
-| `wifi` | object | N | 瑙佷笅琛?|
-| `cellular` | object | N | 瑙佷笅琛?|
+| `bluetooth` | object | N | 见下表 |
+| `wifi` | object | N | 见下表 |
+| `cellular` | object | N | 见下表 |
 
 **`data.signals.bluetooth`**
 
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 鎻忚堪 |
+| 字段 | 类型 | 必填 | 描述 |
 |------|------|------|------|
-| `connected` | int | Y | `1` = 宸茶繛鎺ワ紝`-1` = 鏈繛鎺?|
-| `rssi` | int | Y | 淇″彿寮哄害锛坉Bm锛岃秺澶ц秺寮猴級 |
+| `connected` | int | Y | `1` = 已连接，`-1` = 未连接 |
+| `rssi` | int | Y | 信号强度（dBm，越大越强） |
 
 **`data.signals.wifi`**
 
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 鎻忚堪 |
+| 字段 | 类型 | 必填 | 描述 |
 |------|------|------|------|
-| `connected` | int | Y | `1` = 宸茶繛鎺ワ紝`-1` = 鏈繛鎺?|
-| `ssid` | string | Y | 宸茶繛鎺?WiFi 鍚嶇О |
-| `rssi` | int | Y | 淇″彿寮哄害锛坉Bm锛?|
+| `connected` | int | Y | `1` = 已连接，`-1` = 未连接 |
+| `ssid` | string | Y | 已连接 WiFi 名称 |
+| `rssi` | int | Y | 信号强度（dBm）|
 | `signal_strength` | string | Y | `good` / `medium` / `poor` |
 
 **`data.signals.cellular`**
 
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 鎻忚堪 |
+| 字段 | 类型 | 必填 | 描述 |
 |------|------|------|------|
-| `connected` | int | Y | `1` = 宸茶繛鎺ワ紝`-1` = 鏈繛鎺?|
+| `connected` | int | Y | `1` = 已连接，`-1` = 未连接 |
 | `signal_strength` | string | Y | `good` / `medium` / `poor` / `none` |
 
-### 2.5 瀹㈡埛绔?ACK
+### 2.5 客户端 ACK
 
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 鎻忚堪 |
+| 字段 | 类型 | 必填 | 描述 |
 |------|------|------|------|
-| `result` | string | Y | `"SUCCESS"` 琛ㄧず鎺ユ敹鎴愬姛 |
+| `result` | string | Y | `"SUCCESS"` 表示接收成功 |
 
-### 2.6 瀹屾暣绀轰緥
+### 2.6 完整示例
 
 ```json
 {
@@ -240,7 +246,7 @@ wss://<WSS_HOST>:<WSS_PORT>/acc?ticket=<ticket>
     "sn": "TSAABBC1C2C4C2",
     "sub_status": "none",
     "work_status": "mowing",
-    "work_msg": "姝ｅ父鍓茶崏涓?,
+    "work_msg": "正常割草中",
     "battery": {
       "level": 78,
       "charging": -1,
@@ -263,47 +269,50 @@ wss://<WSS_HOST>:<WSS_PORT>/acc?ticket=<ticket>
 
 ---
 
-## 3. 鍦板浘澧為噺鎺ㄩ€侊紙WS锛?
-**cmd锛?* `MAP_INCREMENTAL`
+## 3. 地图增量推送（WS）
 
-**鏂瑰悜锛?* 鏈嶅姟绔?鈫?瀹㈡埛绔紙鍦板浘澧為噺锛夛紱瀹㈡埛绔?鈫?鏈嶅姟绔紙ACK锛?
-### 3.1 鏈嶅姟绔?鈫?瀹㈡埛绔?`data`
+**cmd：** `MAP_INCREMENTAL`
 
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 鎻忚堪 |
+**方向：** 服务端 → 客户端（地图增量）；客户端 → 服务端（ACK）
+
+### 3.1 服务端 → 客户端 `data`
+
+| 字段 | 类型 | 必填 | 描述 |
 |------|------|------|------|
-| `sn` | string | Y | 鏈哄櫒 SN |
-| `map_header` | object | Y | 鍦板浘澧為噺澶翠俊鎭?|
-| `map_data` | string | Y | 澧為噺鏁版嵁锛氬缓鍥惧閲忓抚涓?`base64`锛堜笉鍘嬬缉锛夛紱Mock 榛樿涓庝箣涓€鑷达紝鍙敤 `MMR_GZIP=1` 鍒囧洖 `base64 + gzip` |
+| `sn` | string | Y | 机器 SN |
+| `map_header` | object | Y | 地图增量头信息 |
+| `map_data` | string | Y | 增量数据：建图增量帧为 `base64`（不压缩）；Mock 默认与之一致，可用 `MMR_GZIP=1` 切回 `base64 + gzip` |
 
-**`data.map_header` 涓昏瀛楁**
+**`data.map_header` 主要字段**
 
-| 瀛楁 | 绫诲瀷 | 璇存槑 |
+| 字段 | 类型 | 说明 |
 |------|------|------|
-| `version` | int32 | 鍗忚鐗堟湰锛屽浐瀹?`1` |
-| `header_len` | uint32 | header 闀垮害 |
-| `data_len` | uint32 | 瑙ｇ爜鍚庡浘鍍忓瓧鑺傛暟 |
-| `msg_type` | uint32 | `0x01` 鐏板害鍥撅紱`0x02` 璇箟鍥?|
-| `timestamp_sec` / `timestamp_nsec` | uint64 | Unix 鏃堕棿鎴?|
-| `width` / `height` | uint32 | 澧為噺瀹介珮锛坈ell 鏁帮級 |
-| `resolution` | float | 绫?cell |
-| `origin_x` / `origin_y` | double | 鍦板浘鍘熺偣锛堢背锛?|
-| `robot_x` / `robot_y` / `robot_theta` | double | 鏈哄櫒浜轰綅濮?|
-| `format` | string | 濡?`png` |
-| `map_id` | string / uint64 | 鍦板浘 ID |
-| `frame_id` | uint64 | 褰撳墠甯?ID锛圓CK 椤诲洖浼狅級 |
-| `frame_slicing_total` | uint32 | 鍒囩墖鎬绘暟 |
-| `frame_slicing_id` | uint64 | 鍒囩墖 ID锛圓CK 椤诲洖浼狅級 |
-| `frame_slicing_index` | uint32 | 鍒囩墖绱㈠紩锛屼粠 0 璧?|
-| `crc32` | uint32 | 鏁版嵁 CRC32 |
-| `lawn_area` | float | 寤哄浘闈㈢Н锛堝崟浣嶄互鍥轰欢/浜у搧涓哄噯锛?|
+| `version` | int32 | 协议版本，固定 `1` |
+| `header_len` | uint32 | header 长度 |
+| `data_len` | uint32 | 解码后图像字节数 |
+| `msg_type` | uint32 | `0x01` 灰度图；`0x02` 语义图 |
+| `timestamp_sec` / `timestamp_nsec` | uint64 | Unix 时间戳 |
+| `width` / `height` | uint32 | 增量宽高（cell 数） |
+| `resolution` | float | 米/cell |
+| `origin_x` / `origin_y` | double | 地图原点（米）|
+| `robot_x` / `robot_y` / `robot_theta` | double | 机器人位姿 |
+| `format` | string | 如 `png` |
+| `map_id` | string / uint64 | 地图 ID |
+| `frame_id` | uint64 | 当前帧 ID（ACK 须回传） |
+| `frame_slicing_total` | uint32 | 切片总数 |
+| `frame_slicing_id` | uint64 | 切片 ID（ACK 须回传） |
+| `frame_slicing_index` | uint32 | 切片索引，从 0 起 |
+| `crc32` | uint32 | 数据 CRC32 |
+| `lawn_area` | float | 建图面积（单位以固件/产品为准）|
 
-> 閮ㄥ垎鍥轰欢浜︿娇鐢?`map_package_total`銆乣map_transfer_id`銆乣map_package_index` 绛夊瓧娈靛懡鍚嶏紝璇箟涓庡垏鐗囧瓧娈电被浼硷紝浠ュ疄闄?payload 涓哄噯銆?
-**鎺ユ敹绀轰緥**
+> 部分固件亦使用 `map_package_total`、`map_transfer_id`、`map_package_index` 等字段命名，语义与切片字段类似，以实际 payload 为准。
+
+**接收示例**
 
 ```json
 {
   "cmd": "MAP_INCREMENTAL",
-  "cmd_id": "<鎸囦护鍞竴id>",
+  "cmd_id": "<指令唯一id>",
   "version": 1,
   "data": {
     "sn": "69:32:3B:eD:AA:64",
@@ -336,28 +345,28 @@ wss://<WSS_HOST>:<WSS_PORT>/acc?ticket=<ticket>
 }
 ```
 
-### 3.2 瀹㈡埛绔?鈫?鏈嶅姟绔?ACK `data`
+### 3.2 客户端 → 服务端 ACK `data`
 
-App 澶勭悊鎴愬姛鍚庨』鍥炲锛圧ustKit 鍙嚜鍔?ACK锛涘瓧娈典互鍗忚涓哄噯锛夛細
+App 处理成功后须回复（RustKit 可自动 ACK；字段以协议为准）：
 
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 鎻忚堪 |
+| 字段 | 类型 | 必填 | 描述 |
 |------|------|------|------|
-| `result` | string | Y | `SUCCESS` 琛ㄧず澶勭悊鎴愬姛 |
-| `payload` | object | N | 閫忎紶鍥炴満鍣ㄧ |
+| `result` | string | Y | `SUCCESS` 表示处理成功 |
+| `payload` | object | N | 透传回机器端 |
 
-**`payload`锛堟帹鑽愶級**
+**`payload`（推荐）**
 
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 鎻忚堪 |
+| 字段 | 类型 | 必填 | 描述 |
 |------|------|------|------|
-| `session_id` | string | Y | 甯у敮涓€缂栧彿 |
-| `ack` | bool | Y | `true` 琛ㄧず App 纭鏀跺埌 |
+| `session_id` | string | Y | 帧唯一编号 |
+| `ack` | bool | Y | `true` 表示 App 确认收到 |
 
-**绠€鍖?ACK 绀轰緥锛坄APP绔帴鍙ｆ枃妗 褰㈡€侊級**
+**简化 ACK 示例（`APP端接口文档` 形态）**
 
 ```json
 {
   "cmd": "MAP_INCREMENTAL",
-  "cmd_id": "涓庢敹鍒扮殑 cmd_id 涓€鑷?,
+  "cmd_id": "与收到的 cmd_id 一致",
   "version": 1,
   "data": {
     "code": 200,
@@ -368,71 +377,79 @@ App 澶勭悊鎴愬姛鍚庨』鍥炲锛圧ustKit 鍙嚜鍔?ACK锛涘瓧�
 
 ---
 
-## 4. 寤哄浘浠诲姟锛圚TTP锛?
-璺緞鍓嶇紑锛歚/ratel/api/v1/mapping/`锛堣嚜妫€涓?`/ratel/api/v1/robot/self_check`锛夈€?
-**寤哄浘妯″紡 `mode` 鏋氫妇**锛坄start` / `mode` 鍏辩敤锛夛細
+## 4. 建图任务（HTTP）
 
-| 鍊?| 鍚箟 |
+路径前缀：`/ratel/api/v1/mapping/`（自检走 `/ratel/api/v1/robot/self_check`）。
+
+**建图模式 `mode` 枚举**（`start` / `mode` 共用）：
+
+| 值 | 含义 |
 |----|------|
-| `auto` | 鑷姩鎺㈢储寤哄浘 |
-| `remote` | 鎵嬪姩閬ユ帶寤哄浘 |
-| `follow` | 璺熼殢鐢ㄦ埛寤哄浘 |
+| `auto` | 自动探索建图 |
+| `remote` | 手动遥控建图 |
+| `follow` | 跟随用户建图 |
 
-### 4.0 閫氱煡鏈哄櫒寮€濮嬭嚜妫€
+### 4.0 通知机器开始自检
 
-寤哄浘鍓嶇疆椤甸』**鍏?*璋冪敤鏈帴鍙ｏ紝鍐嶈疆璇?[4.1 寤哄浘鏉′欢妫€娴媇(#41-寤哄浘鏉′欢妫€娴?銆?
-| 椤圭洰 | 鍊?|
+建图前置页须**先**调用本接口，再轮询 [4.1 建图条件检测](#41-建图条件检测)。
+
+| 项目 | 值 |
 |------|-----|
-| 鏂规硶 | `POST` |
-| 璺緞 | `/ratel/api/v1/robot/self_check` |
+| 方法 | `POST` |
+| 路径 | `/ratel/api/v1/robot/self_check` |
 
-**璇锋眰 Body**
+**请求 Body**
 
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 璇存槑 |
+| 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `sn` | string | 鏄?| 鏈哄櫒 SN |
+| `sn` | string | 是 | 机器 SN |
 
-**鍝嶅簲 `data`**
+**响应 `data`**
 
-| 瀛楁 | 绫诲瀷 | 璇存槑 |
+| 字段 | 类型 | 说明 |
 |------|------|------|
-| `checked_at` | int64 | 鑷鏃堕棿鎴筹紙姣锛?|
-| `overall` | string | 缁煎悎鐘舵€侊細`ok` / `warning` / `error` |
-| `blade` | string | 鍒€鐗囷細`normal` / `warning` / `error` |
-| `wheel` | string | 杞﹁疆鐘舵€?|
-| `sensor` | string | 浼犳劅鍣ㄧ姸鎬?|
-| `motor` | string | 鐢垫満鐘舵€?|
-| `gps` | string | GPS 鐘舵€?|
+| `checked_at` | int64 | 自检时间戳（毫秒）|
+| `overall` | string | 综合状态：`ok` / `warning` / `error` |
+| `blade` | string | 刀片：`normal` / `warning` / `error` |
+| `wheel` | string | 车轮状态 |
+| `sensor` | string | 传感器状态 |
+| `motor` | string | 电机状态 |
+| `gps` | string | GPS 状态 |
 
-鍓嶇锛歚postRobotSelfCheck` 鈫?`runMappingPrepareChecks`锛堣疆璇㈢粏鑺傝 `src/features/mapping/prepare/README.md`锛夈€?
-### 4.1 寤哄浘鏉′欢妫€娴?
-鍦?[4.0](#40-閫氱煡鏈哄櫒寮€濮嬭嚜妫€) 鎴愬姛鍚?*杞**锛圓pp 榛樿闂撮殧 1.5s銆佽秴鏃?60s锛夈€?
-| 椤圭洰 | 鍊?|
+前端：`postRobotSelfCheck` → `runMappingPrepareChecks`（轮询细节见 `src/features/mapping/prepare/README.md`）。
+
+### 4.1 建图条件检测
+
+在 [4.0](#40-通知机器开始自检) 成功后**轮询**（App 默认间隔 1.5s、超时 60s）。
+
+| 项目 | 值 |
 |------|-----|
-| 鏂规硶 | `POST` |
-| 璺緞 | `/ratel/api/v1/mapping/check` |
+| 方法 | `POST` |
+| 路径 | `/ratel/api/v1/mapping/check` |
 
-**璇锋眰 Body**
+**请求 Body**
 
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 璇存槑 |
+| 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `sn` | string | 鏄?| 鏈哄櫒 SN |
+| `sn` | string | 是 | 机器 SN |
 
-**鍝嶅簲 `data`锛堟墎骞崇粨鏋勶紝`APP绔帴鍙ｆ枃妗 2026-06-04锛?*
+**响应 `data`（扁平结构，`APP端接口文档` 2026-06-04）**
 
-> **杩佺Щ**锛氭棫鐗堟浘浣跨敤 `data.all_ok` + `data.conditions.*` 宓屽锛涘綋鍓嶅崗璁皢涓嬪垪瀛楁鐩存帴鎸傚湪 `data` 涓嬨€侫pp 鍦?`postMappingCheck` 鍏ュ彛鐢?`normalizeMappingCheckData` 鍏煎鏃х綉鍏炽€?
-| 瀛楁 | 绫诲瀷 | 璇存槑 | 鍓嶇疆椤?id |
+> **迁移**：旧版曾使用 `data.all_ok` + `data.conditions.*` 嵌套；当前协议将下列字段直接挂在 `data` 下。App 在 `postMappingCheck` 入口用 `normalizeMappingCheckData` 兼容旧网关。
+
+| 字段 | 类型 | 说明 | 前置项 id |
 |------|------|------|-----------|
 | `bluetooth_status` | string | `ok` / `warning` / `error` | `bluetooth` |
-| `bluetooth_msg` | string | 钃濈墮寮傚父鏂囨 | 鈥?|
-| `cellular` | string | 铚傜獫缃戠粶 | `4g` |
+| `bluetooth_msg` | string | 蓝牙异常文案 | — |
+| `cellular` | string | 蜂窝网络 | `4g` |
 | `wifi` | string | WiFi | `wifi` |
-| `battery` | string | 鐢甸噺 | `battery` |
-| `docking_station` | string | 鍏呯數搴?/ 褰掍綅 | `charger` |
-| `light` | string | 鍏夌嚎 | `light` |
+| `battery` | string | 电量 | `battery` |
+| `docking_station` | string | 充电座 / 归位 | `charger` |
+| `light` | string | 光线 | `light` |
 
-**杞缁撴潫**锛氫笂杩板叚椤癸紙涓嶅惈 `bluetooth_msg`锛夊潎鏈夐潪绌鸿繑鍥炲€笺€? 
-**鏄惁鍙缓鍥撅紙App锛?*锛氬叚椤归綈鍏ㄤ笖鍧囦负 `ok`锛坄isServerAllOk`锛夛紝涓嶅啀璇诲彇 `all_ok`銆?
+**轮询结束**：上述六项（不含 `bluetooth_msg`）均有非空返回值。
+**是否可建图（App）**：六项齐全且均为 `ok`（`isServerAllOk`），不再读取 `all_ok`。
+
 ```bash
 curl -X POST 'https://ratel-cxg-test-internal.pudu.work/ratel/api/v1/mapping/check' \
   -H 'Content-Type: application/json' \
@@ -440,77 +457,81 @@ curl -X POST 'https://ratel-cxg-test-internal.pudu.work/ratel/api/v1/mapping/che
   -d '{"sn":"TSAABBC1C2C4C2"}'
 ```
 
-### 4.2 寮€濮嬪缓鍥?
-| 鏂规硶 | `POST` |
-| 璺緞 | `/ratel/api/v1/mapping/start` |
+### 4.2 开始建图
 
-**Body锛?* `sn`锛坰tring锛夈€乣map_id`锛坰tring锛夈€乣mode`锛坄auto` \| `remote` \| `follow`锛?
-**鏈哄櫒閿欒鏃?`data`锛?* `robot_code`銆乣robot_message`
+| 方法 | `POST` |
+| 路径 | `/ratel/api/v1/mapping/start` |
 
-### 4.3 鏆傚仠寤哄浘
+**Body：** `sn`（string）、`map_id`（string）、`mode`（`auto` \| `remote` \| `follow`）。
+**机器错误时 `data`：** `robot_code`、`robot_message`
 
-| 鏂规硶 | `POST` |
-| 璺緞 | `/ratel/api/v1/mapping/pause` |
+### 4.3 暂停建图
 
-**Body锛?* `{ "sn": "<SN>" }`
+| 方法 | `POST` |
+| 路径 | `/ratel/api/v1/mapping/pause` |
 
-### 4.4 鎭㈠寤哄浘
+**Body：** `{ "sn": "<SN>" }`
 
-| 鏂规硶 | `POST` |
-| 璺緞 | `/ratel/api/v1/mapping/resume` |
+### 4.4 恢复建图
 
-**Body锛?* `{ "sn": "<SN>" }`
+| 方法 | `POST` |
+| 路径 | `/ratel/api/v1/mapping/resume` |
 
-### 4.5 鍋滄寤哄浘
+**Body：** `{ "sn": "<SN>" }`
 
-| 鏂规硶 | `POST` |
-| 璺緞 | `/ratel/api/v1/mapping/stop` |
+### 4.5 停止建图
 
-**Body锛?* `sn`锛坰tring锛夈€乣save`锛坆ool锛宍true` 淇濆瓨鍦板浘锛?
-### 4.6 鍒囨崲寤哄浘妯″紡
+| 方法 | `POST` |
+| 路径 | `/ratel/api/v1/mapping/stop` |
 
-| 鏂规硶 | `POST` |
-| 璺緞 | `/ratel/api/v1/mapping/mode` |
+**Body：** `sn`（string）、`save`（bool，`true` 保存地图）
 
-**Body锛?* `sn`锛坰tring锛夈€乣mode`锛坄auto` \| `remote` \| `follow`锛?
+### 4.6 切换建图模式
+
+| 方法 | `POST` |
+| 路径 | `/ratel/api/v1/mapping/mode` |
+
+**Body：** `sn`（string）、`mode`（`auto` \| `remote` \| `follow`）
+
 ---
 
-## 5. 鍓茶崏浠诲姟锛圚TTP锛?
-璺緞鍓嶇紑锛歚/ratel/central-control-service/api/v1/ratel_task/`
+## 5. 割草任务（HTTP）
 
-### 5.1 鍙戣捣鍓茶崏浠诲姟
+路径前缀：`/ratel/central-control-service/api/v1/ratel_task/`
 
-| 鏂规硶 | `POST` |
-| 璺緞 | `/ratel/central-control-service/api/v1/ratel_task/create` |
+### 5.1 发起割草任务
 
-**璇锋眰 Body**
+| 方法 | `POST` |
+| 路径 | `/ratel/central-control-service/api/v1/ratel_task/create` |
 
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 璇存槑 |
+**请求 Body**
+
+| 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `sn` | string | 鏄?| 璁惧 SN |
-| `task_info` | object | 鏄?| 鍓茶崏浠诲姟鍙傛暟 |
+| `sn` | string | 是 | 设备 SN |
+| `task_info` | object | 是 | 割草任务参数 |
 
 **`task_info`**
 
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 鍗曚綅 | 璇存槑 |
+| 字段 | 类型 | 必填 | 单位 | 说明 |
 |------|------|------|------|------|
-| `task_mode` | string | 鏄?| 鈥?| `"global"` 鍏ㄥ眬 \| `"area"` 灞€閮?|
-| `map_id` | string | 鏄?| 鈥?| 鍦板浘 ID |
-| `area_id` | string[] | 鏉′欢 | 鈥?| `task_mode="area"` 鏃跺繀濉?|
-| `mow_height` | float | 鏄?| mm | 鍓茶崏楂樺害 |
-| `mow_speed` | float | 鏄?| m/s | 0.3 ~ 1.0锛屾杩?0.1 |
-| `texture` | object | 鏄?| 鈥?| 寮撳舰绾圭悊鍙傛暟 |
+| `task_mode` | string | 是 | — | `"global"` 全局 \| `"area"` 局部 |
+| `map_id` | string | 是 | — | 地图 ID |
+| `area_id` | string[] | 条件 | — | `task_mode="area"` 时必填 |
+| `mow_height` | float | 是 | mm | 割草高度 |
+| `mow_speed` | float | 是 | m/s | 0.3 ~ 1.0，步进 0.1 |
+| `texture` | object | 是 | — | 弓形纹理参数 |
 
 **`task_info.texture`**
 
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 璇存槑 |
+| 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `mode` | string | 鏄?| `"global"` \| `"area"` |
-| `bow_shaped_spacing` | number | 鏄?| 寮撳舰闂磋窛锛坢m锛涙枃妗ｄ害鏈?int32 鎻忚堪锛?|
-| `texture_angle` | int32 | 鏄?| 绾圭悊瑙掑害 [0, 180) 搴?|
-| `intelligent_alternation_mode` | boolean | 鏄?| 鏅鸿兘浜ゆ浛妯″紡 |
+| `mode` | string | 是 | `"global"` \| `"area"` |
+| `bow_shaped_spacing` | number | 是 | 弓形间距（mm；文档亦有 int32 描述）|
+| `texture_angle` | int32 | 是 | 纹理角度 [0, 180) 度 |
+| `intelligent_alternation_mode` | boolean | 是 | 智能交替模式 |
 
-**鍝嶅簲 `data`锛?* `task_id`銆乣robot_code`銆乣robot_message`
+**响应 `data`：** `task_id`、`robot_code`、`robot_message`
 
 ```bash
 curl -X POST 'https://ratel-cxg-test-internal.pudu.work/ratel/central-control-service/api/v1/ratel_task/create' \
@@ -537,62 +558,65 @@ curl -X POST 'https://ratel-cxg-test-internal.pudu.work/ratel/central-control-se
   }'
 ```
 
-### 5.2 鍓茶崏浠诲姟 Action锛堟殏鍋?/ 缁х画 / 鍙栨秷锛?
-| 鏂规硶 | `POST` |
-| 璺緞 | `/ratel/central-control-service/api/v1/ratel_task/action` |
+### 5.2 割草任务 Action（暂停 / 继续 / 取消）
 
-**Body锛?* `sn`銆乣task_id`銆乣action`锛坄PAUSE` \| `RESUME` \| `CANCEL`锛?
-**鍝嶅簲 `data`锛?* `robot_code`銆乣robot_message`
+| 方法 | `POST` |
+| 路径 | `/ratel/central-control-service/api/v1/ratel_task/action` |
 
-### 5.3 鍓茶崏浠诲姟鍒楄〃
+**Body：** `sn`、`task_id`、`action`（`PAUSE` \| `RESUME` \| `CANCEL`）
+**响应 `data`：** `robot_code`、`robot_message`
 
-| 鏂规硶 | `POST` |
-| 璺緞 | `/ratel/central-control-service/api/v1/ratel_task/list` |
+### 5.3 割草任务列表
 
-**Body锛?* `{ "sn": "<SN>" }`
+| 方法 | `POST` |
+| 路径 | `/ratel/central-control-service/api/v1/ratel_task/list` |
 
-**鍝嶅簲 `data`**
+**Body：** `{ "sn": "<SN>" }`
 
-| 瀛楁 | 绫诲瀷 | 璇存槑 |
+**响应 `data`**
+
+| 字段 | 类型 | 说明 |
 |------|------|------|
-| `total` | int32 | 浠诲姟鎬绘暟 |
-| `list` | TaskSummary[] | 浠诲姟鎽樿鍒楄〃 |
-| `task_info` | object | 褰撳墠鎵ц涓换鍔″弬鏁帮紙缁撴瀯鍚?搂5.1 `task_info`锛?|
-| `task_notify` | object | 鏈哄櫒鏈€鍚庝竴娆′笂鎶ヨ繘搴︼紝瑙?[TaskNotify](#tasknotify) |
+| `total` | int32 | 任务总数 |
+| `list` | TaskSummary[] | 任务摘要列表 |
+| `task_info` | object | 当前执行中任务参数（结构同 §5.1 `task_info`）|
+| `task_notify` | object | 机器最后一次上报进度，见 [TaskNotify](#tasknotify) |
 
-**`list[]` 鏉＄洰锛坄APP绔帴鍙ｆ枃妗 鎵╁睍锛?*
+**`list[]` 条目（`APP端接口文档` 扩展）**
 
-| 瀛楁 | 绫诲瀷 | 璇存槑 |
+| 字段 | 类型 | 说明 |
 |------|------|------|
-| `task_id` | string | 浠诲姟 ID |
-| `task_status` | string | 瑙?[TaskStatus](#taskstatus-鏋氫妇) |
-| `task_info` | object | 涓嬪彂浠诲姟鍙傛暟 |
-| `task_notify` | object | 鏈€杩戣繘搴?|
-| `create_time` | int64 | 鍒涘缓鏃堕棿锛堢锛?|
-| `update_time` | int64 | 鏇存柊鏃堕棿锛堢锛?|
+| `task_id` | string | 任务 ID |
+| `task_status` | string | 见 [TaskStatus](#taskstatus-枚举) |
+| `task_info` | object | 下发任务参数 |
+| `task_notify` | object | 最近进度 |
+| `create_time` | int64 | 创建时间（秒）|
+| `update_time` | int64 | 更新时间（秒）|
 
 ---
 
-## 6. 鍓茶崏杩涘害涓庝綅缃紙WS锛?
-### 6.1 鍓茶崏浠诲姟鐘舵€佹帹閫?鈥?`NOTIFY_MOW_STATUS`
+## 6. 割草进度与位置（WS）
 
-| 灞炴€?| 鍊?|
+### 6.1 割草任务状态推送 — `NOTIFY_MOW_STATUS`
+
+| 属性 | 值 |
 |------|-----|
-| 鏂瑰悜 | 鏈嶅姟绔?鈫?瀹㈡埛绔?|
-| 瑙﹀彂 | 鍓茶崏浠诲姟鐘舵€佹垨杩涘害鍙樺寲 |
+| 方向 | 服务端 → 客户端 |
+| 触发 | 割草任务状态或进度变化 |
 
-**娑堟伅缁撴瀯**
+**消息结构**
 
-| 瀛楁 | 绫诲瀷 | 璇存槑 |
+| 字段 | 类型 | 说明 |
 |------|------|------|
 | `cmd` | string | `"NOTIFY_MOW_STATUS"` |
 | `cmd_id` | string | UUID |
 | `version` | int | `1` |
-| `data.sn` | string | 璁惧 SN |
-| `data.payload` | object | 浠诲姟杩涘害锛屽瓧娈佃 [TaskNotify](#tasknotify) + `task_id` / `task_status` |
+| `data.sn` | string | 设备 SN |
+| `data.payload` | object | 任务进度，字段见 [TaskNotify](#tasknotify) + `task_id` / `task_status` |
 
-> App 瑙ｆ瀽锛歚data.payload` 鍙兘宓屽鍦?`data` 椤跺眰閲嶅涓€浠斤紱浠?`payload` 涓哄噯锛堣 `mowStatusPayload.ts`锛夈€?
-**鎺ユ敹绀轰緥**
+> App 解析：`data.payload` 可能嵌套在 `data` 顶层重复一份；以 `payload` 为准（见 `mowStatusPayload.ts`）。
+
+**接收示例**
 
 ```json
 {
@@ -618,16 +642,18 @@ curl -X POST 'https://ratel-cxg-test-internal.pudu.work/ratel/central-control-se
 }
 ```
 
-### 6.2 浣嶇疆鎺ㄩ€佺櫥璁?鈥?`LOCATION_REGISTER`
+### 6.2 位置推送登记 — `LOCATION_REGISTER`
 
-**鏂瑰悜锛?* 瀹㈡埛绔?鈫?鏈嶅姟绔?
-鍓茶崏浠诲姟寮€濮嬫椂鐧昏涓€娆★紱浠诲姟缁撴潫鍙?[鍙栨秷鐧昏](#63-浣嶇疆鎺ㄩ€佸彇娑堢櫥璁?-location_unregister)銆?
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 璇存槑 |
+**方向：** 客户端 → 服务端
+
+割草任务开始时登记一次；任务结束可 [取消登记](#63-位置推送取消登记-location_unregister)。
+
+| 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `cmd` | string | 鏄?| `"LOCATION_REGISTER"` |
-| `cmd_id` | string | 鏄?| UUID |
-| `version` | int | 鏄?| `1` |
-| `data.sn` | string | 鏄?| 鏈哄櫒 SN |
+| `cmd` | string | 是 | `"LOCATION_REGISTER"` |
+| `cmd_id` | string | 是 | UUID |
+| `version` | int | 是 | `1` |
+| `data.sn` | string | 是 | 机器 SN |
 
 ```json
 {
@@ -638,29 +664,32 @@ curl -X POST 'https://ratel-cxg-test-internal.pudu.work/ratel/central-control-se
 }
 ```
 
-> 椤婚€氳繃 RustKit `wsSend` 鍐欏叆宸插缓绔嬬殑 WS 杩炴帴锛涚櫥璁版垚鍔熷悗鏈嶅姟绔墠鎺ㄩ€?`ROBOT_LOCATION`銆?
-### 6.3 浣嶇疆鎺ㄩ€佸彇娑堢櫥璁?鈥?`LOCATION_UNREGISTER`
+> 须通过 RustKit `wsSend` 写入已建立的 WS 连接；登记成功后服务端才推送 `ROBOT_LOCATION`。
 
-**鏂瑰悜锛?* 瀹㈡埛绔?鈫?鏈嶅姟绔?
-| 瀛楁 | 绫诲瀷 | 蹇呭～ | 璇存槑 |
+### 6.3 位置推送取消登记 — `LOCATION_UNREGISTER`
+
+**方向：** 客户端 → 服务端
+
+| 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `cmd` | string | 鏄?| `"LOCATION_UNREGISTER"` |
-| `data.sn` | string | 鏄?| 鏈哄櫒 SN |
+| `cmd` | string | 是 | `"LOCATION_UNREGISTER"` |
+| `data.sn` | string | 是 | 机器 SN |
 
-### 6.4 鏈哄櫒浣嶇疆鎺ㄩ€?鈥?`ROBOT_LOCATION`
+### 6.4 机器位置推送 — `ROBOT_LOCATION`
 
-**鏂瑰悜锛?* 鏈嶅姟绔?鈫?瀹㈡埛绔紙瀹屾垚 `LOCATION_REGISTER` 涓斾换鍔′负娲昏穬鍓茶崏鎬佸悗鎸佺画鎺ㄩ€侊紝鍏稿瀷闂撮殧 300ms锛?
-| 瀛楁 | 绫诲瀷 | 鍗曚綅 | 蹇呭～ | 璇存槑 |
+**方向：** 服务端 → 客户端（完成 `LOCATION_REGISTER` 且任务为活跃割草态后持续推送，典型间隔 300ms）
+
+| 字段 | 类型 | 单位 | 必填 | 说明 |
 |------|------|------|------|------|
-| `cmd` | string | 鈥?| 鏄?| `"ROBOT_LOCATION"` |
-| `data.sn` | string | 鈥?| 鏄?| 鏈哄櫒 SN |
-| `data.mac` | string | 鈥?| 鏄?| MAC |
-| `data.map_id` | string | 鈥?| 鏄?| 褰撳墠鍦板浘 ID |
-| `data.x` | float | m | 鏄?| X 鍧愭爣 |
-| `data.y` | float | m | 鏄?| Y 鍧愭爣 |
-| `data.angle` | float | rad | 鏄?| 鏈濆悜 |
-| `data.timestamp` | int64 | s | 鏄?| 鏈哄櫒涓婃姤鏃堕棿鎴?|
-| `data.notify_time` | int64 | ms | 鏄?| 鏈嶅姟绔帹閫佹椂闂存埑 |
+| `cmd` | string | — | 是 | `"ROBOT_LOCATION"` |
+| `data.sn` | string | — | 是 | 机器 SN |
+| `data.mac` | string | — | 是 | MAC |
+| `data.map_id` | string | — | 是 | 当前地图 ID |
+| `data.x` | float | m | 是 | X 坐标 |
+| `data.y` | float | m | 是 | Y 坐标 |
+| `data.angle` | float | rad | 是 | 朝向 |
+| `data.timestamp` | int64 | s | 是 | 机器上报时间戳 |
+| `data.notify_time` | int64 | ms | 是 | 服务端推送时间戳 |
 
 ```json
 {
@@ -682,99 +711,106 @@ curl -X POST 'https://ratel-cxg-test-internal.pudu.work/ratel/central-control-se
 
 ---
 
-## 7. 鍏叡鏁版嵁缁撴瀯
+## 7. 公共数据结构
 
 ### TaskSummary
 
-| 瀛楁 | 绫诲瀷 | 璇存槑 |
+| 字段 | 类型 | 说明 |
 |------|------|------|
-| `task_id` | string | 鍓茶崏浠诲姟 ID |
-| `task_status` | string | 瑙?[TaskStatus](#taskstatus-鏋氫妇) |
+| `task_id` | string | 割草任务 ID |
+| `task_status` | string | 见 [TaskStatus](#taskstatus-枚举) |
 
 ### TaskNotify
 
-鐢ㄤ簬 `list.task_notify` 鍙?`NOTIFY_MOW_STATUS.data.payload`銆?
-| 瀛楁 | 绫诲瀷 | 璇存槑 |
+用于 `list.task_notify` 或 `NOTIFY_MOW_STATUS.data.payload`。
+
+| 字段 | 类型 | 说明 |
 |------|------|------|
-| `task_id` | string | 浠诲姟 ID锛圵S payload 涓級 |
-| `task_status` | string | 浠诲姟鐘舵€?|
-| `task_type` | string | `"cloud"` 浜戠 \| `"button"` 鎸夐敭 |
-| `task_message` | string | 鐘舵€佹弿杩?|
-| `task_error_code` | int32 | 閿欒鐮?|
-| `mow_area` | float | 鎬诲壊鑽夐潰绉紙鍗曚綅寰呯‘璁わ級 |
-| `mow_progress` | float | 鍓茶崏杩涘害锛堟帹鏂负 0鈥?00 鐧惧垎姣旓級 |
-| `estimated_time` | float | 棰勮瀹屾垚鏃堕棿锛堝崟浣嶅緟纭锛?|
-| `timestamp` | int64 | 鏈哄櫒涓婃姤鏃堕棿锛堢锛?|
-| `notify_timestamp` | int64 | 閫氱煡鏃堕棿锛堟绉掞級 |
+| `task_id` | string | 任务 ID（WS payload 中） |
+| `task_status` | string | 任务状态 |
+| `task_type` | string | `"cloud"` 云端 \| `"button"` 按键 |
+| `task_message` | string | 状态描述 |
+| `task_error_code` | int32 | 错误码 |
+| `mow_area` | float | 总割草面积（单位待确认） |
+| `mow_progress` | float | 割草进度（推断为 0~100 百分比） |
+| `estimated_time` | float | 预计完成时间（单位待确认）|
+| `timestamp` | int64 | 机器上报时间（秒）|
+| `notify_timestamp` | int64 | 通知时间（毫秒） |
 
-### TaskStatus 鏋氫妇
+### TaskStatus 枚举
 
-| 鍊?| 鍚箟 |
+| 值 | 含义 |
 |----|------|
-| `ON_THE_WAY` | 杩涜涓紙鍚墠寰€鍓茶崏鍖哄煙閫斾腑锛?|
-| `PAUSE` | 宸叉殏鍋?|
-| `COMPLETE` | 宸插畬鎴?|
-| `CANCEL` | 宸插彇娑?|
-| `FAILED` | 澶辫触锛堟満鍣ㄦ嫆缁濅换鍔★紝鐢卞悗绔洿鏂帮級 |
+| `ON_THE_WAY` | 进行中（含前往割草区域途中）|
+| `PAUSE` | 已暂停 |
+| `COMPLETE` | 已完成 |
+| `CANCEL` | 已取消 |
+| `FAILED` | 失败（机器拒绝任务，由后端更新） |
 
 ---
 
-## 8. 寰呬笌鍚庣瀵归綈椤?
-> 浠ヤ笅闂闇€涓庡悗绔‘璁ゅ悗濉叆姝ｅ紡鍙栧€笺€?
-### 8.1 瀛楁绫诲瀷 / 鍙栧€艰寖鍥?
-| # | 瀛楁 | 寰呯‘璁?|
+## 8. 待与后端对齐项
+
+> 以下问题需与后端确认后填入正式取值范围。
+
+### 8.1 字段类型 / 取值范围
+
+| # | 字段 | 待确认 |
 |---|------|--------|
-| T1 | `task_info.bow_shaped_spacing` | `float` 杩樻槸 `int32`锛?.1mm 鏁存暟锛夛紵鍙栧€艰寖鍥达紵 |
-| T2 | `mow_progress` | 鏄惁涓?`[0, 100]` 鐧惧垎姣旓紵 |
+| T1 | `task_info.bow_shaped_spacing` | `float` 还是 `int32`（0.1mm 整数）？取值范围？ |
+| T2 | `mow_progress` | 是否为 `[0, 100]` 百分比？ |
 
-### 8.2 缂哄皯鍗曚綅
+### 8.2 缺少单位
 
-| # | 瀛楁 | 寰呯‘璁ゅ崟浣?|
+| # | 字段 | 待确认单位 |
 |---|------|------------|
-| U1 | `mow_area` | m虏 鎴栧叾浠?|
-| U2 | `estimated_time` | 绉掋€佸垎閽熸垨姣 |
+| U1 | `mow_area` | m² 或其他 |
+| U2 | `estimated_time` | 秒、分钟或毫秒 |
 
-### 8.3 缂哄皯閿欒鐮佸畾涔?
-| # | 瀛楁 | 寰呯‘璁?|
-|---|------|--------|
-| E1 | `robot_code` | 鏋氫妇琛?|
-| E2 | `task_error_code` | 瀹屾暣鏄犲皠 |
-| E3 | HTTP `code` | 闄?`200` 澶栫殑涓氬姟鐮?|
+### 8.3 缺少错误码定义
 
-### 8.4 绌哄€?/ 鍙€夋€?
-| # | 鍦烘櫙 | 寰呯‘璁?|
+| # | 字段 | 待确认 |
 |---|------|--------|
-| N1 | 浠诲姟 `FAILED` / `CANCEL` | `task_info` / `task_notify` 涓?`null` 杩樻槸鐪佺暐锛?|
-| N2 | 鏃犳墽琛屼腑浠诲姟 | `task_info` 涓?`null`銆乣{}` 杩樻槸涓嶈繑鍥烇紵 |
+| E1 | `robot_code` | 枚举值 |
+| E2 | `task_error_code` | 完整映射 |
+| E3 | HTTP `code` | 除 `200` 外的业务码 |
+
+### 8.4 空值 / 可选性
+
+| # | 场景 | 待确认 |
+|---|------|--------|
+| N1 | 任务 `FAILED` / `CANCEL` | `task_info` / `task_notify` 为 `null` 还是省略？ |
+| N2 | 无执行中任务 | `task_info` 为 `null`、`{}` 还是不返回？ |
 
 ---
 
-## 9. 鍓嶇瀹炵幇瀵圭収
+## 9. 前端实现对照
 
-### 寤哄浘 HTTP锛堟埅鑷?2026-06-04锛?
-璇﹁ `build-docs/mapping-mowing-button-transport.md`銆?
-| 鎺ュ彛 | App 灏佽 | 瑙﹁揪 |
+### 建图 HTTP（截至 2026-06-04）
+
+详见 `build-docs/mapping-mowing-button-transport.md`。
+
+| 接口 | App 封装 | 触达 |
 |------|----------|------|
-| 寮€濮嬭嚜妫€ | `postRobotSelfCheck` | HTTP 鈫?`runMappingPrepareChecks` |
-| 鏉′欢妫€娴?| `postMappingCheck` 鈫?`normalizeMappingCheckData` | HTTP 杞鑷冲叚椤归綈鍏?|
-| 寮€濮?/ 鏆傚仠 / 鎭㈠ / 鍋滄 / 鍒囨崲妯″紡 | `postStartMapping` 绛?| HTTP锛屽け璐?BLE 鍥為€€ |
+| 开始自检 | `postRobotSelfCheck` | HTTP → `runMappingPrepareChecks` |
+| 条件检测 | `postMappingCheck` → `normalizeMappingCheckData` | HTTP 轮询至六项齐全 |
+| 开始 / 暂停 / 恢复 / 停止 / 切换模式 | `postStartMapping` 等 | HTTP，失败回退 BLE |
 
-### 鍓茶崏 WS / HTTP
+### 割草 WS / HTTP
 
-| 鑳藉姏 | App 妯″潡 |
+| 能力 | App 模块 |
 |------|----------|
-| `NOTIFY_MOW_STATUS` | `useWsDeviceListener` 鈫?mowing FSM |
-| `LOCATION_REGISTER` | `useLocationRegistration` 鈫?`wsSend`锛涙垚鍔熷悗 30s 鍐呮棤 `ROBOT_LOCATION` 鎵?WARN `location.register.no_robot_location` |
-| `ROBOT_LOCATION` | `useWsDeviceListener` 鈫?`useRobotTrajectory` |
-| 鍒涘缓 / Action / List | `useMowingCommands` / `mowingApi` |
+| `NOTIFY_MOW_STATUS` | `useWsDeviceListener` → mowing FSM |
+| `LOCATION_REGISTER` | `useLocationRegistration` → `wsSend`；成功后 30s 内无 `ROBOT_LOCATION` 触发 WARN `location.register.no_robot_location` |
+| `ROBOT_LOCATION` | `useWsDeviceListener` → `useRobotTrajectory` |
+| 创建 / Action / List | `useMowingCommands` / `mowingApi` |
 
-### 鏈哄櫒鐘舵€?WS
+### 机器人状态 WS
 
-| 鑳藉姏 | App 妯″潡 |
+| 能力 | App 模块 |
 |------|----------|
-| `NOTIFY_RATEL_STATUS` | `useWsDeviceListener` 鈫?`EventAdapter` 鈫?mapping/mowing FSM锛堝疄鐜板眰瀵瑰巻鍙?mock 鍒悕鐨勫吋瀹硅浠ｇ爜锛屼笉鍦ㄥ崗璁寖鍥达級 |
+| `NOTIFY_RATEL_STATUS` | `useWsDeviceListener` → `EventAdapter` → mapping/mowing FSM（实现层对历史 mock 别名的兼容见代码，不在协议范围） |
 
 ---
 
-**鍘嗗彶鏂囨。**锛氭湰鏂囨。鍙栦唬 `robot_status_ws.md`銆乣mowing_api.md`銆乣mapbuilder_api.md`銆傛洿瀹屾暣鐨勯潪寤哄浘/鍓茶崏鎺ュ彛锛堝洖鍏呫€佸湴鍥惧垪琛ㄣ€侀仴鎺х瓑锛変粛瑙?`APP绔帴鍙ｆ枃妗?md`銆?
-
+**历史文档**：本文档取代 `robot_status_ws.md`、`mowing_api.md`、`mapbuilder_api.md`。更完整的非建图/割草接口（回充、地图列表、遥控等）仍见 `APP端接口文档.md`。

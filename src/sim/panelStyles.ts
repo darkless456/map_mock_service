@@ -28,10 +28,14 @@ h1 { margin: 0; font-size: 18px; font-weight: 760; letter-spacing: 0; }
 header p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
 main {
   display: grid;
-  grid-template-columns: 340px minmax(420px, 1fr) minmax(360px, 520px);
+  grid-template-columns: 340px minmax(420px, min(900px, 1fr)) minmax(360px, 480px);
   gap: 12px;
   padding: 12px;
   align-items: start;
+  /* §6.7(6) P5b 改进 4: cap total width on high-DPI displays so the middle
+     column's metric cards don't expand unboundedly and overlap the timeline. */
+  max-width: 1780px;
+  margin: 0 auto;
 }
 section {
   background: var(--panel);
@@ -77,7 +81,9 @@ button.subtle { background: #eef2f7; border-color: #cbd5e1; }
 .status-line.err { color: var(--red); }
 .metrics {
   display: grid;
-  grid-template-columns: repeat(5, minmax(110px, 1fr));
+  /* §6.7(3) P5b 改进 4: auto-fill so cards reflow instead of forcing 5 fixed
+     columns that stretch too wide on high-DPI screens. */
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   gap: 8px;
   margin-bottom: 12px;
 }
@@ -111,9 +117,10 @@ button.subtle { background: #eef2f7; border-color: #cbd5e1; }
   gap: 4px;
 }
 .node {
-  min-width: 70px;
+  min-width: 62px;
+  max-width: 110px;
   min-height: 42px;
-  flex: 1 1 70px;
+  flex: 0 1 auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -181,7 +188,7 @@ button.subtle { background: #eef2f7; border-color: #cbd5e1; }
 .event-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .event-title { font-size: 12px; font-weight: 800; overflow-wrap: anywhere; }
 .event-time { color: var(--muted); font-size: 11px; white-space: nowrap; }
-.event-meta { margin-top: 6px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.event-meta { margin-top: 6px; color: #475467; font-size: 12.5px; font-weight: 600; overflow-wrap: anywhere; }
 details { margin-top: 6px; }
 summary { cursor: pointer; color: var(--blue); font-size: 12px; font-weight: 700; }
 pre {
@@ -197,6 +204,11 @@ pre {
   font-size: 11px;
 }
 .raw-state { max-height: 420px; }
+/* §6.7(6) P5b 改进 4: high-DPI breakpoint — on wide retina displays the three
+   columns keep balanced proportions and never overlap. */
+@media (min-width: 1800px) {
+  main { grid-template-columns: 320px minmax(460px, 860px) minmax(380px, 500px); }
+}
 @media (max-width: 1180px) {
   main { grid-template-columns: 320px 1fr; }
   .events { grid-column: 1 / -1; }

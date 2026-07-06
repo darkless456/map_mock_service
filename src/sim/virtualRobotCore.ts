@@ -133,6 +133,10 @@ export class VirtualRobot extends EventEmitter {
       latestMappingTaskBySn: this.mappingTaskRecords.latestBySnObject(),
       activeMappingTask: this.activeMappingTask(),
       events: this.eventLog.snapshot(),
+      // §6.7(3) P5b 改进 3: surface last-notify projection so the panel metric
+      // card reads live sub_status instead of a stale 'none'.
+      lastNotifyWorkStatus: this.lastNotifyWorkStatus,
+      lastNotifySubStatus: this.lastNotifySubStatus,
     };
   }
 
@@ -213,8 +217,8 @@ export class VirtualRobot extends EventEmitter {
       lastSource: 'cmd' as const,
       lastSourceTs: Date.now(),
     };
-    // SimView 鍒绘剰涓庨暅鍍?TaskContext 鐨?notices 妯″瀷涓嶅悓锛堣 simFsmTypes锛夛紝
-    // 姝ゅ涓洪€傞厤灞傝竟鐣岋紝缁?unknown 杞崲瀛樺洖銆?
+    // SimView 刻意与镜像 TaskContext 的 notices 模型不同（见 simFsmTypes），
+    // 此处为适配层边界，给 unknown 转换存回。
     if (domain === 'mowing') this.mowing = next as unknown as MowingContext;
     else this.mapping = next as unknown as MappingContext;
     this.record(domain, { type: 'SIM_SETUP', setup });
@@ -233,8 +237,11 @@ export class VirtualRobot extends EventEmitter {
   }
 
   /**
-   * 鎭㈠寤哄浘锛氫笌鍓茶崏 `applyMowingAction('RESUME')` 瀵圭О銆傚厛椹卞姩 mock FSM `CMD_RESUME`锛?   * 鍐?*琛ユ帹涓€甯?`work_status: mapping` 鎭㈠纭**鈥斺€斾簯绔棤銆屽凡鎭㈠銆嶈澶囨€侊紝App 渚?   * `RESUMING` 闇€闈犳椿璺冪姸鎬佹帹閫佽蛋鍑猴紙瑙?mower `build-docs/pause_resume_contract_design.md`
-   * 搂3.1/搂3.5锛夈€傞噸缃?notify 鍘婚噸锛岀‘淇濆嵆浣?sub_status 鏈彉涔熻兘骞挎挱璇ョ‘璁ゅ抚銆?   */
+   * 恢复建图：与割草 `applyMowingAction('RESUME')` 对称。先驱动 mock FSM `CMD_RESUME`，
+   * 再*补推一帧 `work_status: mapping` 恢复确认**——云端无「已恢复」设备态，App 的
+   * `RESUMING` 需靠活跃状态推送走出（见 mower `build-docs/pause_resume_contract_design.md`
+   * §3.1/§3.5）。重置 notify 去重，确保即便 sub_status 未变也能广播该确认帧。
+   */
   resumeMapping(): void {
     this.dispatchMapping({ type: 'CMD_RESUME' });
     const sub = this.lastNotifySubStatus ?? 'none';
@@ -453,9 +460,12 @@ export class VirtualRobot extends EventEmitter {
   }
 
   /**
-   * 浠讳綍鏉ユ簮锛圵eb 闈㈡澘 / App API / 鍦烘櫙鑴氭湰锛変笅鍙戠殑鏆傚仠 / 鎭㈠鎸囦护閮戒細缁忚繃
-   * dispatchMapping / dispatchMowing銆傝繖閲屽湪鐘舵€佹満澶勭悊鍓嶇粺涓€骞挎挱鎺у埗鎰忓浘锛?   * 渚?{@link ScenarioEngine} 鎹鏆傚仠 / 鎭㈠鑴氭湰寰幆锛堣€屼笉浠呬粎鏄満鍣ㄤ汉 FSM锛夈€?   * 鍗充娇褰撳墠 FSM 鐘舵€佷笉鎺ュ彈璇ユ寚浠わ紙reducer 鏈敼鍙樼姸鎬侊級锛屾剰鍥句粛浼氬箍鎾紝
-   * 淇濊瘉璋冭瘯鏃舵殏鍋滃缁堢敓鏁堛€?   */
+   * 任何来源（Web 面板 / App API / 场景脚本）下发的暂停 / 恢复指令都会经过
+   * dispatchMapping / dispatchMowing。这里在状态机处理前统一广播控制意图，
+   * 供 {@link ScenarioEngine} 据此暂停 / 恢复脚本循环（而不仅仅是机器人 FSM）。
+   * 即使当前 FSM 状态不接受该指令（reducer 未改变状态），意图仍会广播，
+   * 保证调试时暂停始终生效。
+   */
   private emitControlIntent(event: { readonly type?: string }): void {
     if (event.type === 'CMD_PAUSE') this.emit('controlPause');
     else if (event.type === 'CMD_RESUME') this.emit('controlResume');

@@ -406,21 +406,71 @@ fixtures/faults/
 
 当前 [`src/sim/panel.ts`](src/sim/panel.ts:6)（304 行单文件 HTML）的「状态」区只是把 `JSON.stringify(snapshot)` 甩进 `<pre>`，「时间线」区是 WS inspect 的逐条 JSON 累积文本。开发者很难一眼看出「现在处于建图/割草的哪个阶段、下一步会发生什么、为什么状态跳转」。针对流程可读性，建议：
 
-**(1) 状态机泳道图** — 用静态 SVG/Canvas 画出 mapping 与 mowing 两条 FSM 主干（节点 = phase，如 `PREPARING → EDGE_FOLLOW → MAP_COVERAGE_RUN → SAVE → COMPLETED`），高亮当前 phase，正在迁移的边用动画箭头。FSM 定义来自只读镜像 [`MappingSession.ts`](src/sim/fsm-mirror/domain/mapping/MappingSession.ts:1)/[`MowingTask.ts`](src/sim/fsm-mirror/domain/mowing/MowingTask.ts:1)，可写一个 `phaseGraphFromFsm()` 把 phase 枚举 + 合法迁移编译成图数据，UI 只渲染。比读 JSON 直观一个量级。
+**(1) 状态机泳道图** — 用静态 SVG/Canvas 画出 mapping 与 mowing 两条 FSM 主干（节点 = phase，如 `PREPARING → EDGE_FOLLOW → MAP_COVERAGE_RUN → SAVE → COMPLETED`），高亮当前 phase，正在迁移的边用动画箭头。FSM 定义来自只读镜像 [`MappingSession.ts`](src/sim/fsm-mirror/domain/mapping/MappingSession.ts:1)/[`MowingTask.ts`](src/sim/fsm-mirror/domain/mowing/MowingTask.ts:1)，可写一个 [`phaseGraphFromFsm()`](src/sim/panelGraph.ts:84) 把 phase 枚举 + 合法迁移编译成图数据，UI 只渲染。比读 JSON 直观一个量级。
+
+> ⚠️ **改进 1（用户反馈）：泳道改为增量显示** — 当前实现（[`panelGraph.ts`](src/sim/panelGraph.ts:49) + [`renderLane()`](src/sim/panelClient.ts:125)）在初始化时就把 FSM 全部节点（mapping 约 12 个、mowing 约 8 个）静态渲染成一行，未进入过的 phase 节点灰色展示，导致泳道列表过长、充斥当前场景不会用到的状态，产生视觉干扰。
+>
+> **改为增量显示**：初始时泳道只渲染 `IDLE` 节点；每当 `/sim/inspect` WS 推送的事件中检测到新 phase/state，才将该节点追加到泳道。具体实现：
+> - [`panelGraph.ts`](src/sim/panelGraph.ts:1) 的 `phaseGraphFromFsm()` 返回完整图数据（保持不变，服务端 source-of-truth）；
+> - 客户端 [`panelClient.ts`](src/sim/panelClient.ts:1) 新增 `visitedPhases: Map<domain, Set<phaseKey>>` 状态，`pushEvent()` 时更新；
+> - `renderLane()` 改为只渲染 `visitedPhases` 中出现过的节点 + 当前 active 节点（若 active 节点还未在 visited 中，自动添加）；
+> - `resetSim()` / 场景切换时清空 `visitedPhases`，泳道重置为只含 `IDLE`；
+> - 这样「mapping_estop_edge_follow」场景只会显示它走过的 IDLE→PREP→UNDOCK→SCAN_BOUNDARY→ESTOPPED，不会出现 COVERAGE_RUN 等后续节点。
+>
+> 验收：初始状态泳道仅显示 IDLE；运行建图场景后节点逐步增长；重置后泳道归零。
 
 **(2) 时间线改为事件流卡片** — 当前 timeline 是纯文本 prepend，信息密度低且无结构。改为按时间倒序的事件卡片：每条显示 `[ts] cmd/notify | domain | 关键字段`，用颜色区分 `CMD_*`（下行控制，蓝）/`NOTIFY_*`（上行推送，绿）/`DEVICE_*`（设备事件，黄）/`ERROR`（红）。卡片可点击展开完整 payload。
 
-**(3) 关键指标常驻顶栏** — 把现在散在 `<pre>` 里的核心字段提到顶部数字卡：`work_status`、`phase`、`sub_status`、`battery`、`map base_version`、`active domain`，配语义颜色（idle 灰/mapping 紫/mowing 绿/estop 红），1.5s 轮询已存在（[`panel.ts:292`](src/sim/panel.ts:292)），直接喂这些卡。
+> ⚠️ **改进 2（用户反馈）：事件卡片关键信息可见** — 当前 [`panelTimeline.ts`](src/sim/panelTimeline.ts:28) 的 `eventMeta()` 已提取 `work_status`/`sub_status`/`phase` 字段并渲染到 `.event-meta` 行，但来源（`source`：ws / ble / http）未展示，且 `.event-meta` 在视觉上偏小（`color: var(--muted); font-size: 12px`），容易被忽略，用户误以为 payload 完全隐藏。
+>
+> **改进方案**：
+> - `eventMeta()` 补充 `source` 字段：若 `payload.source` 或 `payload.event?.source` 存在，在 meta 行首部显示 `[ws]`/`[http]`/`[ble]` 彩色标签；
+> - 对 `NOTIFY_RATEL_STATUS` 类事件，直接在 meta 行展示 `work_status → sub_status`（双值，箭头分隔），比 `sub=xxx` 更易读；
+> - 对 `transcript`（FSM 转换）事件，展示 `domain | before.state → after.state | event.type`，一行即可定位转换原因；
+> - `<details>` 的 `<summary>` 改为 `▶ payload`，collapsed 时仍能看到上方的 meta 摘要，展开才看原始 JSON；
+> - 调整 `.event-meta` 字号为 `12.5px`，颜色改为 `#475467`（比 `--muted` 稍深），让摘要行更易读。
+>
+> 验收：不展开 payload 时，事件卡片已能一眼看出来源（ws/http）、状态变化（work_status/sub_status/phase）；FSM 转换卡片一行显示 before→after。
+
+**(3) 关键指标常驻顶栏** — 把现在散在 `<pre>` 里的核心字段提到顶部数字卡：`work_status`、`phase`、`sub_status`、`battery`、`dataset`、`realism`，配语义颜色（idle 灰/mapping 紫/mowing 绿/estop 红），1.5s 轮询已存在（[`panelClient.ts:306`](src/sim/panelClient.ts:306)），直接喂这些卡。
+
+> ⚠️ **改进 3（用户反馈）：sub_status 指标卡始终显示 "none"** — 根因：[`renderMetrics()`](src/sim/panelClient.ts:85) 第 92 行读取 `data.lastNotifySubStatus`，但 `/sim/state` 返回的快照结构为 `{ data: { workStatus, phase, mapping: { ... }, mowing: { ... }, ... } }`，`lastNotifySubStatus` **未被包含在 `/sim/state` 的顶层 `data` 对象中**。`VirtualRobot.lastNotifySubStatus`（[`virtualRobotCore.ts:80`](src/sim/virtualRobotCore.ts:80)）字段存在，但 `buildSnapshot()` 未将其序列化到 state 响应。
+>
+> **修复方案**：在 [`src/http/routes/sim.routes.ts`](src/http/routes/sim.routes.ts:1) 的 `GET /sim/state` handler 中，确保 `buildSnapshot()` 返回的对象包含 `lastNotifySubStatus` 和 `lastNotifyWorkStatus` 字段；或直接在快照的顶层追加：
+>
+> ```ts
+> // sim.routes.ts: /sim/state 响应构造
+> const snap = robot.snapshot();          // 已有
+> snap.lastNotifySubStatus = robot.lastNotifySubStatus;   // 补加
+> snap.lastNotifyWorkStatus = robot.lastNotifyWorkStatus; // 补加
+> ```
+>
+> 同步确认 `renderMetrics()` 已有 `data.lastNotifySubStatus || 'none'` 的读取逻辑（[`panelClient.ts:92`](src/sim/panelClient.ts:92)），修复数据来源后指标卡即可正确显示。
+>
+> 验收：运行任意场景后，sub_status 指标卡显示对应的子状态字符串（如 `map_check` / `leave_dock` / `return_dock`），而不是 `none`。
 
 **(4) 场景进度条 + 下一步提示** — 场景 YAML 已有 step 概念。运行时显示「步骤 3/7 · 正在推送 leave_dock」，并高亮即将触发的下一个 `notify`/`emit`。让开发者预判「等几秒会出现什么」，而不是盲等。
 
-**(5) WebSocket 推送实时预览** — 当前 `/sim/inspect`（[`panel.ts:295`](src/sim/panel.ts:295)）把整条 WS 消息 JSON dump。建议解析出 `cmd`/`task_status`/`work_status`/`sub_status` 等业务字段，只展示这些 + 一个「展开原文」折叠，减少视觉噪声。
+**(5) WebSocket 推送实时预览** — 当前 `/sim/inspect`（[`panelClient.ts:309`](src/sim/panelClient.ts:309)）把整条 WS 消息 JSON dump。建议解析出 `cmd`/`task_status`/`work_status`/`sub_status` 等业务字段，只展示这些 + 一个「展开原文」折叠，减少视觉噪声。
 
 **(6) 双栏布局改三栏** — 现在是「操作 | 状态+时间线」两栏。建议改「操作 | FSM 图+指标卡 | 事件流时间线」三栏，左控中观右流，一一对应心智模型。
 
-**(7) panel.ts 拆分** — 304 行内联 HTML/JS 不易维护。重构时把 `renderPanelHtml()` 拆为：`panelHtml.ts`（壳）+ `panelState.ts`（数据拉取/轮询）+ `panelTimeline.ts`（时间线渲染）+ `panelGraph.ts`（FSM 图渲染），UI 资源（CSS/图）放 `src/sim/panel/assets/`。
+> ⚠️ **改进 4（用户反馈）：三栏布局在 Mac 高分屏溢出** — 当前 [`panelStyles.ts:31`](src/sim/panelStyles.ts:31) 的 `grid-template-columns: 340px minmax(420px, 1fr) minmax(360px, 520px)` 在 Mac Pro 高分辨率（如 5K 27"，实际 CSS 像素 ~2560px）下，中间列 `minmax(420px, 1fr)` 会抢占大量剩余空间，关键指标卡（6 个 metric 块 + FSM 泳道节点）扩展过宽，内容溢出覆盖右侧时间流列。
+>
+> **改进方案**：
+> - 中间列设置最大宽度上限：`minmax(420px, min(900px, 1fr))`，防止指标区域无限扩张；
+> - 右侧事件流列固定宽度为 `minmax(360px, 480px)`，确保时间流在高分辨率下不被挤压；
+> - metrics grid 改为 `repeat(auto-fill, minmax(130px, 1fr))`，自适应填充而非固定 5 列；
+> - FSM 泳道 `.nodes` 的 `.node` 改为 `flex: 0 1 auto; min-width: 62px; max-width: 110px`，防止节点块在宽容器下无限拉伸；
+> - 新增高分辨率断点：`@media (min-width: 1800px)` 下，`main` 改为 `grid-template-columns: 320px minmax(460px, 860px) minmax(380px, 500px)`，总宽度不超过 1680px，配合 `max-width: 1780px; margin: 0 auto` 居中显示；
+> - 在 `@media (max-width: 1180px)` 断点不变（两列模式）；
+> - 验收工具：在 DevTools 设备模式下模拟 2x DPR + 2560px 宽度，三列不发生重叠。
+>
+> 验收：Mac Pro（或 DevTools 2560px 视口）下，中列指标卡不遮盖右列时间流；缩放浏览器到 1200px 以下时自动降为两列；移动视图不受影响。
 
-**(8) 可选：录制回放带 scrubber** — [`routes.sim.ts:155`](src/http/routes.sim.ts:155) 已有 `/sim/recorder/replay`。在时间线上叠加一个时间轴 scrubber，拖拽即跳转到任意时刻的状态快照，方便回溯「状态在那一刻为什么变了」。
+**(7) panel.ts 拆分** — 304 行内联 HTML/JS 不易维护。重构时把 `renderPanelHtml()` 拆为：[`panelHtml.ts`](src/sim/panelHtml.ts:1)（壳）+ [`panelClient.ts`](src/sim/panelClient.ts:1)（数据拉取/轮询）+ [`panelTimeline.ts`](src/sim/panelTimeline.ts:1)（时间线渲染）+ [`panelGraph.ts`](src/sim/panelGraph.ts:1)（FSM 图渲染）+ [`panelStyles.ts`](src/sim/panelStyles.ts:1)（CSS）。✅ **P5b 已完成此拆分**，各模块职责独立。改进 1–4 的代码变更位置已精确到对应文件。
+
+**(8) 可选：录制回放带 scrubber** — [`sim.routes.ts`](src/http/routes/sim.routes.ts:1) 已有 `/sim/recorder/replay`。在时间线上叠加一个时间轴 scrubber，拖拽即跳转到任意时刻的状态快照，方便回溯「状态在那一刻为什么变了」。
 
 ### 6.8 真实环境延时模拟（HTTP 0.5–3s / WS 2–8s，可开关）
 
@@ -623,6 +673,10 @@ docs/
 - [ ] `SIM_REALISM=1` 或 `POST /sim/realism` 开启后，HTTP 业务接口延时 0.5–3s、WS 推送延时 2–8s；关闭后即时响应；`/api/health`、`/sim/*` 控制面豁免延时
 - [ ] `src/data/chargingDock.ts` 与 `src/data/annotations.ts` 均已删除；静态地图数据（含充电桩 type=69 point）以 `fixtures/maps/map_list.json` 为唯一来源（§11.3 决议 1），不建独立 annotations fixture
 - [ ] `__tests__/` 保留原位原结构，未迁移（§11.3 决议 3）
+- [ ] **P5b 改进 1 — FSM 泳道增量显示**：[`/sim/panel`](src/sim/panelHtml.ts:4) 初始加载时泳道仅显示 `IDLE` 节点；运行场景后节点随 WS inspect 推送逐步追加；`重置模拟器` 或切换场景后泳道重置为只含 `IDLE`（[`panelClient.ts`](src/sim/panelClient.ts:1) `visitedPhases` 逻辑）
+- [ ] **P5b 改进 2 — 事件卡片关键信息可见**：事件卡片的 meta 行（[`panelTimeline.ts:28`](src/sim/panelTimeline.ts:28)）显示来源标签 `[ws]`/`[http]`/`[ble]`，`NOTIFY_RATEL_STATUS` 展示 `work_status → sub_status`，FSM `transcript` 事件展示 `before.state → after.state | event.type`；不展开 `<details>` 即可读懂关键状态变化
+- [ ] **P5b 改进 3 — sub_status 指标卡修复**：运行任意含 sub_status 推送的场景后，[`/sim/panel`](src/sim/panelHtml.ts:4) 关键指标区 SUB STATUS 卡不再常驻 `none`，正确显示当前子状态（如 `map_check` / `leave_dock` / `return_dock`）；根因修复点：[`sim.routes.ts`](src/http/routes/sim.routes.ts:1) 的 `/sim/state` 快照需包含 `lastNotifySubStatus` 字段
+- [ ] **P5b 改进 4 — 三栏布局高分辨率兼容**：在 Mac Pro 高分辨率（DevTools 2560px 视口 + 2x DPR）下，中列关键指标区不遮盖右列事件流；[`panelStyles.ts:31`](src/sim/panelStyles.ts:31) 中列设最大宽度上限，新增 `@media (min-width: 1800px)` 断点；指标 grid 改为 `auto-fill` 自适应，FSM 泳道节点设 `max-width` 防止拉伸
 
 ---
 

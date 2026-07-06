@@ -14,6 +14,9 @@ ${PANEL_TIMELINE_SCRIPT}
 let guideOpen = false;
 let catalog = [];
 let currentState = {};
+// §6.7(1) P5b 改进 1: visitedPhases + resetVisitedPhases() are declared in
+// panelTimeline.ts (which is concatenated before this script). They share the
+// combined client-script scope, so this file reads/calls them without redeclaring.
 
 function escapeHtml(value) {
   return String(value == null ? '' : value)
@@ -121,10 +124,29 @@ function activeNodeIndex(data, lane) {
   return lane.nodes.findIndex(n => n.key === ctx.phase || n.key === ctx.state);
 }
 
+/**
+ * §6.7(1) P5b 改进 1: the visible node set for a lane = visited phases ∪ the
+ * currently-active node. Unvisited, inactive phases are hidden so a lane starts
+ * at just IDLE and grows as the scenario progresses — avoiding a long row of
+ * irrelevant states for the current scenario.
+ */
+function visibleNodes(lane, data) {
+  const visited = visitedPhases[lane.domain];
+  const activeIdx = activeNodeIndex(data, lane);
+  const activeNode = activeIdx >= 0 ? lane.nodes[activeIdx] : null;
+  return lane.nodes.filter(node => visited.has(node.key) || (activeNode && activeNode.key === node.key));
+}
+
 /** Render one lane: nodes joined by arrow connectors; incoming edge animates. */
 function renderLane(lane, data) {
-  const activeIdx = activeNodeIndex(data, lane);
-  const parts = lane.nodes.map((node, i) => {
+  const fullActiveIdx = activeNodeIndex(data, lane);
+  const nodes = visibleNodes(lane, data);
+  // Recompute the active index against the filtered node list so the incoming
+  // edge animation still targets the right node.
+  const activeIdx = fullActiveIdx >= 0
+    ? nodes.findIndex(n => n.key === lane.nodes[fullActiveIdx].key)
+    : -1;
+  const parts = nodes.map((node, i) => {
     const cls = nodeClass(data, node.key, lane.domain, i, activeIdx);
     // The edge leading INTO this node animates when this node is the active target
     // and the previous node is not also active (i.e. a genuine transition target).
@@ -257,6 +279,8 @@ async function resumeActive() {
 
 async function resetSim() {
   await postJson('/sim/reset', {});
+  // §6.7(1) P5b 改进 1: clear incremental lanes back to just IDLE on reset.
+  try { resetVisitedPhases(); } catch (e) { /* timeline script defines it */ }
   setStatus('已重置模拟器', 'ok');
   await refresh();
 }
