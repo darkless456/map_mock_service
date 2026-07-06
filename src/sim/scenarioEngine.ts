@@ -290,7 +290,7 @@ export class ScenarioEngine {
 
   private async executeStep(
     step: ScenarioStep,
-    domain: RobotDomain,
+    domain: NonNullableRobotDomain,
     logs: ScenarioRunLog[],
     includeStack: Set<string>,
   ): Promise<void> {

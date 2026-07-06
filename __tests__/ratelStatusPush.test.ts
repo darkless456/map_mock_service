@@ -29,13 +29,14 @@ describe('pushRatelStatus / NOTIFY_RATEL_STATUS', () => {
     assert.equal(robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'precondition' }), false);
   });
 
-  it('mapping then idle completes mock FSM like mapping→idle registry', () => {
+  it('mapping then idle completes mock FSM like mapping->idle registry', () => {
     const robot = new VirtualRobot();
-    robot.applySetup({ domain: 'mapping', state: 'WORKING', phase: 'MAP_COVERAGE_RUN' });
-    robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'exit_mapping' });
-    assert.equal(robot.mapping.phase, 'MAP_COVERAGE_DONE');
+    robot.applySetup({ domain: 'mapping', state: 'WORKING', phase: 'MAP_BOUNDARY_DONE' });
+    robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'bow_cover' });
+    assert.equal(robot.mapping.phase, 'MAP_COMPLETE');
     robot.pushRatelStatus({ work_status: 'idle', sub_status: 'none' });
     assert.equal(robot.snapshot().mapping.state, 'COMPLETED');
+    assert.equal(robot.snapshot().mapping.phase, 'MAP_COMPLETE');
   });
 
   it('mowing notify sequence reaches WORKING via sub_status', () => {

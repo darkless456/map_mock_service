@@ -1,0 +1,18 @@
+{
+  "name": "mapping_boundary_lost",
+  "description": "Place mapping FSM in the recoverable boundary-lost phase.",
+  "setup": {
+    "domain": "mapping",
+    "state": "WORKING",
+    "phase": "MAP_FOLLOW_BOUNDARY_LOST",
+    "mode": "auto",
+    "capabilities": {
+      "canSwitchManual": true,
+      "canSwitchAuto": false
+    },
+    "error": {
+      "code": "boundary_lost",
+      "recoverable": true
+    }
+  }
+}

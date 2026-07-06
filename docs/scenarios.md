@@ -21,10 +21,10 @@ YAML scenarios drive **cloud-accurate** `NOTIFY_RATEL_STATUS` pushes over WebSoc
 | `leave_dock` | `UNDOCKING` → **DeviceStart** |
 | `find_boundary` | `WORKING` + `MAP_SCAN_BOUNDARY` → **CreateMap** |
 | `edge_mapping` | 自动：`WORKING/MAP_FOLLOW_BOUNDARY`（自动沿边）；*手摇（`mode=remote`）*：`WORKING` → `REMOTE_CONTROL` + `MAP_FOLLOW_BOUNDARY_MANUAL` → **ManualMap** 交接用户手摇沿边 |
-| `map_edge_finish` | `MAP_BOUNDARY_DONE`；手摇态由此 *退出遥控* 回到自动 `WORKING`，进入「Loading + 确认进覆盖」闸门 |
-| `bow_cover` | `MAP_COVERAGE_RUN`（手摇流程需用户确认后 `emit CMD_START_COVERAGE` 乐观先行）|
-| `exit_mapping` | `MAP_COVERAGE_DONE` |
-| `work_status: idle` + `sub_status: none` | `mapping→idle` → `COMPLETED` |
+| `map_edge_finish` | `MAP_BOUNDARY_DONE`；手摇态由此 *退出遥控* 回到自动 `WORKING`，进入「Loading」过渡 |
+| `bow_cover` | `MAP_COMPLETE`（DVT P-1：跳过覆盖建图，直接进入完成页）|
+| `exit_mapping` | Legacy preview signal；新流程通常不再需要 |
+| `work_status: idle` + `sub_status: none` | `mapping->idle` → `COMPLETED/MAP_COMPLETE` |
 
 Between steps, scenarios use `wait: 5s`–`20s` (stream scenario holds 30s in streamable phases).
 
@@ -115,7 +115,7 @@ Both scenarios rely on the mirrored mower FSM where `work_status: emergency_stop
 | File | 用途 | 结束方式 |
 |------|------|----------|
 | `mapping_happy_auto.yaml` | 正常建图 happy flow：完整 NOTIFY 链 → `COMPLETED` | 自动结束（约 1.5 分钟）|
-| `mapping_happy_manual.yaml` | 手动遥控建图 happy flow：寻到边交接手摇沿边（`REMOTE_CONTROL`）→ 沿边闭合 → 确认进覆盖 → `COMPLETED` | 自动结束（约 1.5 分钟）|
+| `mapping_happy_manual.yaml` | 手动遥控建图 happy flow：寻到边交接手摇沿边（`REMOTE_CONTROL`）→ 沿边闭合 → `MAP_COMPLETE` → `COMPLETED` | 自动结束（约 1.5 分钟）|
 | `mowing_happy_auto.yaml` | 正常割草 happy flow：`map_check → mowing → return_dock → idle` → `COMPLETE` | 自动结束（约 40 秒） |
 | `mowing_recharge.yaml` | 割草并回充（回桩）：割草中触发回充 → `RETURNING_DOCK` 回桩子阶段 → `at_dock` → `idle` → `COMPLETED` | 自动结束（约 35 秒） |
 | `mapping_estop_edge_follow.yaml` | 建图沿边后急停：`MAP_FOLLOW_BOUNDARY` → `emergency_stop` → `ESTOPPED` → release + `CMD_RESET` → `RESUMING` → `COMPLETED` | 自动结束（约 1 分钟） |
@@ -190,7 +190,7 @@ steps:
   - loop:
       maxIterations: 0   # 省略或 <=0 → 无限循环（手动停止）
       steps:
-        - notify: { work_status: mapping, sub_status: bow_cover }
+        - emit: { type: DEVICE_ERROR, code: boundary_lost, recoverable: true }
         - wait: 8s
 ```
 

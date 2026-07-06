@@ -39,14 +39,15 @@ describe('phaseGraphFromFsm', () => {
     assert.ok(keys.includes('PREPARING'));
     assert.ok(keys.includes('UNDOCKING'));
     assert.ok(keys.includes('COMPLETED'));
-    // Every business phase from MAPPING_PHASES is represented
+    // Mainline business phases are represented; skipped coverage phases stay off the lane.
     for (const phase of [
       'MAP_SCAN_BOUNDARY',
       'MAP_FOLLOW_BOUNDARY',
-      'MAP_COVERAGE_RUN',
+      'MAP_COMPLETE',
     ]) {
       assert.ok(keys.includes(phase), `mapping lane should include ${phase}`);
     }
+    assert.ok(!keys.includes('MAP_COVERAGE_RUN'), 'mapping lane should skip coverage phases');
   });
 
   it('maps the mowing lane with MOW_RUNNING + return-dock sub-phases', () => {

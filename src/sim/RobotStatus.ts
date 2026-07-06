@@ -8,6 +8,7 @@ import type { RobotDomain } from './virtualRobotTypes';
 const STREAMING_MAPPING_PHASES = new Set<MappingPhase>([
   'MAP_SCAN_BOUNDARY',
   'MAP_FOLLOW_BOUNDARY',
+  'MAP_FOLLOW_BOUNDARY_LOST',
   'MAP_FOLLOW_BOUNDARY_MANUAL',
   'MAP_COVERAGE_PROBE',
   'MAP_COVERAGE_NEW_AREA',

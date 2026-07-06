@@ -13,3 +13,4 @@ Start here when working on the simulator.
 | [fsm-mirror.md](fsm-mirror.md) | Read-only FSM mirror sync rules. |
 | [ratel_backend_api.md](ratel_backend_api.md) | Captured/derived backend API notes. |
 | [refactor-plan.md](refactor-plan.md) | Phased refactor plan and decisions. |
+| [dvt-adaptation-plan.md](dvt-adaptation-plan.md) | DVT1 阶段适配方案：设计方案、落地方案、测试方案、验收标准。 |

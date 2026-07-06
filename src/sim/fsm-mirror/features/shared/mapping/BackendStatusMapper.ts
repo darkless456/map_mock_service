@@ -2,7 +2,7 @@
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/shared/mapping/BackendStatusMapper.ts. DO NOT EDIT. !!!
 // Source SHA-256: acb5966355d28fa1a8ee28cab7a7b982a2e2da47d76a56e49ceaf99f3c9c72bc
-// Synced at: 2026-07-02T07:40:14.585Z
+// Synced at: 2026-07-06T12:55:44.977Z
 import type {
   RobotWorkStatus,
   TaskContext,

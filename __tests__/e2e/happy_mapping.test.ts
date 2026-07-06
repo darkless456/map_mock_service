@@ -105,7 +105,7 @@ describe('e2e scenarios', () => {
     assert.equal(robot.snapshot().mowing.state, 'COMPLETED');
   });
 
-  it('runs the manual remote mapping chain (edge_mapping → REMOTE_CONTROL → coverage)', async () => {
+  it('runs the manual remote mapping chain (edge_mapping -> REMOTE_CONTROL -> complete)', async () => {
     const robot = new VirtualRobot();
     const engine = new ScenarioEngine({ robot, chaos: new ChaosController() });
     assert.ok(engine.listScenarios().includes('mapping_happy_manual'));
@@ -128,12 +128,10 @@ describe('e2e scenarios', () => {
           { expect: { state: 'REMOTE_CONTROL', phase: 'MAP_FOLLOW_BOUNDARY_MANUAL', mode: 'remote' } },
           { notify: { work_status: 'mapping', sub_status: 'map_edge_finish' } },
           { expect: { state: 'WORKING', phase: 'MAP_BOUNDARY_DONE', mode: 'auto' } },
-          { emit: { type: 'CMD_START_COVERAGE' } },
-          { expect: { state: 'WORKING', phase: 'MAP_COVERAGE_RUN' } },
-          { notify: { work_status: 'mapping', sub_status: 'exit_mapping' } },
-          { expect: { phase: 'MAP_COVERAGE_DONE' } },
+          { notify: { work_status: 'mapping', sub_status: 'bow_cover' } },
+          { expect: { state: 'WORKING', phase: 'MAP_COMPLETE' } },
           { notify: { work_status: 'idle', sub_status: 'none' } },
-          { expect: { state: 'COMPLETED', phase: 'MAP_COVERAGE_DONE' } },
+          { expect: { state: 'COMPLETED', phase: 'MAP_COMPLETE' } },
         ],
       },
     });

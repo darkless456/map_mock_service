@@ -1,6 +1,6 @@
 name: mapping_stream_incremental
 description: >-
-  无限循环增量建图帧。自建建图任务并在可推流阶段（扫边/沿边/弓字覆盖）间循环切换，
+  无限循环增量建图帧。自建建图任务并在可推流阶段（扫边/沿边/沿边丢失）间循环切换，
   Mock 持续按 PUSH_INTERVAL_MS 广播 MAP_INCREMENTAL（地图 patch 循环复用），用于联调建图渲染。
 guide:
   title: 建图 — 无限循环增量帧（渲染压测）
@@ -12,7 +12,7 @@ guide:
     调试建图页增量瓦片渲染、帧率、内存或 RustKit 帧解析；希望 WS 上一直有 MAP_INCREMENTAL 时使用。
   simulates:
     - emit CMD_START 自建建图任务（无需 App HTTP mapping/start）
-    - 在 MAP_SCAN_BOUNDARY / MAP_FOLLOW_BOUNDARY / MAP_COVERAGE_RUN 之间无限循环
+    - 在 MAP_SCAN_BOUNDARY / MAP_FOLLOW_BOUNDARY / MAP_FOLLOW_BOUNDARY_LOST 之间无限循环
     - 全程保持可推流状态，Mock 每 PUSH_INTERVAL_MS 广播一帧（patch 循环复用）
   prerequisites:
     - 已启动 map_mock_service（npm start）
@@ -20,7 +20,7 @@ guide:
   user_steps:
     - 打开 /sim/panel，选择 mapping_stream_incremental
     - 点击「运行场景」，在 App 建图地图页观察增量 patch 是否持续刷新
-    - 观察右侧状态中 phase 在 scan / follow / cover 间循环切换
+    - 观察右侧状态中 phase 在 scan / follow / lost 间循环切换
     - 测试完成后点击「停止场景」
   auto_behavior:
     - setup 为 IDLE，emit CMD_START 进入建图
@@ -47,5 +47,5 @@ steps:
         - wait: 8s
         - notify: { work_status: mapping, sub_status: edge_mapping }
         - wait: 8s
-        - notify: { work_status: mapping, sub_status: bow_cover }
+        - emit: { type: DEVICE_ERROR, code: boundary_lost, recoverable: true }
         - wait: 8s

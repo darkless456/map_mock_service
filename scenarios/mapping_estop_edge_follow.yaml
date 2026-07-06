@@ -18,7 +18,7 @@ guide:
     - precondition → leave_dock → find_boundary → edge_mapping 进入自动沿边
     - work_status emergency_stop 触发 ESTOPPED
     - emergency_stop → mapping 解除急停；emit CMD_RESET 恢复
-    - 恢复后继续沿边、覆盖与完成收口
+    - 恢复后继续沿边，跳过覆盖并完成收口
   prerequisites:
     - 已启动 map_mock_service（npm start），App mock 指向 http://localhost:9900
     - App 已登录且 WS 已连接
@@ -71,10 +71,7 @@ steps:
   - expect: { state: WORKING, phase: MAP_BOUNDARY_DONE }
   - wait: 3s
   - notify: { work_status: mapping, sub_status: bow_cover }
-  - expect: { state: WORKING, phase: MAP_COVERAGE_RUN }
-  - wait: 5s
-  - notify: { work_status: mapping, sub_status: exit_mapping }
-  - expect: { state: WORKING, phase: MAP_COVERAGE_DONE }
+  - expect: { state: WORKING, phase: MAP_COMPLETE }
   - wait: 3s
   - notify: { work_status: idle, sub_status: none }
-  - expect: { state: COMPLETED, phase: MAP_COVERAGE_DONE }
+  - expect: { state: COMPLETED, phase: MAP_COMPLETE }

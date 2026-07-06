@@ -2,25 +2,25 @@ name: mapping_happy_manual
 description: >-
   手动遥控建图 happy flow。自建建图任务（emit CMD_START mode=remote），按云端
   NOTIFY_RATEL_STATUS 顺序 precondition → leave_dock → find_boundary → edge_mapping
-  → map_edge_finish → bow_cover → exit_mapping → idle。进入沿边后交接给用户手摇沿边
+  → map_edge_finish → bow_cover → idle。进入沿边后交接给用户手摇沿边
   （REMOTE_CONTROL / MAP_FOLLOW_BOUNDARY_MANUAL），沿边闭合后回到自动 WORKING 并经
-  「Loading + 确认进覆盖」闸门进入内部覆盖，直至 COMPLETED。
+  「Loading」过渡进入建图完成页，直至 COMPLETED。
 guide:
   title: 建图 — 手动遥控正常流程（happy flow）
   domain_label: 建图
   summary: >-
-    模拟手动遥控建图 NOTIFY 全链路：寻到边后交接手摇沿边，闭合后确认进入内部覆盖至
+    模拟手动遥控建图 NOTIFY 全链路：寻到边后交接手摇沿边，闭合后进入完成页至
     COMPLETED，验证 ManualMap 横屏与自动建图共享会话的手动建图主流程与页面跳转。
   when_to_use: >-
     验证手动建图主流程 UI、FSM 与导航（ManualMap 横屏 → 手摇沿边 → 沿边闭合 Loading →
-    确认进覆盖 → 完成），以及与自动建图的状态切换是否与后端 §5.1 状态机一致。
+    完成），以及与自动建图的状态切换是否与后端 §5.1 状态机一致。
   simulates:
     - emit CMD_START mode=remote 自建建图任务（IDLE → PREPARING）
     - 按顺序推送 NOTIFY_RATEL_STATUS（precondition → leave_dock → find_boundary → edge_mapping → …）
     - 沿边状态（edge_mapping）交接手摇：WORKING/MAP_SCAN_BOUNDARY → REMOTE_CONTROL/MAP_FOLLOW_BOUNDARY_MANUAL
     - 手摇沿边窗口（停留 20s）持续广播 MAP_INCREMENTAL 增量帧，模拟用户摇控机器沿边上传建图数据
     - 沿边闭合（map_edge_finish）设备驱动退出遥控：REMOTE_CONTROL → WORKING/MAP_BOUNDARY_DONE
-    - 用户确认进覆盖（emit CMD_START_COVERAGE，乐观推进），设备 bow_cover 落位
+    - 设备 bow_cover 落位后跳过覆盖建图，进入 MAP_COMPLETE 完成页
   prerequisites:
     - 已启动 map_mock_service（npm start），App mock 指向 http://localhost:9900
     - App 已登录且 WS 已连接
@@ -29,19 +29,18 @@ guide:
     - 启动模拟器与 App，确认 mock 配置 enabled
     - 在 App 主页选择「手动建图」进入横屏 ManualMap
     - 浏览器打开 /sim/panel，场景选择 mapping_happy_manual
-    - 点击「运行场景」，观察 App 页面（DeviceStart → 寻边 → 手摇沿边 → Loading → 确认 Modal → 内部覆盖）
-    - 在确认 Modal 弹出后点击「确定」进入内部覆盖
+    - 点击「运行场景」，观察 App 页面（DeviceStart → 寻边 → 手摇沿边 → Loading → 完成）
     - 等待场景结束（约 1.5 分钟），确认最终 state 为 COMPLETED
   auto_behavior:
     - setup 为 IDLE，emit CMD_START mode=remote 进入 PREPARING
     - 依次 notify 各 sub_status，expect 校验 FSM 快照
     - edge_mapping 后 expect REMOTE_CONTROL / MAP_FOLLOW_BOUNDARY_MANUAL
-    - map_edge_finish 后 expect WORKING / MAP_BOUNDARY_DONE，停留 5s 模拟 Loading + 确认 Modal
-    - emit CMD_START_COVERAGE 乐观进入 MAP_COVERAGE_RUN，再 notify bow_cover 落位，直至 COMPLETED
+    - map_edge_finish 后 expect WORKING / MAP_BOUNDARY_DONE，停留 5s 模拟 Loading
+    - notify bow_cover 后进入 MAP_COMPLETE，直至 COMPLETED
   duration: 约 1.5 分钟
   pushes:
     - NOTIFY_RATEL_STATUS（work_status=mapping / idle）
-    - MAP_INCREMENTAL（寻边 / 手摇沿边 / 内部覆盖等 shouldStreamMap 阶段，按 PUSH_INTERVAL_MS 持续推送增量帧）
+    - MAP_INCREMENTAL（寻边 / 手摇沿边等 shouldStreamMap 阶段，按 PUSH_INTERVAL_MS 持续推送增量帧）
 domain: mapping
 dataset: mapping_happy
 setup:
@@ -68,17 +67,11 @@ steps:
   # 沿边闭合：设备驱动退出遥控，回到自动 WORKING / MAP_BOUNDARY_DONE。
   - notify: { work_status: mapping, sub_status: map_edge_finish }
   - expect: { state: WORKING, phase: MAP_BOUNDARY_DONE, mode: auto }
-  # 沿边闭合 Loading（固定 3s）+ 确认进覆盖 Modal，留出用户点击「确定」的时间。
+  # 沿边闭合 Loading（固定 3s）后直接进入完成页。
   - wait: 5s
-  # 用户确认进覆盖：乐观先行推进到弓形覆盖。
-  - emit: { type: CMD_START_COVERAGE }
-  - expect: { state: WORKING, phase: MAP_COVERAGE_RUN }
-  # 设备 bow_cover 落位（与乐观推进对齐）。
+  # 设备 bow_cover 落位后，App FSM 跳过覆盖阶段并进入 MAP_COMPLETE。
   - notify: { work_status: mapping, sub_status: bow_cover }
-  - expect: { phase: MAP_COVERAGE_RUN }
-  - wait: 12s
-  - notify: { work_status: mapping, sub_status: exit_mapping }
-  - expect: { phase: MAP_COVERAGE_DONE }
+  - expect: { phase: MAP_COMPLETE }
   - wait: 6s
   - notify: { work_status: idle, sub_status: none }
-  - expect: { state: COMPLETED, phase: MAP_COVERAGE_DONE }
+  - expect: { state: COMPLETED, phase: MAP_COMPLETE }

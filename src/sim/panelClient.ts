@@ -270,7 +270,7 @@ async function resumeActive() {
   if (domain === 'mowing') {
     await postJson('/sim/event', { domain, type: 'DEVICE_WORK_STATUS', status: 'mowing', source: 'ws' });
   } else {
-    const phase = currentState.phase || 'MAP_COVERAGE_RUN';
+    const phase = currentState.phase || 'MAP_FOLLOW_BOUNDARY';
     await postJson('/sim/event', { domain, type: 'DEVICE_PHASE', phase, source: 'ws' });
   }
   setStatus('已恢复：' + domain, 'ok');

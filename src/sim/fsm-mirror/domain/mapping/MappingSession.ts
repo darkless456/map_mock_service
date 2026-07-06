@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/mapping/MappingSession.ts. DO NOT EDIT. !!!
-// Source SHA-256: 61de45502aa366a65e0d2de1fe9ddb53c87ba61242d8509a93a8e3f405743dcb
-// Synced at: 2026-07-02T07:40:14.585Z
+// Source SHA-256: d8b7e93f421dbb8bc9a1d825b4ed08667832ca77e44e211c289cec1d00e3f41d
+// Synced at: 2026-07-06T12:55:44.977Z
 /**
  * MappingSession FSM — task-level `TaskState` + `MappingPhase` tuple from
  * `TaskFSM`. UI binding resolves a `PanelScene` directly from `(state, phase)`
@@ -29,12 +29,14 @@ export type MappingBusinessPhase =
   | 'MAP_SCAN_BOUNDARY'
   | 'MAP_SCAN_BOUNDARY_FAILED'
   | 'MAP_FOLLOW_BOUNDARY'
+  | 'MAP_FOLLOW_BOUNDARY_LOST' // DVT P-2: 沿边丢失，独立异常 phase，区别于初始 MAP_SCAN_BOUNDARY_FAILED
   | 'MAP_FOLLOW_BOUNDARY_MANUAL'
   | 'MAP_BOUNDARY_DONE'
   | 'MAP_COVERAGE_PROBE'
   | 'MAP_COVERAGE_NEW_AREA'
   | 'MAP_COVERAGE_RUN'
-  | 'MAP_COVERAGE_DONE';
+  | 'MAP_COVERAGE_DONE'
+  | 'MAP_COMPLETE'; // DVT P-1: 建图完成三按钮页，跳过 COVERAGE 阶段后的终态
 
 export type RechargePhase = 'returning' | 'charging' | 'charged';
 export type MappingPhase = MappingBusinessPhase | RechargePhase;
@@ -44,17 +46,20 @@ export const MAPPING_PHASES: readonly MappingBusinessPhase[] = [
   'MAP_SCAN_BOUNDARY',
   'MAP_SCAN_BOUNDARY_FAILED',
   'MAP_FOLLOW_BOUNDARY',
+  'MAP_FOLLOW_BOUNDARY_LOST',
   'MAP_FOLLOW_BOUNDARY_MANUAL',
   'MAP_BOUNDARY_DONE',
   'MAP_COVERAGE_PROBE',
   'MAP_COVERAGE_NEW_AREA',
   'MAP_COVERAGE_RUN',
   'MAP_COVERAGE_DONE',
+  'MAP_COMPLETE',
 ] as const;
 
 export const ALL_MAPPING_STATES = TASK_STATES;
 export const MAPPING_TERMINAL_PHASES: readonly MappingPhase[] = [
   'MAP_COVERAGE_DONE',
+  'MAP_COMPLETE', // DVT P-1: 三按钮页也是终态
 ] as const;
 
 export type MappingContext = TaskContext<MappingPhase>;
@@ -98,6 +103,7 @@ const baseReducer = createTaskReducer<MappingPhase>({
   canEnterRemote: ctx =>
     ctx.phase === 'MAP_SCAN_BOUNDARY' ||
     ctx.phase === 'MAP_FOLLOW_BOUNDARY' ||
+    ctx.phase === 'MAP_FOLLOW_BOUNDARY_LOST' || // DVT P-2: 沿边丢失后也可切遥控
     ctx.phase === 'MAP_COVERAGE_PROBE',
 });
 
@@ -111,18 +117,41 @@ export function mappingReducer(
   event: MappingEvent,
   logger?: LoggerLike,
 ): MappingContext {
-  // `MAP_COVERAGE_DONE` is the sticky map-preview step: once internal coverage finishes
-  // (`exit_mapping` → `MAP_COVERAGE_DONE`), the UI shows the preview panel + save countdown
-  // and must NOT react to any further device-originated status (e.g. `return_dock` →
-  // `returning`, `charging`, low battery, errors, link/timeout, area). Only `CMD_*` events
-  // act — the `mapping→idle` edge's `CMD_CONFIRM` still completes the task, and
-  // save / cancel / reset still work. This keeps the preview frozen until the user decides.
+  // Sticky terminal-phase guard: both `MAP_COVERAGE_DONE` (legacy) and `MAP_COMPLETE` (DVT P-1)
+  // are terminal display phases — once reached the UI freezes on the finish/preview panel until
+  // the user explicitly acts (CMD_* events). Device-originated events (return_dock, charging,
+  // errors, area, etc.) are silenced. Orthogonal events (estop / capabilities / notice) still pass.
   if (
-    ctx.phase === 'MAP_COVERAGE_DONE' &&
+    (ctx.phase === 'MAP_COVERAGE_DONE' || ctx.phase === 'MAP_COMPLETE') &&
     !event.type.startsWith('CMD_') &&
     !ORTHOGONAL_DEVICE_EVENTS.has(event.type)
   ) {
     return ctx;
+  }
+
+  // DVT P-1: skip COVERAGE阶段。设备上报任何 MAP_COVERAGE_* sub_status 时，直接流转到 MAP_COMPLETE
+  // 而非进入覆盖建图流程。这涵盖 bow_cover / new_area / exit_mapping 等所有覆盖子状态。
+  if (
+    event.type === 'DEVICE_PHASE' &&
+    (event.phase === 'MAP_COVERAGE_PROBE' ||
+      event.phase === 'MAP_COVERAGE_NEW_AREA' ||
+      event.phase === 'MAP_COVERAGE_RUN' ||
+      event.phase === 'MAP_COVERAGE_DONE') &&
+    ctx.state === 'WORKING' &&
+    ctx.phase === 'MAP_BOUNDARY_DONE'
+  ) {
+    return commit(
+      ctx,
+      {
+        ...ctx,
+        state: 'WORKING',
+        phase: 'MAP_COMPLETE',
+        resumeTo: null,
+        error: null,
+      },
+      event,
+      logger,
+    );
   }
 
   if (event.type === 'DEVICE_WORK_STATUS') {
@@ -166,8 +195,13 @@ export function mappingReducer(
   if (event.type === 'CMD_SWITCH_MANUAL') {
     if (!ctx.capabilities.canSwitchManual) return ctx;
 
-    // 寻边失败：设备已停止，无暂停概念，直接进 REMOTE_CONTROL
-    if (ctx.state === 'WORKING' && ctx.phase === 'MAP_SCAN_BOUNDARY_FAILED') {
+    // 寻边失败 / 沿边丢失：设备已停止，无暂停概念，直接进 REMOTE_CONTROL
+    // MAP_FOLLOW_BOUNDARY_LOST 同样直接切遥控（DVT P-2）
+    if (
+      ctx.state === 'WORKING' &&
+      (ctx.phase === 'MAP_SCAN_BOUNDARY_FAILED' ||
+        ctx.phase === 'MAP_FOLLOW_BOUNDARY_LOST')
+    ) {
       return commit(
         ctx,
         {
@@ -381,12 +415,13 @@ function reduceWorkStatus(
 
   if (event.status === 'mapping_completed') {
     if (ctx.state === 'CANCELLED') return ctx;
+    // DVT P-1: 建图完成直接进三按钮页（MAP_COMPLETE），跳过覆盖建图
     return commit(
       ctx,
       {
         ...ctx,
         state: 'COMPLETED',
-        phase: 'MAP_COVERAGE_DONE',
+        phase: 'MAP_COMPLETE',
         resumeTo: null,
         error: null,
         notices: [],
@@ -405,11 +440,19 @@ function reduceRecoverableError(
   logger?: LoggerLike,
 ): MappingContext {
   if (ctx.state !== 'WORKING') return baseReducer(ctx, event, logger);
+
+  // DVT P-2: 沿边中（MAP_FOLLOW_BOUNDARY）丢失边缘 → MAP_FOLLOW_BOUNDARY_LOST
+  // 其他阶段的可恢复错误仍回退到 MAP_SCAN_BOUNDARY_FAILED（寻边失败）
+  const failPhase: MappingBusinessPhase =
+    ctx.phase === 'MAP_FOLLOW_BOUNDARY'
+      ? 'MAP_FOLLOW_BOUNDARY_LOST'
+      : 'MAP_SCAN_BOUNDARY_FAILED';
+
   return commit(
     ctx,
     {
       ...ctx,
-      phase: 'MAP_SCAN_BOUNDARY_FAILED',
+      phase: failPhase,
       error: { code: event.code, recoverable: true },
     },
     event,

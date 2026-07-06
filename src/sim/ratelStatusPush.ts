@@ -58,16 +58,16 @@ function applyEmergencyStopEdge(
   return false;
 }
 
-/** Mirrors `mappingBackendRegistry` `mapping鈫抜dle` composite for mock FSM only. */
+/** Applies the mapping completion composite for mock FSM only. */
 function applyMappingToIdleCompletion(robot: VirtualRobot): void {
   const ctx = robot.mapping;
   if (ctx.state !== 'WORKING' && ctx.state !== 'PAUSED' && ctx.state !== 'RESUMING') {
     return;
   }
-  if (ctx.phase !== 'MAP_COVERAGE_DONE') {
+  if (ctx.phase !== 'MAP_COMPLETE') {
     robot.dispatchMappingEvent({
       type: 'DEVICE_PHASE',
-      phase: 'MAP_COVERAGE_DONE',
+      phase: 'MAP_COMPLETE',
       ...nowEvent(),
     });
   }
@@ -150,4 +150,3 @@ export function applyRatelStatusPush(
 }
 
 export type { MappingEvent };
-

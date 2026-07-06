@@ -50,10 +50,7 @@ steps:
   - expect: { phase: MAP_BOUNDARY_DONE }
   - wait: 8s
   - notify: { work_status: mapping, sub_status: bow_cover }
-  - expect: { phase: MAP_COVERAGE_RUN }
-  - wait: 12s
-  - notify: { work_status: mapping, sub_status: exit_mapping }
-  - expect: { phase: MAP_COVERAGE_DONE }
+  - expect: { phase: MAP_COMPLETE }
   - wait: 6s
   - notify: { work_status: idle, sub_status: none }
-  - expect: { state: COMPLETED, phase: MAP_COVERAGE_DONE }
+  - expect: { state: COMPLETED, phase: MAP_COMPLETE }
