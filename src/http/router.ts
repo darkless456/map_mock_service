@@ -7,6 +7,7 @@ import type { ScenarioEngine } from '../sim/scenarioEngine';
 import type { Recorder } from '../sim/recorder';
 import { setCorsHeaders, sendError, type HttpRouteDeps, type RouteHandler } from './shared/http';
 import { handleAccRoutes } from './routes/auth.routes';
+import { handleLoginRoutes } from './routes/login.routes';
 import { handleHealthRoutes } from './routes/health.routes';
 import { handleDeviceRoutes } from './routes/device.routes';
 import { handleMapRoutes } from './routes/map.routes';
@@ -29,6 +30,7 @@ export interface AppRouteContext extends HttpRouteDeps {
 const ROUTES: readonly RouteHandler<AppRouteContext>[] = [
   handleHealthRoutes,
   handleAccRoutes,
+  handleLoginRoutes,
   handleDeviceRoutes,
   handleMapRoutes,
   handleMappingRoutes,

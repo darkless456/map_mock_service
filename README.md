@@ -48,6 +48,8 @@ The service only registers the mower API paths below. For app compatibility, dev
 
 | Method | Path | Behavior |
 |---|---|---|
+| `POST` | `/ratel/account-personal-service/api/v1/sso/getTokenByApp` | Mock login: accepts any non-empty `account`/`password` (not decrypted/validated), returns `access_token` + `refresh_token`. |
+| `POST` | `/ratel/account-personal-service/api/v1/sso/refreshToken` | Verify `refresh_token` (body field or `Authorization: Bearer`), issue a fresh token pair. |
 | `POST` | `/ratel/api/v1/wss/acc_ticket` | Validate `Authorization` + `platform`, issue one-time 120s WS ticket. |
 | `GET/POST` | `/ratel/api/v1/courtyard/robot/detail` | Return current virtual robot device info. |
 | `POST` | `/ratel/api/v1/courtyard/robot/info/update` | Update simulator nickname / SN and broadcast `NOTIFY_RATEL_STATUS`. |
@@ -149,7 +151,15 @@ Useful rendering scenarios:
 ## Mower app联调
 
 1. Start this service: `npm start`.
-2. Generate a local JWT using `JWT_SECRET` and set it as the mower mock `accessToken`.
+2. Get a JWT one of two ways:
+   - Call the mock login endpoint with any non-empty account/password (nothing is validated):
+     ```bash
+     curl -X POST http://localhost:9900/ratel/account-personal-service/api/v1/sso/getTokenByApp \
+       -H 'Content-Type: application/json' \
+       -d '{"account":"any","password":"any","appid":"com.pudutech.ratel.core"}'
+     ```
+     Use the returned `data.access_token` as the mower mock `accessToken`. `data.refresh_token` works against `/ratel/account-personal-service/api/v1/sso/refreshToken`.
+   - Or mint one programmatically with `generateToken()` / `generateTokenPair()` from `src/auth/jwt.ts`.
 3. In mower app `mock/config.local.ts`, set `enabled: true` and `http.baseUrl: 'http://localhost:9900'`.
 4. Start the app. Business HTTP calls and WS pushes should now come from the simulator.
 5. Open `http://localhost:9900/sim/panel`：先选场景并点击 **阅读说明** 查看前置条件与步骤，再运行场景或发送原始 FSM 事件。

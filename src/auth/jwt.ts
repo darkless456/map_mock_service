@@ -27,6 +27,35 @@ export function generateToken(userId = 'test-user'): string {
   return jwt.sign({ userId, role: 'map_viewer' }, JWT_SECRET, { expiresIn: '24h' });
 }
 
+export interface TokenPair {
+  readonly accessToken: string;
+  readonly refreshToken: string;
+  readonly expireTime: number;
+}
+
+export function generateTokenPair(userId = 'mock-user'): TokenPair {
+  const accessToken = generateToken(userId);
+  const refreshToken = jwt.sign({ userId, type: 'refresh' }, JWT_SECRET, { expiresIn: '30d' });
+  const { exp } = jwt.decode(accessToken) as JwtPayload;
+  return { accessToken, refreshToken, expireTime: exp! };
+}
+
+export function verifyRefreshToken(token: string): AuthResult {
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (typeof payload === 'string' || payload.type !== 'refresh') {
+      return { valid: false, error: 'Not a refresh token' };
+    }
+    return { valid: true, payload };
+  } catch (error) {
+    return {
+      valid: false,
+      error: error instanceof Error ? error.message : String(error),
+      expired: error instanceof Error && error.name === 'TokenExpiredError',
+    };
+  }
+}
+
 export function verifyJwt(authHeader: string | string[] | undefined): AuthResult {
   const token = extractBearer(authHeader);
   if (!token) return { valid: false, error: 'Missing Authorization header' };
