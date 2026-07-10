@@ -7,7 +7,7 @@ This document is the S0-S3 API contract for Mower Dev Simulator. Business API pa
 | Method | Path | Response summary |
 |---|---|---|
 | `POST` | `/ratel/api/v1/wss/acc_ticket` | `{ code, message, ticket, expire_seconds, wss_path_hint }` |
-| `GET/POST` | `/ratel/api/v1/courtyard/robot/detail` | `{ code, message, data: IDevice }` |
+| `POST` | `/ratel/api/v1/courtyard/robot/detail` | `{ code, message, data: IDevice }` — body `{ sn }`; validates the simulator SN, returns FSM-derived `running_status` / charging data and current map metadata. |
 | `POST` | `/ratel/api/v1/courtyard/robot/info/update` | `{ code, message, data: IDevice }` |
 | `POST` | `/ratel/api/v1/courtyard/robot/unbind` | `{ code, message, data: { robot_code, robot_message } }` |
 | `GET/POST` | `/ratel/map-service/api/v1/ratel/map/list` | `{ code, data: { total, items } }`；`items[]` 含 `map_url` / `semantic_map_url` / `real_view_map_url` / `map_origin_x` / `map_origin_y` / `resolution` / `base_version` / `unit` / `increments`（命名对齐 APP端接口文档v2.md） |
@@ -33,7 +33,8 @@ This document is the S0-S3 API contract for Mower Dev Simulator. Business API pa
 - `map/list` 的 `items[].increments[]` 为标注 / 点位增量，单项形如 `{ element_id, type, shape, points, properties, source }`。`type` 是 0-255 语义码：禁区 `251`、圆禁区 `201`、虚拟墙 `254`、**充电桩 `69`** 等。静态增量数据源为 `fixtures/maps/map_list.json`；`semantic/save` 写入的运行时覆盖保存在内存中，并在后续 `map/list` 中覆盖对应地图项。
 - `increments[].source` = `"robot"` / `"app"`，标识数据来源并决定 APP 端可编辑性：`robot`（机器人/后端上报，如充电桩）只读不可编辑、不参与 `semantic/save` 回传；`app`（用户绘制，如禁区/虚拟墙）可编辑可保存。**`semantic/save` 的回传 body 不含 `source`**（与 `APP端接口文档v2.md` 一致）。
 - `ratel_backend_api.md`（`pudu_ratel_app_mower/build-docs/`）中若示例使用 `/ratel/open-platform-service/api/v1/ratel_task/{action,list}`，模拟器不实现该路径。Mower App 实际调用 `/ratel/central-control-service/api/v1/...`，模拟器与之对齐。
-- Device detail and map list support `POST` because the mower app's HTTP bridge currently posts to these constants.
+- Device detail requires `POST` because the mower app's HTTP bridge posts `{ sn }` to this constant. The response is derived from the same virtual-robot FSM as task APIs and `NOTIFY_RATEL_STATUS`: `return_dock` is translated to the device-detail spelling `returning_charge`, and `estop` to `emergency_stop`. An active `RECHARGE` task is projected as `returning_charge` before its asynchronous first WS status frame. `battery_charging` is `1` only while the FSM is charging. `map_id` / `map_url` point to the active `map/list` fixture entry.
+- Map list supports `POST` because the mower app's HTTP bridge currently posts to that constant.
 - Unknown routes return `404 { code: 404, message: 'deprecated; removed in simulator v1' }`.
 
 ## WebSocket

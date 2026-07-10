@@ -44,14 +44,14 @@ Default URL: `http://localhost:9900`.
 
 ## Business HTTP API
 
-The service only registers the mower API paths below. For app compatibility, device detail and map list accept both the documented `GET` method and the current mower app's `POST` calls.
+The service only registers the mower API paths below. The mower app calls device detail and map list with `POST`; device detail therefore requires `POST` with `{ "sn": "<robot-sn>" }`, while map list retains `GET/POST` compatibility.
 
 | Method | Path | Behavior |
 |---|---|---|
 | `POST` | `/ratel/account-personal-service/api/v1/sso/getTokenByApp` | Mock login: accepts any non-empty `account`/`password` (not decrypted/validated), returns `access_token` + `refresh_token`. |
 | `POST` | `/ratel/account-personal-service/api/v1/sso/refreshToken` | Verify `refresh_token` (body field or `Authorization: Bearer`), issue a fresh token pair. |
 | `POST` | `/ratel/api/v1/wss/acc_ticket` | Validate `Authorization` + `platform`, issue one-time 120s WS ticket. |
-| `GET/POST` | `/ratel/api/v1/courtyard/robot/detail` | Return current virtual robot device info. |
+| `POST` | `/ratel/api/v1/courtyard/robot/detail` | Validate request `{ sn }` and return the current virtual robot detail profile. `running_status`, `battery_charging`, and `battery_level` are derived from the same FSM used by task APIs / status pushes; `map_id` / `map_url` resolve from the active map-list fixture. |
 | `POST` | `/ratel/api/v1/courtyard/robot/info/update` | Update simulator nickname / SN and broadcast `NOTIFY_RATEL_STATUS`. |
 | `POST` | `/ratel/api/v1/courtyard/robot/unbind` | Reset virtual robot state. |
 | `GET/POST` | `/ratel/map-service/api/v1/ratel/map/list` | Return semantic + real-scene basemap URLs, map metadata (`resolution` / `origin`), and annotation increments. |
