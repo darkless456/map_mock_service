@@ -4,7 +4,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { FIXTURE_ROOT } from '../fixtures';
 import { logger } from '../infra/logger';
 
-const ALLOWED_DATASETS = new Set(['recharge_return', 'mowing_trajectory', 'mapping_happy', 'fixed_maps']);
+const ALLOWED_DATASETS = new Set(['recharge_return', 'mowing_trajectory', 'mapping_happy', 'fixed_maps', 'mapping_multilawn']);
 
 export interface MapPatch {
   readonly id: string;

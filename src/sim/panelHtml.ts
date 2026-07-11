@@ -51,6 +51,7 @@ export function renderPanelHtml(): string {
         <div class="row">
           <select id="dataset">
             <option value="mapping_happy">mapping_happy</option>
+            <option value="mapping_multilawn">mapping_multilawn</option>
             <option value="mowing_trajectory">mowing_trajectory</option>
             <option value="recharge_return">recharge_return</option>
             <option value="fixed_maps">fixed_maps</option>

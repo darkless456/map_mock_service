@@ -1,0 +1,72 @@
+name: mapping_happy_auto_multilawn
+description: >-
+  全自动多草坪建图 happy flow（对齐 docs/v4-mapping-api-gap.md D5，全自动版）。自建建图任务，
+  按 NOTIFY_RATEL_STATUS 顺序在两块草坪之间自动衔接（第 1 块完成 → 通道 → 第 2 块 → COMPLETED），
+  不经过用户 API 确认（CONFIRM_ADD_LAWN 尚未实现，见 A1/C3 缺口）。
+guide:
+  title: 建图 — 全自动多草坪流程（2 块草坪）
+  domain_label: 建图
+  summary: 模拟云端建图 NOTIFY 全链路自动衔接两块草坪，验证 MAP_INCREMENTAL 在草坪切换/通道过渡时的连续推流。
+  when_to_use: >-
+    验证 2+ 块草坪场景下的地图渲染、增量帧连续性；当前仅覆盖全自动路径，
+    不覆盖 CONFIRM_ADD_LAWN 手动触发（该 action 尚未实现）。
+  simulates:
+    - emit CMD_START 自建建图任务（IDLE → PREPARING）
+    - 第 1 块草坪：precondition → leave_dock → find_boundary → edge_mapping → map_edge_finish
+    - 通道过渡（沿用 find_boundary sub_status，phase 重新进入 MAP_SCAN_BOUNDARY，驱动 mapStream 播放通道帧）
+    - 第 2 块草坪：find_boundary → edge_mapping → map_edge_finish
+    - bow_cover → idle，最终 COMPLETED
+  prerequisites:
+    - 已启动 map_mock_service（npm start）
+    - 已运行 `node scripts/generate-multilawn-dataset.mjs` 生成 fixtures/datasets/mapping_multilawn
+    - App 已登录且 WS 已连接
+  user_steps:
+    - 浏览器打开 /sim/panel，数据集选择 mapping_multilawn，场景选择 mapping_happy_auto_multilawn
+    - 点击「运行场景」，观察 App 地图页 MAP_INCREMENTAL 是否在两块草坪间连续推送（无跳变/断流）
+    - 等待场景结束，确认最终 state 为 COMPLETED
+  auto_behavior:
+    - setup 为 IDLE，emit CMD_START 进入 PREPARING
+    - 依次 notify 第 1 块草坪 sub_status，expect 校验 FSM 快照
+    - 重新进入 find_boundary/edge_mapping/map_edge_finish 模拟第 2 块草坪（phase 与第 1 块共用同一套 v4 sub_status 词表，
+      因为"第几块草坪"的独立语义尚待后端确认，见 docs/v4-mapping-api-gap.md C4）
+    - 全程保持 WORKING + streaming phase，mapTimer 持续广播 mapping_multilawn 数据集帧
+  duration: 约 2 分钟
+  pushes:
+    - NOTIFY_RATEL_STATUS（work_status=mapping / idle）
+    - MAP_INCREMENTAL（进入可推流 phase 后由 mapTimer 自动持续广播）
+domain: mapping
+dataset: mapping_multilawn
+setup:
+  state: IDLE
+  phase: null
+steps:
+  - emit: { type: CMD_START, mode: auto, taskMode: MAP_BUILD }
+  - notify: { work_status: mapping, sub_status: precondition }
+  - expect: { state: PREPARING }
+  - wait: 5s
+  - notify: { work_status: mapping, sub_status: leave_dock }
+  - expect: { state: UNDOCKING }
+  - wait: 6s
+  - notify: { work_status: mapping, sub_status: find_boundary }
+  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY }
+  - wait: 12s
+  - notify: { work_status: mapping, sub_status: edge_mapping }
+  - expect: { phase: MAP_FOLLOW_BOUNDARY }
+  - wait: 12s
+  - notify: { work_status: mapping, sub_status: map_edge_finish }
+  - expect: { phase: MAP_BOUNDARY_DONE }
+  - wait: 3s
+  - notify: { work_status: mapping, sub_status: find_boundary }
+  - expect: { phase: MAP_SCAN_BOUNDARY }
+  - wait: 4s
+  - notify: { work_status: mapping, sub_status: edge_mapping }
+  - expect: { phase: MAP_FOLLOW_BOUNDARY }
+  - wait: 12s
+  - notify: { work_status: mapping, sub_status: map_edge_finish }
+  - expect: { phase: MAP_BOUNDARY_DONE }
+  - wait: 8s
+  - notify: { work_status: mapping, sub_status: bow_cover }
+  - expect: { phase: MAP_COMPLETE }
+  - wait: 6s
+  - notify: { work_status: idle, sub_status: none }
+  - expect: { state: COMPLETED, phase: MAP_COMPLETE }
