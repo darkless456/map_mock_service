@@ -1,3 +1,5 @@
+import { fixtureLoader } from '../fixtures';
+
 export interface MapLabelPoint {
   readonly x: number;
   readonly y: number;
@@ -10,16 +12,68 @@ export interface MapLabel {
   readonly points: readonly MapLabelPoint[];
 }
 
-function edgeStartPoint(lawnIndex: number): MapLabelPoint {
-  return { x: 2 + (lawnIndex - 1) * 12, y: -4 };
+interface LabelCoordinateParameters {
+  readonly first_lawn: {
+    readonly entry: MapLabelPoint;
+    readonly exit_offset: MapLabelPoint;
+    readonly edge_start: MapLabelPoint;
+  };
+  readonly lawn_offset: MapLabelPoint;
 }
 
-function aislePoints(lawnIndex: number): MapLabelPoint[] {
-  const baseX = (lawnIndex - 1) * 12;
-  return [
-    { x: baseX, y: 0 },
-    { x: baseX + 2, y: -3 },
-  ];
+function coordinateParameters(): LabelCoordinateParameters {
+  return fixtureLoader.read('mapping/label_coordinates.jsonc', raw => {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw new Error('fixtures/mapping/label_coordinates.jsonc must contain an object');
+    }
+    const value = raw as Record<string, unknown>;
+    const firstLawn = value.first_lawn as Record<string, unknown> | undefined;
+    const lawnOffset = value.lawn_offset;
+    const point = (input: unknown, field: string): MapLabelPoint => {
+      if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+        throw new Error(`fixtures/mapping/label_coordinates.jsonc: ${field} must be a point`);
+      }
+      const pointValue = input as Record<string, unknown>;
+      if (typeof pointValue.x !== 'number' || !Number.isFinite(pointValue.x) ||
+          typeof pointValue.y !== 'number' || !Number.isFinite(pointValue.y)) {
+        throw new Error(`fixtures/mapping/label_coordinates.jsonc: ${field} must have finite x/y`);
+      }
+      return { x: pointValue.x, y: pointValue.y };
+    };
+    if (!firstLawn) throw new Error('fixtures/mapping/label_coordinates.jsonc: first_lawn is required');
+    return {
+      first_lawn: {
+        entry: point(firstLawn.entry, 'first_lawn.entry'),
+        exit_offset: point(firstLawn.exit_offset, 'first_lawn.exit_offset'),
+        edge_start: point(firstLawn.edge_start, 'first_lawn.edge_start'),
+      },
+      lawn_offset: point(lawnOffset, 'lawn_offset'),
+    };
+  });
+}
+
+function lawnTranslation(lawnIndex: number, params: LabelCoordinateParameters): MapLabelPoint {
+  return {
+    x: (lawnIndex - 1) * params.lawn_offset.x,
+    y: (lawnIndex - 1) * params.lawn_offset.y,
+  };
+}
+
+function translate(point: MapLabelPoint, offset: MapLabelPoint): MapLabelPoint {
+  return { x: point.x + offset.x, y: point.y + offset.y };
+}
+
+function edgeStartPoint(lawnIndex: number, params: LabelCoordinateParameters): MapLabelPoint {
+  return translate(params.first_lawn.edge_start, lawnTranslation(lawnIndex, params));
+}
+
+function aislePoints(lawnIndex: number, params: LabelCoordinateParameters): MapLabelPoint[] {
+  const currentEntry = translate(params.first_lawn.entry, lawnTranslation(lawnIndex, params));
+  if (lawnIndex === 1) {
+    return [currentEntry, translate(currentEntry, params.first_lawn.exit_offset)];
+  }
+  const previousEntry = translate(params.first_lawn.entry, lawnTranslation(lawnIndex - 1, params));
+  return [translate(previousEntry, params.first_lawn.exit_offset), currentEntry];
 }
 
 /**
@@ -45,11 +99,11 @@ export class MappingLabelsTracker {
 
   addAisle(): void {
     const idx = this.labels.filter(label => label.type === 'aisle').length + 1;
-    this.labels.push({ id: `aisle_${idx}`, type: 'aisle', shape: 'point', points: aislePoints(idx) });
+    this.labels.push({ id: `aisle_${idx}`, type: 'aisle', shape: 'point', points: aislePoints(idx, coordinateParameters()) });
   }
 
   addEdgeStart(): void {
     const idx = this.edgeStartCount() + 1;
-    this.labels.push({ id: `edge_start_${idx}`, type: 'edge_start', shape: 'point', points: [edgeStartPoint(idx)] });
+    this.labels.push({ id: `edge_start_${idx}`, type: 'edge_start', shape: 'point', points: [edgeStartPoint(idx, coordinateParameters())] });
   }
 }

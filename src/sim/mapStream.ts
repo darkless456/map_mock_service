@@ -1,6 +1,6 @@
 import { loadAllPatches, type MapPatch } from '../assets/PatchLoader';
 import { logger } from '../infra/logger';
-import { encodeMapMessageSliced } from '../ws/protocol';
+import { encodeMapMessageSliced, estimateLawnAreaM2 } from '../ws/protocol';
 
 export type DatasetSwitchResult =
   | { readonly ok: true; readonly name: string; readonly patchCount: number }
@@ -41,6 +41,12 @@ export class MapStream {
 
   get patchCount(): number {
     return this.patches.length;
+  }
+
+  /** Same geometry source used by MAP_INCREMENTAL.map_header.lawn_area. */
+  get lawnArea(): number | null {
+    const patch = this.patches[0];
+    return patch ? estimateLawnAreaM2(patch.mapCols, patch.mapRows, patch.resolution) : null;
   }
 
   switchDataset(name: string, patches: readonly MapPatch[]): void {

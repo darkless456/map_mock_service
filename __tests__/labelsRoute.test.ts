@@ -88,6 +88,8 @@ describe('POST /map-service/api/v1/ratel_map/labels', () => {
       const res = await postJson(port, LABELS_PATH, {});
       const labels = (res.json.data as Record<string, unknown>).labels as Array<Record<string, unknown>>;
       assert.ok(labels.length > 0);
+      assert.deepEqual(labels[0].points, [{ x: 10.3, y: 6.45 }, { x: 12.3, y: 8.45 }]);
+      assert.deepEqual(labels[1].points, [{ x: 11.3, y: 7.45 }]);
       for (const label of labels) {
         assert.equal(typeof label.id, 'string');
         assert.ok((label.id as string).length > 0);

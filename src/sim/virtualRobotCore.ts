@@ -100,6 +100,8 @@ export class VirtualRobot extends EventEmitter {
   private readonly mappingLabels = new MappingLabelsTracker();
   /** Pending async device-ack timers scheduled by EDGE_START/EDGE_CLOSE (cleared on reset). */
   private readonly mappingActionTimers: Array<ReturnType<typeof setTimeout>> = [];
+  /** A device action has been accepted and is awaiting its authoritative status push. */
+  private pendingMappingAction: 'EDGE_START' | 'EDGE_CLOSE' | null = null;
   /** `MAP_COMPLETING` 120s auto-COMPLETE countdown (mapping-v4-final-spec.md §3). */
   private mapCompletingTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly eventLog: EventLog;
@@ -279,9 +281,8 @@ export class VirtualRobot extends EventEmitter {
   resumeMapping(): void {
     this.dispatchMapping({ type: 'CMD_RESUME' });
     const sub = this.lastNotifySubStatus ?? 'none';
+    // Force a resume-confirmation push without changing the time the current phase began.
     this.lastNotifyWorkStatus = null;
-    this.lastNotifySubStatus = null;
-    this.lastNotifySubStatusEnteredAt = null;
     this.mappingTelemetry.reset();
     this.pushRatelStatus({ work_status: 'mapping', sub_status: sub });
   }
@@ -335,6 +336,7 @@ export class VirtualRobot extends EventEmitter {
         this.resumeMapping();
         return null;
       case 'STOP':
+        this.clearMappingActionTimers();
         this.dispatchRaw({ type: input.save ? 'CMD_CONFIRM' : 'CMD_CANCEL' }, 'mapping');
         return null;
       case 'EDGE_START':
@@ -360,7 +362,7 @@ export class VirtualRobot extends EventEmitter {
       return { kind: 'unprocessable', message: 'extend_status.legitimate_starting_point is 0' };
     }
     this.mappingTelemetry.confirmEdgeStart();
-    this.scheduleMappingActionAck(() => this.pushRatelStatus({ work_status: 'mapping', sub_status: 'edge_mapping' }));
+    this.scheduleMappingActionAck('EDGE_START', () => this.pushRatelStatus({ work_status: 'mapping', sub_status: 'edge_mapping' }));
     return null;
   }
 
@@ -374,7 +376,7 @@ export class VirtualRobot extends EventEmitter {
       return { kind: 'unprocessable', message: 'extend_status.legitimate_end_point is 0' };
     }
     this.mappingTelemetry.confirmRegionClosure();
-    this.scheduleMappingActionAck(() => this.pushRatelStatus({ work_status: 'mapping', sub_status: 'map_edge_finish' }));
+    this.scheduleMappingActionAck('EDGE_CLOSE', () => this.pushRatelStatus({ work_status: 'mapping', sub_status: 'map_edge_finish' }));
     return null;
   }
 
@@ -433,18 +435,26 @@ export class VirtualRobot extends EventEmitter {
     if (task.status !== 'ON_THE_WAY') {
       return { kind: 'conflict', message: `mapping task ${task.task_id} is not active (status=${task.status})` };
     }
+    if (this.pendingMappingAction) {
+      return { kind: 'conflict', message: `${this.pendingMappingAction} is awaiting device acknowledgement` };
+    }
     return null;
   }
 
   /** Simulates the device's asynchronous ack for EDGE_START/EDGE_CLOSE (see class doc above). */
-  private scheduleMappingActionAck(effect: () => void): void {
-    const timer = setTimeout(effect, MAPPING_ACTION_ACK_DELAY_MS);
+  private scheduleMappingActionAck(action: 'EDGE_START' | 'EDGE_CLOSE', effect: () => void): void {
+    this.pendingMappingAction = action;
+    const timer = setTimeout(() => {
+      this.pendingMappingAction = null;
+      effect();
+    }, MAPPING_ACTION_ACK_DELAY_MS);
     (timer as { unref?: () => void }).unref?.();
     this.mappingActionTimers.push(timer);
   }
 
   private clearMappingActionTimers(): void {
     for (const timer of this.mappingActionTimers.splice(0)) clearTimeout(timer);
+    this.pendingMappingAction = null;
   }
 
   listMappingTasks(sn?: string): MappingTaskRecord[] {

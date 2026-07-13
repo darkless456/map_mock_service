@@ -32,6 +32,7 @@ function buildDeviceDetail(req: Parameters<RouteHandler<AppRouteContext>>[0], ct
   return {
     ...device,
     ...rechargeProjection,
+    lawn_area: ctx.mapStream.lawnArea,
     courtyard_id: 'mock-courtyard-1',
     courtyard_name: 'Mock Courtyard',
     bound_map_count: currentMap ? 1 : 0,

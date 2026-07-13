@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { VirtualRobot } from '../src/sim/virtualRobot';
 import { buildMowStatus, buildNotifyRatelStatus, buildCurrentRatelStatusPayload } from '../src/sim/pushChannels';
@@ -42,6 +42,27 @@ describe('VirtualRobot mapping domain', () => {
       frames.some(f => f.work_status === 'mapping'),
       'resume should broadcast a confirming mapping frame',
     );
+  });
+
+  it('preserves sub_status_entered_at when resume replays the current status', () => {
+    mock.timers.enable({ apis: ['Date'] });
+    try {
+      const robot = new VirtualRobot({ sn: 'SN-R-TIMESTAMP' });
+      robot.startMapping({ sn: robot.sn, mode: 'auto' });
+      robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'leave_dock' });
+      mock.timers.tick(1_000);
+      robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'find_boundary' });
+      const enteredAt = robot.snapshot().lastNotifySubStatusEnteredAt;
+
+      robot.pauseMapping();
+      mock.timers.tick(5_000);
+      robot.resumeMapping();
+
+      assert.equal(robot.snapshot().lastNotifySubStatus, 'find_boundary');
+      assert.equal(robot.snapshot().lastNotifySubStatusEnteredAt, enteredAt);
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   it('builds NOTIFY_RATEL_STATUS with simulator extension fields', () => {

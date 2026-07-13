@@ -4,6 +4,7 @@ import http from 'node:http';
 import { createHttpHandler, type AppRouteContext } from '../src/http/router';
 import { VirtualRobot } from '../src/sim/virtualRobot';
 import { MapStream } from '../src/sim/mapStream';
+import { loadAllPatches } from '../src/assets/PatchLoader';
 import { ChaosController } from '../src/sim/chaos';
 import { ScenarioEngine } from '../src/sim/scenarioEngine';
 import { Recorder } from '../src/sim/recorder';
@@ -43,7 +44,7 @@ function postJson(port: number, path: string, body: Record<string, unknown>): Pr
   });
 }
 
-async function createTestServer(robot: VirtualRobot): Promise<http.Server> {
+async function createTestServer(robot: VirtualRobot, mapStream = new MapStream([])): Promise<http.Server> {
   const server = http.createServer();
   const chaos = new ChaosController();
   const recorder = new Recorder();
@@ -51,7 +52,7 @@ async function createTestServer(robot: VirtualRobot): Promise<http.Server> {
     port: 0,
     dataDir: '',
     robot,
-    mapStream: new MapStream([]),
+    mapStream,
     chaos,
     scenarioEngine: new ScenarioEngine({ robot, chaos, recorder }),
     recorder,
@@ -131,6 +132,18 @@ describe('machine detail HTTP route', () => {
       });
       assert.equal((charging.json.data as Record<string, unknown>).running_status, 'returning_charge');
       assert.equal((charging.json.data as Record<string, unknown>).battery_charging, 0);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
+    }
+  });
+
+  it('returns lawn_area from the same current-dataset geometry as MAP_INCREMENTAL', async () => {
+    const robot = new VirtualRobot({ sn: 'DETAIL-AREA-SN' });
+    const mapStream = new MapStream(loadAllPatches('mapping_happy'), 'mapping_happy');
+    const server = await createTestServer(robot, mapStream);
+    try {
+      const detail = await postJson(serverPort(server), '/ratel/api/v1/courtyard/robot/detail', { sn: robot.sn });
+      assert.equal((detail.json.data as Record<string, unknown>).lawn_area, 4);
     } finally {
       await new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
     }

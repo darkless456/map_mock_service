@@ -99,9 +99,9 @@ describe('ratel_mapping_task/action EDGE_START/EDGE_CLOSE', () => {
       // Acceptance must not optimistically flip sub_status (Appendix C #2).
       assert.equal(robot.snapshot().lastNotifySubStatus, 'find_boundary');
 
-      // A second immediate call re-consumes the now-cleared signal -> 422, not a silent success.
+      // An accepted action is device-busy until its authoritative async ack arrives.
       const duplicate = await postJson(port, ACTION_PATH, { sn: 'SN-EDGE-2', action: 'EDGE_START' });
-      assert.equal(duplicate.status, 422);
+      assert.equal(duplicate.status, 409);
 
       mock.timers.tick(800);
       assert.equal(robot.snapshot().lastNotifySubStatus, 'edge_mapping');
@@ -132,6 +132,9 @@ describe('ratel_mapping_task/action EDGE_START/EDGE_CLOSE', () => {
       const accepted = await postJson(port, ACTION_PATH, { sn: 'SN-EDGE-3', action: 'EDGE_CLOSE' });
       assert.equal(accepted.status, 200);
       assert.equal(robot.snapshot().lastNotifySubStatus, 'edge_mapping');
+
+      const duplicate = await postJson(port, ACTION_PATH, { sn: 'SN-EDGE-3', action: 'EDGE_CLOSE' });
+      assert.equal(duplicate.status, 409);
 
       mock.timers.tick(800);
       assert.equal(robot.snapshot().lastNotifySubStatus, 'map_edge_finish');

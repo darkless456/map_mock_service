@@ -1,0 +1,10 @@
+{
+  // Coordinates are in the map frame used by mapping_happy. Each added lawn is
+  // translated by lawn_offset, matching mapping_lawn2_aisle's 30m dataset shift.
+  "first_lawn": {
+    "entry": { "x": 10.3, "y": 6.45 },
+    "exit_offset": { "x": 2, "y": 2 },
+    "edge_start": { "x": 11.3, "y": 7.45 }
+  },
+  "lawn_offset": { "x": 30, "y": 0 }
+}
