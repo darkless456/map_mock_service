@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/mapping/MappingSession.ts. DO NOT EDIT. !!!
-// Source SHA-256: d8b7e93f421dbb8bc9a1d825b4ed08667832ca77e44e211c289cec1d00e3f41d
-// Synced at: 2026-07-06T12:55:44.977Z
+// Source SHA-256: c741a343f727c0026d5e94c66aa114fc4722eb4ae12770631c27bca7ed11b0af
+// Synced at: 2026-07-13T03:46:38.153Z
 /**
  * MappingSession FSM — task-level `TaskState` + `MappingPhase` tuple from
  * `TaskFSM`. UI binding resolves a `PanelScene` directly from `(state, phase)`
@@ -28,15 +28,12 @@ import { safeLog, type LoggerLike } from '../shared/LoggerLike';
 export type MappingBusinessPhase =
   | 'MAP_SCAN_BOUNDARY'
   | 'MAP_SCAN_BOUNDARY_FAILED'
+  | 'MAP_UNDOCKING_FAILED'
   | 'MAP_FOLLOW_BOUNDARY'
-  | 'MAP_FOLLOW_BOUNDARY_LOST' // DVT P-2: 沿边丢失，独立异常 phase，区别于初始 MAP_SCAN_BOUNDARY_FAILED
+  | 'MAP_FOLLOW_BOUNDARY_FAILED'
   | 'MAP_FOLLOW_BOUNDARY_MANUAL'
   | 'MAP_BOUNDARY_DONE'
-  | 'MAP_COVERAGE_PROBE'
-  | 'MAP_COVERAGE_NEW_AREA'
-  | 'MAP_COVERAGE_RUN'
-  | 'MAP_COVERAGE_DONE'
-  | 'MAP_COMPLETE'; // DVT P-1: 建图完成三按钮页，跳过 COVERAGE 阶段后的终态
+  | 'MAP_COMPLETING';
 
 export type RechargePhase = 'returning' | 'charging' | 'charged';
 export type MappingPhase = MappingBusinessPhase | RechargePhase;
@@ -45,27 +42,37 @@ export type MappingState = TaskState;
 export const MAPPING_PHASES: readonly MappingBusinessPhase[] = [
   'MAP_SCAN_BOUNDARY',
   'MAP_SCAN_BOUNDARY_FAILED',
+  'MAP_UNDOCKING_FAILED',
   'MAP_FOLLOW_BOUNDARY',
-  'MAP_FOLLOW_BOUNDARY_LOST',
+  'MAP_FOLLOW_BOUNDARY_FAILED',
   'MAP_FOLLOW_BOUNDARY_MANUAL',
   'MAP_BOUNDARY_DONE',
-  'MAP_COVERAGE_PROBE',
-  'MAP_COVERAGE_NEW_AREA',
-  'MAP_COVERAGE_RUN',
-  'MAP_COVERAGE_DONE',
-  'MAP_COMPLETE',
+  'MAP_COMPLETING',
 ] as const;
 
 export const ALL_MAPPING_STATES = TASK_STATES;
 export const MAPPING_TERMINAL_PHASES: readonly MappingPhase[] = [
-  'MAP_COVERAGE_DONE',
-  'MAP_COMPLETE', // DVT P-1: 三按钮页也是终态
+  'MAP_COMPLETING',
 ] as const;
 
-export type MappingContext = TaskContext<MappingPhase>;
+/** 退桩失败错误码（对齐割草域 `RETURN_DOCK_FAILED_CODE` 风格）。仅预留，不接转移规则。 */
+export const MAP_UNDOCKING_FAILED_CODE = 'mapping.undocking_failed';
 
-export const initialMappingState: MappingContext =
-  createInitialTaskContext<MappingPhase>();
+/** 建图域专属信号：驱动手摇"开始"/"完成"按钮可用性与草坪数展示，不进共享 `TaskContext`。 */
+export interface MappingSignals {
+  readonly canStartFollowBoundary: boolean;
+  readonly canCloseBoundary: boolean;
+  readonly lawnCount: number | null;
+}
+
+export type MappingContext = TaskContext<MappingPhase> & MappingSignals;
+
+export const initialMappingState: MappingContext = {
+  ...createInitialTaskContext<MappingPhase>(),
+  canStartFollowBoundary: false,
+  canCloseBoundary: false,
+  lawnCount: null,
+};
 
 // ─── Events ────────────────────────────────────────────────────────────
 
@@ -81,30 +88,35 @@ export const initialMappingState: MappingContext =
 export type MappingEvent =
   | TaskEvent<MappingPhase>
   | { readonly type: 'RECONCILE_STARTED' }
-  | { readonly type: 'RECONCILE_PAUSED' };
+  | { readonly type: 'RECONCILE_PAUSED' }
+  | {
+      readonly type: 'DEVICE_FOLLOW_BOUNDARY_READY';
+      readonly ready: boolean;
+      readonly source: DeviceEventSource;
+      readonly ts: number;
+    }
+  | {
+      readonly type: 'DEVICE_BOUNDARY_CLOSABLE';
+      readonly closable: boolean;
+      readonly source: DeviceEventSource;
+      readonly ts: number;
+    }
+  | {
+      readonly type: 'DEVICE_LAWN_COUNT';
+      readonly lawnCount: number;
+      readonly source: DeviceEventSource;
+      readonly ts: number;
+    };
 export type MappingEventType = MappingEvent['type'];
-
-/**
- * 急停 / 能力 / 通知属于正交事件：即便处于 `MAP_COVERAGE_DONE` 粘滞预览，
- * 也必须放行（急停要能打断、能力/通知要能更新）。
- */
-const ORTHOGONAL_DEVICE_EVENTS: ReadonlySet<MappingEventType> = new Set([
-  'DEVICE_ESTOP',
-  'DEVICE_CAPABILITIES',
-  'DEVICE_NOTICE',
-]);
 
 const baseReducer = createTaskReducer<MappingPhase>({
   domain: 'mapping',
   terminalPhases: MAPPING_TERMINAL_PHASES,
-  // 进入遥控的业务例外：寻边 + 沿边阶段允许切手摇——寻边（`MAP_SCAN_BOUNDARY`）、
-  // 自动沿边（`MAP_FOLLOW_BOUNDARY`）与覆盖前探边（`MAP_COVERAGE_PROBE`）。离桩 /
-  // 沿边闭合 Loading / 弓形覆盖 / 预览均禁止；主守卫仍需 `PAUSED` + `canSwitchManual`。
+  // 进入遥控的业务例外：寻边 + 沿边阶段允许切手摇——寻边（`MAP_SCAN_BOUNDARY`）与
+  // 自动沿边（`MAP_FOLLOW_BOUNDARY`）。离桩 / 沿边闭合 Loading / 等待建图结束均禁止；
+  // 主守卫仍需 `PAUSED` + `canSwitchManual`。
   canEnterRemote: ctx =>
-    ctx.phase === 'MAP_SCAN_BOUNDARY' ||
-    ctx.phase === 'MAP_FOLLOW_BOUNDARY' ||
-    ctx.phase === 'MAP_FOLLOW_BOUNDARY_LOST' || // DVT P-2: 沿边丢失后也可切遥控
-    ctx.phase === 'MAP_COVERAGE_PROBE',
+    ctx.phase === 'MAP_SCAN_BOUNDARY' || ctx.phase === 'MAP_FOLLOW_BOUNDARY',
 });
 
 /**
@@ -117,45 +129,57 @@ export function mappingReducer(
   event: MappingEvent,
   logger?: LoggerLike,
 ): MappingContext {
-  // Sticky terminal-phase guard: both `MAP_COVERAGE_DONE` (legacy) and `MAP_COMPLETE` (DVT P-1)
-  // are terminal display phases — once reached the UI freezes on the finish/preview panel until
-  // the user explicitly acts (CMD_* events). Device-originated events (return_dock, charging,
-  // errors, area, etc.) are silenced. Orthogonal events (estop / capabilities / notice) still pass.
-  if (
-    (ctx.phase === 'MAP_COVERAGE_DONE' || ctx.phase === 'MAP_COMPLETE') &&
-    !event.type.startsWith('CMD_') &&
-    !ORTHOGONAL_DEVICE_EVENTS.has(event.type)
-  ) {
-    return ctx;
-  }
-
-  // DVT P-1: skip COVERAGE阶段。设备上报任何 MAP_COVERAGE_* sub_status 时，直接流转到 MAP_COMPLETE
-  // 而非进入覆盖建图流程。这涵盖 bow_cover / new_area / exit_mapping 等所有覆盖子状态。
-  if (
-    event.type === 'DEVICE_PHASE' &&
-    (event.phase === 'MAP_COVERAGE_PROBE' ||
-      event.phase === 'MAP_COVERAGE_NEW_AREA' ||
-      event.phase === 'MAP_COVERAGE_RUN' ||
-      event.phase === 'MAP_COVERAGE_DONE') &&
-    ctx.state === 'WORKING' &&
-    ctx.phase === 'MAP_BOUNDARY_DONE'
-  ) {
-    return commit(
-      ctx,
-      {
-        ...ctx,
-        state: 'WORKING',
-        phase: 'MAP_COMPLETE',
-        resumeTo: null,
-        error: null,
-      },
-      event,
-      logger,
-    );
-  }
-
+  // `MAP_COMPLETING` means the device is waiting for mapping completion. It is not a local
+  // sticky state: all subsequent device events continue through the normal FSM path so an
+  // authoritative device transition immediately selects its corresponding UI.
   if (event.type === 'DEVICE_WORK_STATUS') {
     return reduceWorkStatus(ctx, event, logger);
+  }
+
+  // 建图域专属信号：驱动手摇"开始"/"完成"按钮可用性与草坪数展示。non-IDLE 随时生效；
+  // 幂等更新依赖 commit()/sameContext() 已把这三个字段纳入比较（同值推送返回同引用）。
+  if (event.type === 'DEVICE_FOLLOW_BOUNDARY_READY') {
+    if (ctx.state === 'IDLE') return ctx;
+    return commit(ctx, { ...ctx, canStartFollowBoundary: event.ready }, event, logger);
+  }
+  if (event.type === 'DEVICE_BOUNDARY_CLOSABLE') {
+    if (ctx.state === 'IDLE') return ctx;
+    return commit(ctx, { ...ctx, canCloseBoundary: event.closable }, event, logger);
+  }
+  if (event.type === 'DEVICE_LAWN_COUNT') {
+    if (ctx.state === 'IDLE') return ctx;
+    return commit(ctx, { ...ctx, lawnCount: event.lawnCount }, event, logger);
+  }
+
+  // 断链 / 复位：这三个字段的重置语义比照 capabilities（见 TaskFSM.ts 对应分支）——
+  // LINK_BLE_DOWN/LINK_WS_DOWN/LINK_NET_LOST 在通用层无一例外都会把 capabilities 重置为
+  // 默认值（含 ESTOPPED 态），这里统一同步重置。必须在此拦截并 return：baseReducer 的类型
+  // 只认 TaskEvent<MappingPhase>，且它的返回值不携带这三个建图域专属字段，需要在这里补上。
+  if (
+    event.type === 'LINK_BLE_DOWN' ||
+    event.type === 'LINK_WS_DOWN' ||
+    event.type === 'LINK_NET_LOST'
+  ) {
+    const next = baseReducer(ctx, event, logger);
+    if (next === ctx) return ctx;
+    return { ...next, canStartFollowBoundary: false, canCloseBoundary: false, lawnCount: null };
+  }
+
+  // CMD_RESET：通用层只有"终态 → 全新 createInitialTaskContext"这条路径才会把 capabilities
+  // 落回默认值；ESTOPPED 态触发时只是 spread ctx，不重置 capabilities（现状行为，非本次引入）。
+  // 这三个字段镜像同样的取舍：终态复位回默认值，ESTOPPED 复位原样保留。
+  if (event.type === 'CMD_RESET') {
+    const next = baseReducer(ctx, event, logger);
+    if (next === ctx) return ctx;
+    if (ctx.state === 'ESTOPPED') {
+      return {
+        ...next,
+        canStartFollowBoundary: ctx.canStartFollowBoundary,
+        canCloseBoundary: ctx.canCloseBoundary,
+        lawnCount: ctx.lawnCount,
+      };
+    }
+    return { ...next, canStartFollowBoundary: false, canCloseBoundary: false, lawnCount: null };
   }
 
   // 任务级 WS 推送（RATEL_MAPPING_TASK）/ 任务列表对齐：仅在本地仍处于 IDLE
@@ -188,19 +212,21 @@ export function mappingReducer(
   }
 
   // CMD_SWITCH_MANUAL：标记遥控意图，走后端驱动路径。
-  // - 寻边失败：WORKING + MAP_SCAN_BOUNDARY_FAILED → 直接进入 REMOTE_CONTROL
-  //   （设备已停止，无需暂停，对齐设计 §5.3）。
-  // - 常规切手摇：PAUSED + 能力允许 + 业务阶段适配 → 标记 mode='remote'，
+  // - 寻边失败/沿边丢失边界：WORKING + MAP_SCAN_BOUNDARY_FAILED|MAP_FOLLOW_BOUNDARY_FAILED
+  //   → 直接进入 REMOTE_CONTROL（设备已停止，无需暂停，对齐设计 §5.3）。
+  // - 暂停寻边切手摇：PAUSED + MAP_SCAN_BOUNDARY → 直接同步完成交接（phase 不变）。
+  //   寻边阶段后端不会推送 edge_mapping 回声，没有可等待的完成事件，
+  //   不能走下面"仅标记意图"的路径，否则会永久卡在 PAUSED。
+  // - 常规切手摇（沿边中）：PAUSED + 能力允许 + 业务阶段适配 → 标记 mode='remote'，
   //   后续后端 edge_mapping 经升级规则归一为 MAP_FOLLOW_BOUNDARY_MANUAL 后交接。
   if (event.type === 'CMD_SWITCH_MANUAL') {
     if (!ctx.capabilities.canSwitchManual) return ctx;
 
-    // 寻边失败 / 沿边丢失：设备已停止，无暂停概念，直接进 REMOTE_CONTROL
-    // MAP_FOLLOW_BOUNDARY_LOST 同样直接切遥控（DVT P-2）
+    // 寻边失败/沿边丢失边界：设备已停止，无暂停概念，直接进 REMOTE_CONTROL
     if (
       ctx.state === 'WORKING' &&
       (ctx.phase === 'MAP_SCAN_BOUNDARY_FAILED' ||
-        ctx.phase === 'MAP_FOLLOW_BOUNDARY_LOST')
+        ctx.phase === 'MAP_FOLLOW_BOUNDARY_FAILED')
     ) {
       return commit(
         ctx,
@@ -217,13 +243,25 @@ export function mappingReducer(
       );
     }
 
-    // 常规切手摇：仅标记意图，等后端 edge_mapping
     if (ctx.state !== 'PAUSED') return ctx;
-    if (
-      ctx.phase !== 'MAP_SCAN_BOUNDARY' &&
-      ctx.phase !== 'MAP_FOLLOW_BOUNDARY' &&
-      ctx.phase !== 'MAP_COVERAGE_PROBE'
-    ) {
+
+    // 暂停寻边切手摇：没有后端回声可等待，直接同步完成交接。
+    if (ctx.phase === 'MAP_SCAN_BOUNDARY') {
+      return commit(
+        ctx,
+        {
+          ...ctx,
+          state: 'REMOTE_CONTROL',
+          mode: 'remote',
+          error: null,
+        },
+        event,
+        logger,
+      );
+    }
+
+    // 常规切手摇（沿边中）：仅标记意图，等后端 edge_mapping
+    if (ctx.phase !== 'MAP_FOLLOW_BOUNDARY') {
       return ctx;
     }
     return { ...ctx, mode: 'remote' };
@@ -256,7 +294,7 @@ export function mappingReducer(
     event.phase === 'MAP_FOLLOW_BOUNDARY_MANUAL' &&
     ctx.state === 'PAUSED' &&
     ctx.capabilities.canSwitchManual &&
-    (ctx.phase === 'MAP_FOLLOW_BOUNDARY' || ctx.phase === 'MAP_COVERAGE_PROBE')
+    ctx.phase === 'MAP_FOLLOW_BOUNDARY'
   ) {
     return commit(
       ctx,
@@ -323,23 +361,11 @@ export function mappingReducer(
     );
   }
 
-  // 确认进入内部覆盖（CMD_START_COVERAGE）：乐观先行推进到弓形覆盖，
-  // 设备随后上报 bow_cover 落位（与 cmdStart / cmdPause 的乐观模式一致）。
-  if (event.type === 'CMD_START_COVERAGE') {
-    if (ctx.state === 'WORKING' && ctx.phase === 'MAP_BOUNDARY_DONE') {
-      return commit(
-        ctx,
-        { ...ctx, phase: 'MAP_COVERAGE_RUN', error: null },
-        event,
-        logger,
-      );
-    }
-    return ctx;
-  }
-
+  // 暂停/恢复中收到"等待建图结束"：通用层 `DEVICE_PHASE` case 不处理 PAUSED 态，
+  // 需域层补，行为与 WORKING 下的落位一致（落 WORKING + phase = 等待建图结束）。
   if (
     event.type === 'DEVICE_PHASE' &&
-    event.phase === 'MAP_COVERAGE_DONE' &&
+    event.phase === 'MAP_COMPLETING' &&
     (ctx.state === 'PAUSED' || ctx.state === 'RESUMING')
   ) {
     return commit(
@@ -360,7 +386,18 @@ export function mappingReducer(
     return reduceRecoverableError(ctx, event, logger);
   }
 
-  return baseReducer(ctx, event, logger);
+  return asMappingContext(baseReducer(ctx, event, logger));
+}
+
+/**
+ * `baseReducer` 的返回类型是 `TaskContext<MappingPhase>`，不携带 `canStartFollowBoundary`/
+ * `canCloseBoundary`/`lawnCount`。这三个"生成全新 context、丢失建图域字段"的唯一真实来源是
+ * `CMD_RESET` 从终态触发时的 `createInitialTaskContext`——已在 `mappingReducer` 顶部单独
+ * 拦截并显式补齐，不会到达下面这三处兜底调用点。除此之外，`baseReducer` 内部所有分支都是
+ * 对输入 `ctx` 的 spread，运行时始终携带这三个字段——这里只是把 TS 静态类型补回来。
+ */
+function asMappingContext(next: TaskContext<MappingPhase>): MappingContext {
+  return next as MappingContext;
 }
 
 export function isMappingTerminal(ctx: MappingContext): boolean {
@@ -407,31 +444,16 @@ function reduceWorkStatus(
         phase: resumePhase,
         resumeTo: null,
         error: null,
+        pausedReason: null,
       },
       event,
       logger,
     );
   }
 
-  if (event.status === 'mapping_completed') {
-    if (ctx.state === 'CANCELLED') return ctx;
-    // DVT P-1: 建图完成直接进三按钮页（MAP_COMPLETE），跳过覆盖建图
-    return commit(
-      ctx,
-      {
-        ...ctx,
-        state: 'COMPLETED',
-        phase: 'MAP_COMPLETE',
-        resumeTo: null,
-        error: null,
-        notices: [],
-      },
-      event,
-      logger,
-    );
-  }
-
-  return baseReducer(ctx, event, logger);
+  // `mapping_completed` 是瞬时信号，不再作为"结束建图"的驱动信号（见设计稿 §4.3 #1）。
+  // 不重映射，落 baseReducer 的 `DEVICE_WORK_STATUS` case（不识别该值）安全 no-op。
+  return asMappingContext(baseReducer(ctx, event, logger));
 }
 
 function reduceRecoverableError(
@@ -439,20 +461,17 @@ function reduceRecoverableError(
   event: Extract<MappingEvent, { type: 'DEVICE_ERROR' }>,
   logger?: LoggerLike,
 ): MappingContext {
-  if (ctx.state !== 'WORKING') return baseReducer(ctx, event, logger);
-
-  // DVT P-2: 沿边中（MAP_FOLLOW_BOUNDARY）丢失边缘 → MAP_FOLLOW_BOUNDARY_LOST
-  // 其他阶段的可恢复错误仍回退到 MAP_SCAN_BOUNDARY_FAILED（寻边失败）
-  const failPhase: MappingBusinessPhase =
+  if (ctx.state !== 'WORKING') return asMappingContext(baseReducer(ctx, event, logger));
+  // 出错前处于自动沿边阶段 → 沿边丢失边界；其余（寻边等）沿用寻边失败态。
+  const failedPhase: MappingBusinessPhase =
     ctx.phase === 'MAP_FOLLOW_BOUNDARY'
-      ? 'MAP_FOLLOW_BOUNDARY_LOST'
+      ? 'MAP_FOLLOW_BOUNDARY_FAILED'
       : 'MAP_SCAN_BOUNDARY_FAILED';
-
   return commit(
     ctx,
     {
       ...ctx,
-      phase: failPhase,
+      phase: failedPhase,
       error: { code: event.code, recoverable: true },
     },
     event,
@@ -501,7 +520,10 @@ function sameContext(a: MappingContext, b: MappingContext): boolean {
     a.area === b.area &&
     a.battery === b.battery &&
     a.resumeTo === b.resumeTo &&
-    a.error === b.error
+    a.error === b.error &&
+    a.canStartFollowBoundary === b.canStartFollowBoundary &&
+    a.canCloseBoundary === b.canCloseBoundary &&
+    a.lawnCount === b.lawnCount
   );
 }
 

@@ -6,16 +6,18 @@ The simulator keeps a one-way copy of selected pure FSM files from the mower app
 
 ```text
 mower/src/domain/shared/TaskFSM.ts                         -> src/sim/fsm-mirror/domain/shared/TaskFSM.ts
-mower/src/domain/shared/EstopReducer.ts                    -> src/sim/fsm-mirror/domain/shared/EstopReducer.ts
 mower/src/domain/shared/LoggerLike.ts                      -> src/sim/fsm-mirror/domain/shared/LoggerLike.ts
 mower/src/domain/mapping/MappingSession.ts                 -> src/sim/fsm-mirror/domain/mapping/MappingSession.ts
 mower/src/domain/mowing/MowingTask.ts                      -> src/sim/fsm-mirror/domain/mowing/MowingTask.ts
 mower/src/domain/mapEdit/MapEditSession.ts                 -> src/sim/fsm-mirror/domain/mapEdit/MapEditSession.ts
 mower/src/features/shared/mapping/BackendStatusMapper.ts   -> src/sim/fsm-mirror/features/shared/mapping/BackendStatusMapper.ts
+mower/src/features/shared/mapping/BackendPhaseMapper.ts    -> src/sim/fsm-mirror/features/shared/mapping/BackendPhaseMapper.ts
+mower/src/features/shared/mapping/unknownBackendSubStatus.ts -> src/sim/fsm-mirror/features/shared/mapping/unknownBackendSubStatus.ts
+mower/src/features/shared/mapping/workStatus.ts            -> src/sim/fsm-mirror/features/shared/mapping/workStatus.ts
 mower/src/features/mapping/state/mappingBackendRegistry.ts -> src/sim/fsm-mirror/features/mapping/state/mappingBackendRegistry.ts
 mower/src/features/mowing/state/mowingBackendRegistry.ts   -> src/sim/fsm-mirror/features/mowing/state/mowingBackendRegistry.ts
-mower/src/services/events/Arbitrator.ts                    -> src/sim/fsm-mirror/services/events/Arbitrator.ts
-mower/src/services/events/EventAdapter.ts                  -> src/sim/fsm-mirror/services/events/EventAdapter.ts
+mower/src/infra/events/Arbitrator.ts                       -> src/sim/fsm-mirror/services/events/Arbitrator.ts
+mower/src/infra/events/EventAdapter.ts                     -> src/sim/fsm-mirror/services/events/EventAdapter.ts
 mower/src/features/shared/mapping/TaskEventPipeline.ts     -> src/sim/fsm-mirror/features/shared/mapping/TaskEventPipeline.ts
 ```
 
@@ -36,9 +38,10 @@ MOWER_REPO=/absolute/path/to/pudu_ratel_app_mower npm run sync-fsm-mirror
 The script:
 
 1. Copies the approved files.
-2. Rewrites `@/domain`, `@/features`, and `@/services` aliases to relative mirror paths.
+2. Rewrites mower `@/…` aliases to relative mirror paths.
 3. Adds a generated header with source SHA-256 and sync timestamp.
-4. Writes `src/sim/fsm-mirror/.manifest.json`.
+4. Removes obsolete files only when they carry the generated-file marker and are no longer in the approved mirror list; local shims are retained.
+5. Writes `src/sim/fsm-mirror/.manifest.json`.
 
 ## After syncing
 
@@ -53,7 +56,8 @@ Expected failures after mower FSM changes should be fixed in simulator-owned fil
 
 - `src/sim/virtualRobot.ts`
 - `src/sim/pushChannels.ts`
-- `src/sim/taskBridge.ts`
+- `src/sim/task/MappingTaskBridge.ts`
+- `src/sim/task/MowingTaskBridge.ts`
 - future `scenarios/*.yaml`
 
 Do not patch generated mirror files by hand.
@@ -64,5 +68,5 @@ Do not patch generated mirror files by hand.
 |---|---|
 | New `TaskState` | Update status derivation in `VirtualRobot.workStatus()` and payload projection in `pushChannels.ts`. |
 | New mapping phase | Add streaming decision or backend phase mapping in `mapStream.ts` / `pushChannels.ts`. |
-| Renamed event | Update `taskBridge.ts`, `/sim/event` docs, and tests. |
+| Renamed event | Update the affected bridge in `src/sim/task/`, `/sim/event` docs, and tests. |
 | Deleted event | Remove simulator references and update docs/tests. |

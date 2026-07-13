@@ -59,10 +59,9 @@ The service only registers the mower API paths below. The mower app calls device
 | `POST` | `/ratel/api/v1/map/delete` | Delete an in-memory map package. |
 | `POST` | `/ratel/api/v1/robot/self_check` | 通知机器开始自检（建图前置第一步） |
 | `POST` | `/ratel/api/v1/mapping/check` | 建图条件检测 → 轮询直至六项齐全（mock 每次多返回一项） |
-| `POST` | `/ratel/api/v1/mapping/start` | Dispatch mapping `CMD_START` → `PREPARING`. |
-| `POST` | `/ratel/api/v1/mapping/pause` | Dispatch mapping `CMD_PAUSE`. |
-| `POST` | `/ratel/api/v1/mapping/resume` | Dispatch mapping `CMD_RESUME`. |
-| `POST` | `/ratel/api/v1/mapping/stop` | `CMD_CANCEL` or `CMD_CONFIRM` when `save: true`. |
+| `POST` | `/ratel/central-control-service/api/v1/ratel_mapping_task/create` | Create a mapping task and dispatch `CMD_START`. |
+| `POST` | `/ratel/central-control-service/api/v1/ratel_mapping_task/action` | Handle mapping `PAUSE`, `RESUME`, or `STOP`. |
+| `POST` | `/ratel/central-control-service/api/v1/ratel_mapping_task/list` | Return mapping tasks and their current FSM-derived status. |
 | `POST` | `/ratel/api/v1/mapping/mode` | `CMD_SWITCH_MANUAL` / `CMD_EXIT_MANUAL` for `remote` / `auto`. |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/create` | Create mowing task, dispatch `CMD_START` + `NOTIFY_RATEL_STATUS` sequence (`map_check` → `leave_dock` → `mowing`). |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/action` | Handle `PAUSE`, `RESUME`, `CANCEL`, and `FINISH_AND_RETURN_DOCK`. |

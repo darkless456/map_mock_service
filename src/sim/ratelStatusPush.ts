@@ -64,10 +64,10 @@ function applyMappingToIdleCompletion(robot: VirtualRobot): void {
   if (ctx.state !== 'WORKING' && ctx.state !== 'PAUSED' && ctx.state !== 'RESUMING') {
     return;
   }
-  if (ctx.phase !== 'MAP_COMPLETE') {
+  if (ctx.phase !== 'MAP_COMPLETING') {
     robot.dispatchMappingEvent({
       type: 'DEVICE_PHASE',
-      phase: 'MAP_COMPLETE',
+      phase: 'MAP_COMPLETING',
       ...nowEvent(),
     });
   }

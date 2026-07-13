@@ -52,10 +52,40 @@ function ensureDir(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
 
+function removeObsoleteGeneratedFiles(expectedDestinations) {
+  if (!fs.existsSync(mirrorRoot)) return 0;
+
+  let removed = 0;
+  const visit = directory => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(entryPath);
+        continue;
+      }
+      if (!entry.isFile() || expectedDestinations.has(entryPath)) continue;
+      const content = fs.readFileSync(entryPath, 'utf8');
+      if (content.includes('AUTO-GENERATED FROM mower/')) {
+        fs.unlinkSync(entryPath);
+        removed += 1;
+        console.log(`Removed obsolete generated mirror file: ${toPosix(path.relative(serviceRoot, entryPath))}`);
+      }
+    }
+  };
+
+  visit(mirrorRoot);
+  return removed;
+}
+
 if (!fs.existsSync(mowerRoot)) {
   console.error(`mower repo not found: ${mowerRoot}`);
   process.exit(1);
 }
+
+const expectedDestinations = new Set(
+  mirrorFiles.map(([, destRel]) => path.join(mirrorRoot, destRel)),
+);
+removeObsoleteGeneratedFiles(expectedDestinations);
 
 const syncedAt = new Date().toISOString();
 const manifest = {

@@ -457,36 +457,18 @@ curl -X POST 'https://ratel-cxg-test-internal.pudu.work/ratel/api/v1/mapping/che
   -d '{"sn":"TSAABBC1C2C4C2"}'
 ```
 
-### 4.2 开始建图
+### 4.2 建图任务
 
-| 方法 | `POST` |
-| 路径 | `/ratel/api/v1/mapping/start` |
+旧 `/ratel/api/v1/mapping/start|pause|resume|stop` 路由已移除，不提供兼容别名。
+当前 mock 使用以下建图任务 API：
 
-**Body：** `sn`（string）、`map_id`（string）、`mode`（`auto` \| `remote` \| `follow`）。
-**机器错误时 `data`：** `robot_code`、`robot_message`
+| 用途 | 方法 | 路径 | Body |
+|------|------|------|------|
+| 创建 | `POST` | `/ratel/central-control-service/api/v1/ratel_mapping_task/create` | 建图任务参数 |
+| 控制 | `POST` | `/ratel/central-control-service/api/v1/ratel_mapping_task/action` | `{ sn, task_id?, action: PAUSE\|RESUME\|STOP, payload?: { save } }` |
+| 查询 | `POST` | `/ratel/central-control-service/api/v1/ratel_mapping_task/list` | `{ sn, limit?, offset? }` |
 
-### 4.3 暂停建图
-
-| 方法 | `POST` |
-| 路径 | `/ratel/api/v1/mapping/pause` |
-
-**Body：** `{ "sn": "<SN>" }`
-
-### 4.4 恢复建图
-
-| 方法 | `POST` |
-| 路径 | `/ratel/api/v1/mapping/resume` |
-
-**Body：** `{ "sn": "<SN>" }`
-
-### 4.5 停止建图
-
-| 方法 | `POST` |
-| 路径 | `/ratel/api/v1/mapping/stop` |
-
-**Body：** `sn`（string）、`save`（bool，`true` 保存地图）
-
-### 4.6 切换建图模式
+### 4.3 切换建图模式
 
 | 方法 | `POST` |
 | 路径 | `/ratel/api/v1/mapping/mode` |

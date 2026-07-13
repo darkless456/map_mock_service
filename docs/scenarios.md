@@ -8,10 +8,10 @@ YAML scenarios drive **cloud-accurate** `NOTIFY_RATEL_STATUS` pushes over WebSoc
 |-------|----------|
 | `notify` step | Updates mock FSM **and** broadcasts `NOTIFY_RATEL_STATUS` with `work_status` + `sub_status` |
 | App (`useWsDeviceListener`) | Parses same payload → `TaskEventPipeline` → panel / navigation |
-| `POST /mapping/start` | Mock FSM `CMD_START` + WS `mapping` + `precondition` |
+| `POST /ratel_mapping_task/create` | Mock FSM `CMD_START` + WS `mapping` + `precondition` |
 | Dedup | Identical `(work_status, sub_status)` is not pushed twice |
 
-**Important:** 现在的 5 个场景均自包含（`setup: { state: IDLE }` + `emit CMD_START` 由场景自行建任务，无需 App 先发 HTTP `mapping/start` / `ratel_task/create`）。直接在 `/sim/panel` 运行即可驱动 App FSM 与导航；如需配合真机轨迹/瓦片渲染，App 仍需连上 WS（割草轨迹还需 `LOCATION_REGISTER`）。
+**Important:** 当前 9 个场景均自包含（`setup: { state: IDLE }` + `emit CMD_START` 由场景自行建任务，无需 App 先发 HTTP `ratel_mapping_task/create` / `ratel_task/create`）。直接在 `/sim/panel` 运行即可驱动 App FSM 与导航；如需配合真机轨迹/瓦片渲染，App 仍需连上 WS（割草轨迹还需 `LOCATION_REGISTER`）。
 
 ## Mapping `sub_status` sequence (§5.1)
 
@@ -22,9 +22,8 @@ YAML scenarios drive **cloud-accurate** `NOTIFY_RATEL_STATUS` pushes over WebSoc
 | `find_boundary` | `WORKING` + `MAP_SCAN_BOUNDARY` → **CreateMap** |
 | `edge_mapping` | 自动：`WORKING/MAP_FOLLOW_BOUNDARY`（自动沿边）；*手摇（`mode=remote`）*：`WORKING` → `REMOTE_CONTROL` + `MAP_FOLLOW_BOUNDARY_MANUAL` → **ManualMap** 交接用户手摇沿边 |
 | `map_edge_finish` | `MAP_BOUNDARY_DONE`；手摇态由此 *退出遥控* 回到自动 `WORKING`，进入「Loading」过渡 |
-| `bow_cover` | `MAP_COMPLETE`（DVT P-1：跳过覆盖建图，直接进入完成页）|
 | `exit_mapping` | Legacy preview signal；新流程通常不再需要 |
-| `work_status: idle` + `sub_status: none` | `mapping->idle` → `COMPLETED/MAP_COMPLETE` |
+| `work_status: idle` + `sub_status: none` | `mapping->idle` → `MAP_COMPLETING` + `CMD_CONFIRM` → `COMPLETED/MAP_COMPLETING` |
 
 Between steps, scenarios use `wait: 5s`–`20s` (stream scenario holds 30s in streamable phases).
 
@@ -84,7 +83,7 @@ API：
 
 > **暂停 / 恢复会真正冻结场景脚本本身**（而非仅暂停机器人 FSM），便于停在某个特定流程状态调试。两条路径都生效：
 > - **Web 面板** 暂停 / 恢复按钮（内部调 `/sim/scenario/pause`、`/sim/scenario/resume`，并同步下发 `CMD_PAUSE`/`CMD_RESUME` 保持机器人状态一致）；
-> - **App 调真实 API** 暂停 / 恢复（`mapping/pause`、`ratel_task/action` 等最终对机器人下发 `CMD_PAUSE`/`CMD_RESUME`）——机器人会广播 `controlPause`/`controlResume`，引擎据此自动暂停 / 恢复。
+> - **App 调真实 API** 暂停 / 恢复（`ratel_mapping_task/action`、`ratel_task/action` 最终对机器人下发 `CMD_PAUSE`/`CMD_RESUME`）——机器人会广播 `controlPause`/`controlResume`，引擎据此自动暂停 / 恢复。
 
 > 暂停期间 `wait` 计时被冻结（不消耗等待时长），恢复后从原处继续。当前暂停状态可用 `GET /sim/state` 的 `scenario.paused` 读取，面板运行中会显示「场景 运行中 ▶ / 已暂停 ⏸」。
 
@@ -110,12 +109,12 @@ Both scenarios rely on the mirrored mower FSM where `work_status: emergency_stop
 
 ## Checked-in scenarios
 
-> 更新日期：2026-06-11。个核心场景（不再模拟异常）。两个 stream 场景均为**无限循环**，需在 `/sim/panel` 点击「停止场景」结束。所有场景均**自包含**（`emit CMD_START` 自建任务），无需 App 先调 HTTP `mapping/start` 或 `ratel_task/create`。
+> 更新日期：2026-07-13。当前共 9 个场景；两个 stream 场景均为**无限循环**，需在 `/sim/panel` 点击「停止场景」结束。所有场景均**自包含**（`emit CMD_START` 自建任务），无需 App 先调 HTTP `ratel_mapping_task/create` 或 `ratel_task/create`。
 
 | File | 用途 | 结束方式 |
 |------|------|----------|
 | `mapping_happy_auto.yaml` | 正常建图 happy flow：完整 NOTIFY 链 → `COMPLETED` | 自动结束（约 1.5 分钟）|
-| `mapping_happy_manual.yaml` | 手动遥控建图 happy flow：寻到边交接手摇沿边（`REMOTE_CONTROL`）→ 沿边闭合 → `MAP_COMPLETE` → `COMPLETED` | 自动结束（约 1.5 分钟）|
+| `mapping_happy_manual.yaml` | 手动遥控建图 happy flow：寻到边交接手摇沿边（`REMOTE_CONTROL`）→ 沿边闭合 → `MAP_COMPLETING` → `COMPLETED` | 自动结束（约 1.5 分钟）|
 | `mowing_happy_auto.yaml` | 正常割草 happy flow：`map_check → mowing → return_dock → idle` → `COMPLETE` | 自动结束（约 40 秒） |
 | `mowing_recharge.yaml` | 割草并回充（回桩）：割草中触发回充 → `RETURNING_DOCK` 回桩子阶段 → `at_dock` → `idle` → `COMPLETED` | 自动结束（约 35 秒） |
 | `mapping_estop_edge_follow.yaml` | 建图沿边后急停：`MAP_FOLLOW_BOUNDARY` → `emergency_stop` → `ESTOPPED` → release + `CMD_RESET` → `RESUMING` → `COMPLETED` | 自动结束（约 1 分钟） |

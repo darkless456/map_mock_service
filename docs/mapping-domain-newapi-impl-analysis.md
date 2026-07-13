@@ -2,10 +2,10 @@
 
 > 范围：仅建图域（Mapping Domain）
 > 依据：
-> - [`APP端接口文档v4.md`](../../pudu-build-docs/pudu_ratel_app_mower/APP端接口文档v4.md)
-> - [`APP端接口文档v3与v4对比.md`](../../pudu-build-docs/pudu_ratel_app_mower/APP端接口文档v3与v4对比.md)
-> - [`mapping_api_gap_audit.md`](../../pudu-build-docs/pudu_ratel_app_mower/mapping_api_gap_audit.md)（审计基线，区分"缺失/待确认/已确认可支撑"）
-> - [`mapping_flow_refactor_design.md`](../../pudu-build-docs/pudu_ratel_app_mower/mapping_flow_refactor_design.md)（重构口径）
+> - [`APP端接口文档v4.md`](../../build-docs/pudu_ratel_app_mower/APP端接口文档v4.md)
+> - [`APP端接口文档v3与v4对比.md`](../../build-docs/pudu_ratel_app_mower/APP端接口文档v3与v4对比.md)
+> - [`mapping_api_gap_audit.md`](../../build-docs/pudu_ratel_app_mower/mapping_api_gap_audit.md)（审计基线，区分"缺失/待确认/已确认可支撑"）
+> - [`mapping_flow_refactor_design.md`](../../build-docs/pudu_ratel_app_mower/mapping_flow_refactor_design.md)（重构口径）
 > - map_mock_service 现状代码（`src/http/routes/mapping.routes.ts`、`mappingTask.routes.ts`、`src/sim/pushChannels.ts`、`ratelStatusPush.ts`、`MappingTelemetry.ts`、`DeviceProfile.ts`、`virtualRobotCore.ts`）
 >
 > 目的：在 `map_mock_service` 实现建图域新 API 前，盘点"数据层缺失 / 逻辑层自洽性 / 乐观假设 vs 必须对齐"，给出可直接落地的结论。
@@ -34,7 +34,7 @@ mock 现在跑的是一套**早于审计定稿的自造协议**：用 `/ratel/ap
 | D3 | `extend_status.legitimate_starting_point` | ✅ 已确认（WS） | ❌ `buildNotifyRatelStatus` 根本没有 `extend_status` 对象 | ✅ 可生成：现有 `MappingTelemetry.edgeStartAvailable` 语义等价，只需改名映射 |
 | D4 | `extend_status.legitimate_end_point` | ✅ 已确认（WS） | ❌ 同上，现有 `regionCloseable` 可映射 | ✅ 可生成：`MappingTelemetry.regionCloseable` 语义等价 |
 | D5 | `extend_status` 查询快照（`robot/detail`） | 🟠 待补 | ❌ `DeviceProfile.buildDeviceInfo` 无 `extend_status` | ✅ 可生成：与 WS 同源数据，`buildDeviceInfo` 注入同一份即可 |
-| D6 | `MAP_COMPLETING` 的 `sub_status` 实际值 | 🔴 待确认 | ❌ `deriveSubStatus` 无此分支 | ⚠️ 可占位生成：mock 自定义一个值（如 `map_completing`），但真实值必须后端定稿 |
+| D6 | `MAP_COMPLETING` 的 `sub_status` 实际值 | 🔴 待确认 | 🟡 `deriveSubStatus` 已投影为 `exit_mapping`；镜像 `BackendPhaseMapper` 尚无真实后端键的反向映射 | ⚠️ `exit_mapping` 是 mock 兼容投影，不是已确认的真实枚举值 |
 | D7 | `sub_status_entered_at`（phase 进入时间） | 🔴 缺失/核对中 | ❌ 完全不存在 | ✅ 可生成：mock 自有事件循环，`sub_status` 变更时记录 `Date.now()` 即可，不依赖外部 |
 | D8 | mapping `sub_status` 查询快照 | 🔴 待落地 | 🟡 `/ratel/api/v1/mapping/status` 已返回 `sub_status`，但缺 `sub_status_entered_at`/`lawn_count` | ✅ 可生成：在现有端点补字段即可 |
 | D9 | `lawn_count`（草坪数） | 🟠 缺失 | ❌ 无 | ✅ 可生成：从 `passageCheckpoints.length` + 1 推导（mock 已记录通道端点），或维护计数器 |
@@ -84,18 +84,18 @@ mock 现在跑的是一套**早于审计定稿的自造协议**：用 `/ratel/ap
 
 **这是当前 mock 与"已确认契约"之间最大的不自洽**，且方向明确——审计已经赢了，mock 必须改字段名和嵌套结构。
 
-### 2.3 🟠 `sub_status` 派生与 `MAP_COMPLETING` 缺位
+### 2.3 🟠 `sub_status` 派生与 `MAP_COMPLETING` 协议待定
 
-**现状**：`deriveSubStatus`（`pushChannels.ts`）按 FSM 状态推导 `sub_status`，但没有 `MAP_COMPLETING` 分支。
+**现状**：`deriveSubStatus`（`pushChannels.ts`）已按 FSM 状态提供 `MAP_COMPLETING` 的完成投影；真实后端对应的 `sub_status` 键仍待确认。
 
-**不自洽点**：重构方案 §2.5 把 `MAP_COMPLETING` 列为新终态（替代 `MAP_COVERAGE_DONE`），而 mock 的 FSM 镜像仍保留 `MAP_COVERAGE_*`（因 App 侧尚未改，镜像只读约束）。这导致：
+**同步结果**：mower FSM 镜像已删除 `MAP_COVERAGE_*`，改为 `MAP_COMPLETING`；mock 在 `mapping -> idle` 完成边沿中按源 registry 派发 `MAP_COMPLETING` 后确认完成。
 
-- mock 在闭合后仍会推 `MAP_COVERAGE_*` 相关 `sub_status`，与重构后 App 期望的 `MAP_COMPLETING` 不一致；
+- mock 的 `MAP_COMPLETING` 当前向外投影为 `exit_mapping`，以保留现有状态推送结构；真实键定稿后再更新 mapper；
 - `dvt-adaptation-plan.md` §1.2 模块 B 已规划"过渡期打样开关 `mappingCoverageSkip`"，但尚未落地。
 
-**自洽性风险**：如果 App 侧已按重构方案删除 `MAP_COVERAGE_*` 解析、只认 `MAP_COMPLETING`，mock 推过去的 `sub_status` 会被 App 保守降级（审计 §9 要求"对未识别 sub_status 保守降级"）→ UI 卡在闭合态不进倒计时。
+**剩余风险**：后端若要求新的完成中 `sub_status` 键，需在 mower 的 `BackendPhaseMapper` 中定稿后重新运行镜像同步；未知键仍按保守 no-op 处理。
 
-**建议**：mock 侧用 `simFsmTypes.ts` 风格的模拟器扩展，在 `deriveSubStatus` 增加 `MAP_COMPLETING` 占位分支（与 `ESTOPPED` 先例一致），不受镜像只读约束。
+**已处理**：mock 侧在 `deriveSubStatus` 增加了 `MAP_COMPLETING` 分支，且没有修改生成镜像文件。
 
 ### 2.4 🟠 倒计时时间戳没有权威来源
 
@@ -139,7 +139,7 @@ mock 现状两个都没有。若按 W5 先实现 `countdown_seconds`，后续对
 |---|---|---|
 | `CONFIRM_START_BOUNDARY`/`CONFIRM_CLOSE` 的 action 字符串 | mock 直接用这两个名字 | action 是字符串，后端最终定稿大概率也是这名（审计建议即此名）；即使改名，mock 改一处即可 |
 | action 的错误语义（任务不存在/phase 不允许/`legitimate_starting_point=0`/设备忙/重复确认） | mock 自定义错误码与 `robot_message` | 审计只要求"区分"，具体码值后端未定；mock 覆盖五种分支即可让 App 验证错误处理 |
-| `MAP_COMPLETING` 的 `sub_status` 占位值 | mock 用 `map_completing` | 真实值待后端，但 mock 推什么 App 解析什么，只要 WS 与 HTTP 快照同值即可 |
+| `MAP_COMPLETING` 的 `sub_status` 占位值 | 当前 mock 用 `exit_mapping` | 真实值待后端；该值仅为 mock 兼容投影，不能视为真机协议定稿 |
 | `sub_status_entered_at` 的单位/时区 | mock 用毫秒 epoch（审计建议值） | 审计已建议 `int64` 毫秒，mock 照做即可 |
 | `lawn_count` 字段名 | mock 用 `lawn_count: int` | 审计建议名，无竞争方案 |
 | NRTK 自检字段名 | mock 用 `nrtk_status`/`nrtk_msg` | `dvt-adaptation-plan.md` W1 已定 |
@@ -154,7 +154,7 @@ mock 现状两个都没有。若按 W5 先实现 `countdown_seconds`，后续对
 |---|---|---|
 | **按钮使能态的承载结构**：必须是 `extend_status.legitimate_starting_point`/`legitimate_end_point`，不能是根下平铺的 `edge_start_available` | 审计已"确认"此为最终契约（§4.1/§4.2），非草案。App 翻译层会按 `extend_status.xxx` 取值 | 🔴 mock 现在平铺在根下且字段名不同，App 按真契约解析会全 `undefined` |
 | **用户指令的通道**：必须走 `ratel_mapping_task/action` 新 action，不能继续走 `mapping/manual` | 审计 §2.1/§2.2 把新 action 列为 🔴 缺失项，意味着这是"待新增的正式通道"；`mapping/manual` 是旧接口，v4 已对其同类接口做删除线处理 | 🔴 mock 现在只走旧通道 |
-| **`sub_status` 的分层**：建图 phase 必须落在 mapping `sub_status`，`task_status` 保持 `ON_THE_WAY`，不能扩张 `task_status` | 审计 §6.5 待确认，但方向明确。若 mock 把 phase 塞进 `task_status`，App 翻译层会错乱 | 🟡 mock 目前 `task_status` 与 `sub_status` 分离，但 `MAP_COMPLETING` 未落地，分层未充分验证 |
+| **`sub_status` 的分层**：建图 phase 必须落在 mapping `sub_status`，`task_status` 保持 `ON_THE_WAY`，不能扩张 `task_status` | 审计 §6.5 待确认，但方向明确。若 mock 把 phase 塞进 `task_status`，App 翻译层会错乱 | 🟡 mock 当前已将 `MAP_COMPLETING` 投影为 `exit_mapping`，但真实后端枚举和恢复快照契约仍未验证 |
 | **`extend_status` 查询快照的载体**：审计建议在 `robot/detail` 返回与 WS 同结构的 `extend_status` | 冷启动按钮态必须可信。若 mock 不在 `robot/detail` 补，App 冷启动只能拿旧缓存 | 🔴 mock `buildDeviceInfo` 无 `extend_status` |
 | **`MAP_COMPLETING` 是否持续推送 + 终态迁移**：进入成功/失败/取消后的后续 `sub_status`/`task_status` | 审计 §3.1 要求后端给出最小契约。mock 若自己定义一套迁移，可能与真机不一致 | 🟠 mock 可先按重构方案 §2.5 的提议实现，但标注"待后端确认" |
 | **`mapping_completed` 的废弃边界**：审计 §6.6 建议标 deprecated，建图恢复不能用它 | 若 mock 仍推 `mapping_completed` 让 App 当 phase 信号，会强化错误用法 | 🟡 mock 需确认 `running_status.mapping_completed` 是否仍在 `robot/detail` 返回 |

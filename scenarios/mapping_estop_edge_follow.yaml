@@ -70,8 +70,5 @@ steps:
   - notify: { work_status: mapping, sub_status: map_edge_finish }
   - expect: { state: WORKING, phase: MAP_BOUNDARY_DONE }
   - wait: 3s
-  - notify: { work_status: mapping, sub_status: bow_cover }
-  - expect: { state: WORKING, phase: MAP_COMPLETE }
-  - wait: 3s
   - notify: { work_status: idle, sub_status: none }
-  - expect: { state: COMPLETED, phase: MAP_COMPLETE }
+  - expect: { state: COMPLETED, phase: MAP_COMPLETING }

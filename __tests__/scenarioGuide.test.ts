@@ -24,6 +24,7 @@ describe('scenarioGuide', () => {
     assert.deepEqual(names, [
       'mapping_estop_edge_follow',
       'mapping_happy_auto',
+      'mapping_happy_auto_multilawn',
       'mapping_happy_manual',
       'mapping_stream_incremental',
       'mowing_estop_running',

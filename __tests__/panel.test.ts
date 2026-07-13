@@ -43,7 +43,7 @@ describe('phaseGraphFromFsm', () => {
     for (const phase of [
       'MAP_SCAN_BOUNDARY',
       'MAP_FOLLOW_BOUNDARY',
-      'MAP_COMPLETE',
+      'MAP_COMPLETING',
     ]) {
       assert.ok(keys.includes(phase), `mapping lane should include ${phase}`);
     }

@@ -235,17 +235,21 @@ MAP_BOUNDARY_DONE(lawn1) → MAP_COMPLETING
 
 ## 4. C. 缺 phase / 语义映射（FSM 层）
 
-### C1. 🔴 `MAP_COMPLETING` phase 未建模
+### C1. 🟠 `MAP_COMPLETING` 协议、恢复与时序尚未建模
 
-**现状：** [`MappingSession.ts`](../src/sim/fsm-mirror/domain/mapping/MappingSession.ts) 的 phase 集合是旧版（`MAP_COMPLETE` 等），没有 v4 的 `MAP_COMPLETING`（替换 `MAP_COVERAGE_DONE` / 等待建图结束）。
+**已处理：** [`MappingSession.ts`](../src/sim/fsm-mirror/domain/mapping/MappingSession.ts) 已同步 mower 当前 phase 集合，包含 `MAP_COMPLETING`，不再包含旧版 `MAP_COMPLETE` / `MAP_COVERAGE_*`。
 
-**需要：**
-- 在 mock FSM 新增 `MAP_COMPLETING` phase；
-- 进入条件：沿边闭合后（`MAP_BOUNDARY_DONE` → `MAP_COMPLETING`）；
-- 退出条件：120s 倒计时结束 → `COMPLETED`，或用户取消；
-- 进入时记录 `sub_status_entered_at`。
+**当前行为：** mower registry 在后端 `work_status: mapping → idle` 边沿派发
+`DEVICE_PHASE(MAP_COMPLETING)`，随后立刻派发 `CMD_CONFIRM`，因此 mock 最终进入
+`COMPLETED`。`MAP_BOUNDARY_DONE` 本身不会直接进入完成态，也没有 120s 倒计时或
+`sub_status_entered_at` 的恢复数据。
 
-**注意：** [`ratelStatusPush.ts`](../src/sim/ratelStatusPush.ts) 现有 `applyMappingToIdleCompletion` 直接在 `mapping→idle` 时 dispatch `MAP_COMPLETE` + `CMD_CONFIRM`，这是旧逻辑，需要改成走 `MAP_COMPLETING`。
+**仍需补齐：**
+- 与后端确认 `MAP_COMPLETING` 的真实 `sub_status`、是否需要持续推送及终态迁移；
+- 若产品仍要求倒计时，定义其触发条件、时长、取消行为和 HTTP/WS 恢复字段；
+- 仅在协议确认后实现 `sub_status_entered_at` 与冷启动 reconcile，而不在镜像中自造 phase 转移。
+
+**已处理：** [`ratelStatusPush.ts`](../src/sim/ratelStatusPush.ts) 的 `applyMappingToIdleCompletion` 在 `mapping→idle` 时 dispatch `MAP_COMPLETING` + `CMD_CONFIRM`。
 
 ---
 
@@ -272,7 +276,9 @@ A1 的两个 action 需要 FSM 事件承接：
 
 **现状：** [`fsm-mirror/features/shared/mapping/BackendPhaseMapper.ts`](../src/sim/fsm-mirror/features/shared/mapping/BackendPhaseMapper.ts) 是从 mower app 同步来的镜像，其映射表可能还是旧版。
 
-**需要：** audit §3.1 待后端确认 `MAP_COMPLETING` 的实际 `sub_status` 值。mock 侧的 `BackendPhaseMapper` 需要新增：
+**需要：** audit §3.1 待后端确认 `MAP_COMPLETING` 的实际 `sub_status` 值。当前 mock
+在状态投影中将该 phase 表示为 `exit_mapping`，但镜像 `BackendPhaseMapper` 尚不能从真实
+后端 `sub_status` 反向映射该 phase。协议定稿后需要在 mower 侧新增：
 - `MAP_COMPLETING` 的 sub_status → 内部 phase 映射；
 - `MAP_UNDOCKING_FAILED` 的映射；
 - 明确 active mapping phase 期间 `task_status` 保持 `ON_THE_WAY`（audit §6.5）。

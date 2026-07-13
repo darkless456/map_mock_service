@@ -15,7 +15,7 @@ guide:
     - 第 1 块草坪：precondition → leave_dock → find_boundary → edge_mapping → map_edge_finish
     - 通道过渡（沿用 find_boundary sub_status，phase 重新进入 MAP_SCAN_BOUNDARY，驱动 mapStream 播放通道帧）
     - 第 2 块草坪：find_boundary → edge_mapping → map_edge_finish
-    - bow_cover → idle，最终 COMPLETED
+    - idle 触发 MAP_COMPLETING → COMPLETED
   prerequisites:
     - 已启动 map_mock_service（npm start）
     - 已运行 `node scripts/generate-multilawn-dataset.mjs` 生成 fixtures/datasets/mapping_multilawn
@@ -65,8 +65,5 @@ steps:
   - notify: { work_status: mapping, sub_status: map_edge_finish }
   - expect: { phase: MAP_BOUNDARY_DONE }
   - wait: 8s
-  - notify: { work_status: mapping, sub_status: bow_cover }
-  - expect: { phase: MAP_COMPLETE }
-  - wait: 6s
   - notify: { work_status: idle, sub_status: none }
-  - expect: { state: COMPLETED, phase: MAP_COMPLETE }
+  - expect: { state: COMPLETED, phase: MAP_COMPLETING }

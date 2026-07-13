@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/shared/TaskFSM.ts. DO NOT EDIT. !!!
-// Source SHA-256: 95cf9a4408ef0da48270a911b4273280a52c2ab92a933eebc7186de5319132d4
-// Synced at: 2026-07-06T12:55:44.977Z
+// Source SHA-256: 9f14c36cdb09de200d57531399dbdde8327d8a52ba87b7e032b1f36a0f8d21a5
+// Synced at: 2026-07-13T03:46:38.153Z
 import { safeLog, type LoggerLike } from './LoggerLike';
 
 export type TaskState =
@@ -96,6 +96,13 @@ export interface TaskContext<P extends string> {
   readonly notices: ReadonlyArray<TaskNotice>;
   /** 物理急停是否仍处于激活：`true` 时拒绝 `CMD_RESET` 复位。 */
   readonly estopActive: boolean;
+  /**
+   * 暂停原因：仅在 `state==='PAUSED'` 时有意义，供 reconcile 门禁
+   * （见 `reconcileGate.ts`）区分"用户主动暂停"（预期沉默）与其余原因。
+   * `CMD_PAUSE` 落 `'user'`，`LINK_NET_LOST`（WORKING/RECHARGING→PAUSED）落 `'link'`；
+   * 初始值 / `CMD_RESET` / 恢复到 `WORKING` 时归 `null`。
+   */
+  readonly pausedReason: 'user' | 'link' | null;
   readonly lastSource: TaskSource;
   readonly lastSourceTs: number;
 }
@@ -238,6 +245,7 @@ export function createInitialTaskContext<P extends string>(
     capabilities: DEFAULT_CAPABILITIES,
     notices: [],
     estopActive: false,
+    pausedReason: null,
     lastSource: 'cmd',
     lastSourceTs: 0,
     ...overrides,
@@ -290,7 +298,7 @@ function transition<P extends string>(
     if (ctx.state === 'ESTOPPED') {
       // 物理急停尚未解除：拒绝复位，必须先收到 DEVICE_ESTOP{active:false}。
       if (ctx.estopActive) return ctx;
-      const base = { ...ctx, estopActive: false, error: null, notices: [] };
+      const base = { ...ctx, estopActive: false, error: null, notices: [], pausedReason: null };
       if (ctx.resumeTo) {
         return withMeta({ ...base, state: 'RESUMING' }, event, options);
       }
@@ -391,7 +399,14 @@ function transition<P extends string>(
         // 保持或前进——不再强制等于 `resumeTo.phase`（旧严格匹配会因设备重发同帧或 phase
         // 已推进而无法解除，导致继续假死）。
         return withMeta(
-          { ...ctx, state: 'WORKING', phase: event.phase, resumeTo: null, error: null },
+          {
+            ...ctx,
+            state: 'WORKING',
+            phase: event.phase,
+            resumeTo: null,
+            error: null,
+            pausedReason: null,
+          },
           event,
           options,
         );
@@ -408,7 +423,7 @@ function transition<P extends string>(
         return ctx;
       }
       return withMeta(
-        { ...ctx, state: 'PAUSED', resumeTo: snapshot(ctx) },
+        { ...ctx, state: 'PAUSED', resumeTo: snapshot(ctx), pausedReason: 'user' },
         event,
         options,
       );
@@ -569,6 +584,7 @@ function transition<P extends string>(
             state: 'PAUSED',
             resumeTo: ctx.resumeTo ?? snapshot(ctx),
             capabilities: DEFAULT_CAPABILITIES,
+            pausedReason: 'link',
           },
           event,
           options,

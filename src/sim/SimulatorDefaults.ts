@@ -6,14 +6,14 @@ const DEFAULT_SIM_CAPABILITIES: SimCapabilities = {
   canSwitchAuto: false,
 };
 
-export function withSimulatorDefaults<P extends string>(
-  ctx: TaskContext<P>,
+export function withSimulatorDefaults<P extends string, T extends TaskContext<P>>(
+  ctx: T,
   battery: number,
-): SimView<P> {
+): T & SimView<P> {
   return {
     ...ctx,
     battery,
     capabilities: DEFAULT_SIM_CAPABILITIES,
     notices: [],
-  };
+  } as T & SimView<P>;
 }

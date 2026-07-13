@@ -8,7 +8,7 @@
 > - `build-docs/pudu_ratel_app_mower/APP端接口文档v3.md`（App 端 WS/HTTP 接口规范）
 > - 当前 `map_mock_service` 代码现状（`src/`、`fixtures/`、`scenarios/`、`docs/`）
 >
-> 本文档覆盖：**设计方案 → 落地方案 → 测试方案 → 验收标准**，仅涉及 mock service 侧改造，不涉及 App/Rustkit/真实后端代码。
+> 本文档覆盖：**设计方案 → 落地方案 → 测试方案 → 验收标准**，仅涉及 mock service 侧改造，不涉及 App/Rustkit/真实后端代码。FSM 镜像已于 2026-07-13 同步；下文的待同步描述仅适用于未来未进入镜像的新状态或事件。
 >
 > ## 硬约束（继承自 `docs/fsm-mirror.md`）
 > `src/sim/fsm-mirror/` 是从 `pudu_ratel_app_mower` 仓库同步的只读镜像，**禁止手动编辑**。凡涉及状态机新增/变更（跳过 COVERAGE、沿边丢失、抬起独立异常等），必须先在 App 仓库落地，再通过 `npm run sync-fsm-mirror` 同步进本仓库；mock 侧只能在 `src/sim/`（镜像之外）与 `src/http/routes/` 做桥接适配。**本方案中所有"状态机改动"条目均以"待 App 侧先行 + mock 侧同步"为前提，不在 mock 仓库里分叉出一份自造状态机。**
@@ -35,7 +35,7 @@ DVT1 阶段 App 侧的工作量集中在（详见 DVT 指引 §5、§7 优先级
 |---|---|
 | 建图自检 6 项（含 NRTK） | ✅ 已有 5 项（`bluetooth_status/cellular/wifi/battery/docking_station/light`），**缺 NRTK 第 6 项**；battery 已按实时电量动态计算 |
 | 自检失败场景 | ❌ 无对应 fault 预设，`self_check`/`mapping/check` fixture 恒为成功态 |
-| 跳过覆盖建图（COVERAGE_*） | 🟡 FSM 镜像仍保留完整 `MAP_COVERAGE_*` 分支（因为 App 侧尚未改），mock 无法先于 App 改 |
+| 跳过覆盖建图（COVERAGE_*） | ✅ FSM 镜像已同步 mower 当前实现，旧 `MAP_COVERAGE_*` 分支由 `MAP_COMPLETING` 取代 |
 | 沿边丢失（独立于寻边失败） | ❌ FSM 镜像无此 phase（同上，需 App 先加） |
 | 多草坪/通道（passage） | ✅ 已实现 `add_lawn` + `edge_start` + `passage_checkpoints` |
 | 闭合可达信号 / 草地识别信号 | 🟡 部分：`region_closure`/`in_lawn` 字段已有，但"开始"按钮的机器信号驱动（§5.5 figma 新增）字段未明确定义 |
@@ -81,18 +81,17 @@ DVT1 阶段 App 侧的工作量集中在（详见 DVT 指引 §5、§7 优先级
 
 #### 模块 B：建图状态机改造（对应 DVT B3/B4、figma §5.5/§6）
 
-> ⚠️ 以下均需等待 `pudu_ratel_app_mower` 完成对应 FSM 改动（P-1/P-2/P-3，见 figma 映射表 §8）并同步镜像后，mock 才能"真正"落地；本节给出 mock 侧的**适配计划**与**过渡期打样方案**。
+> 当前镜像已包含跳过 `MAP_COVERAGE_*` 后的 `MAP_COMPLETING` phase。未来新增状态或事件仍须先在 `pudu_ratel_app_mower` 落地并同步；本节中尚未实现的项目是 mock 协议、恢复和测试能力的适配项，而非对现有镜像 FSM 的等待。
 
-- **跳过覆盖建图**：镜像同步后，`VirtualRobot`/`mappingReducer` 会在边界闭合后直接进入"建图完成"态而非 `MAP_COVERAGE_*`；mock 侧需要：
+- **跳过覆盖建图**：镜像已移除 `MAP_COVERAGE_*`。当前完成由后端 `work_status: mapping → idle` 驱动 `MAP_COMPLETING` 后立即确认完成；`MAP_BOUNDARY_DONE` 不会直接进入完成态。mock 侧需要：
   - 核对 `pushChannels.ts` 中 `RATEL_MAPPING_TASK` 状态映射是否需要新增/调整（对照 `docs/fsm-mirror.md` "新增建图阶段"处理表）。
   - `mapStream.ts` 的 `shouldStreamMap()` 条件核对是否仍需在闭合后继续推流（用于"预览&编辑地图"页面）。
-  - 更新 `scenarios/mapping_happy_auto.yaml`、`mapping_happy_manual.yaml`：闭合后不再驱动 `CMD_START_COVERAGE`，直接进入完成态并可选驱动 120s 倒计时（`CMD_FINISH_AND_RETURN_DOCK` 或新增等效模拟器事件）。
-  - **过渡期打样**（App 侧尚未改完前，供 UI 重写先行联调）：在 `simFsmTypes.ts` 风格下新增一个 mock-only 的"跳过覆盖"开关（如 `/sim/state` 里 `mappingCoverageSkip: boolean`，默认关闭），开启后 mock 侧在 `dispatchMapping` 拦截 `MAP_BOUNDARY_DONE` 后不再自动流转 COVERAGE，仅用于并行验证新 UI，主线仍以镜像同步后的真实分支为准。
+  - 更新 `scenarios/mapping_happy_auto.yaml`、`mapping_happy_manual.yaml`：维持当前 `mapping → idle` 完成边沿；只有在倒计时协议确认后才增加对应场景和模拟器事件。
 - **建图完成 120s 倒计时**：DVT 明确"以设备端为权威，App 仅展示"。mock 需要：
   - 在建图完成态下，通过 `NOTIFY_RATEL_STATUS` 或 `RATEL_MAPPING_TASK` 推送携带 `countdown_seconds` 剩余值（新增字段，需与 App/后端确认协议字段名，纳入 §1.4 待确认事项）。
   - 支持 `/sim/event` 手动推进/清零倒计时，便于测试"倒计时结束自动保存"与"用户提前点击结束"两条路径。
   - App 断线重进时，`/ratel/api/v1/mapping/status`（recovery 查询）需要能返回当前剩余倒计时，验证 reconcile 逻辑。
-- **沿边丢失（独立于寻边失败）**：待 App 新增 `MAP_FOLLOW_BOUNDARY_LOST` phase 并同步后，mock 新增对应 fault 预设 `mapping_boundary_lost.json`，复用现有 `mapping_estop.json` 风格（`setup.domain=mapping` + 目标 phase）。
+- **沿边失败**：当前 mower FSM 使用 `MAP_FOLLOW_BOUNDARY_FAILED`。若后续需要独立的"沿边丢失"语义，应先在 mower 定义新的 phase/event 并同步，再新增相应 fault 预设；不得使用已不存在的 `MAP_FOLLOW_BOUNDARY_LOST`。
 - **多草坪"开始/完成"按钮机器信号**（figma §5.5 两处强联调依赖）：
   - "开始"按钮激活 = 机器离开旧草坪区域 **且** 机器端信号到达。mock 侧在 `/ratel/api/v1/mapping/add_lawn` 前置状态中新增可配置字段（暂定 `grass_recognized: 0/1`，与 App/算法确认真实字段名后对齐），可通过 `/sim/event` 或 fault 手动切换 0→1，驱动 App 按钮态联调。
   - "闭合边界/完成"按钮激活 = 可闭合信号。复用现有 `region_closure` 语义，确认是否需要新增独立 `closeable: 0/1` 状态位（当前 `region_closure` 是"是否已闭合"的结果字段还是"是否可闭合"的前置信号，需与 App 侧对齐，纳入待确认事项）。

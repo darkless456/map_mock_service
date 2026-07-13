@@ -43,7 +43,7 @@ function labelOf(key: string): string {
 /**
  * Build the mapping lane: task-state spine (IDLE → PREPARING → UNDOCKING →
  * WORKING) collapses onto the business-phase chain, terminating at
- * MAP_COMPLETE → COMPLETED. Remote-control / pause branches are orthogonal
+ * MAP_COMPLETING → COMPLETED. Remote-control / pause branches are orthogonal
  * states, not linear phases, so they are omitted from the swim-lane.
  */
 function buildMappingLane(): PhaseLane {
@@ -52,9 +52,9 @@ function buildMappingLane(): PhaseLane {
     { key: 'PREPARING', label: 'PREP' },
     { key: 'UNDOCKING', label: 'UNDOCK' },
     ...MAPPING_PHASES
-      .filter(phase => !phase.startsWith('MAP_COVERAGE_') && phase !== 'MAP_COMPLETE')
+      .filter(phase => phase !== 'MAP_COMPLETING')
       .map(phase => ({ key: phase, label: labelOf(phase) })),
-    { key: 'MAP_COMPLETE', label: 'COMPLETE' },
+    { key: 'MAP_COMPLETING', label: 'COMPLETE' },
     { key: 'COMPLETED', label: 'DONE' },
   ];
   return { domain: 'mapping', title: 'Mapping', nodes };

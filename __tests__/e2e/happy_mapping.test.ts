@@ -87,6 +87,7 @@ describe('e2e scenarios', () => {
     assert.deepEqual([...engine.listScenarios()].sort(), [
       'mapping_estop_edge_follow',
       'mapping_happy_auto',
+      'mapping_happy_auto_multilawn',
       'mapping_happy_manual',
       'mapping_stream_incremental',
       'mowing_estop_running',
@@ -128,10 +129,8 @@ describe('e2e scenarios', () => {
           { expect: { state: 'REMOTE_CONTROL', phase: 'MAP_FOLLOW_BOUNDARY_MANUAL', mode: 'remote' } },
           { notify: { work_status: 'mapping', sub_status: 'map_edge_finish' } },
           { expect: { state: 'WORKING', phase: 'MAP_BOUNDARY_DONE', mode: 'auto' } },
-          { notify: { work_status: 'mapping', sub_status: 'bow_cover' } },
-          { expect: { state: 'WORKING', phase: 'MAP_COMPLETE' } },
           { notify: { work_status: 'idle', sub_status: 'none' } },
-          { expect: { state: 'COMPLETED', phase: 'MAP_COMPLETE' } },
+          { expect: { state: 'COMPLETED', phase: 'MAP_COMPLETING' } },
         ],
       },
     });

@@ -1,6 +1,6 @@
 name: mapping_happy_auto
 description: >-
-  正常建图 happy flow。自建建图任务（emit CMD_START，无需 App HTTP mapping/start），
+  正常建图 happy flow。自建建图任务（emit CMD_START，无需 App HTTP ratel_mapping_task/create），
   按云端 NOTIFY_RATEL_STATUS 顺序从自检走到 COMPLETED，驱动 App 页面跳转。
 guide:
   title: 建图 — 正常流程（happy flow）
@@ -49,8 +49,5 @@ steps:
   - notify: { work_status: mapping, sub_status: map_edge_finish }
   - expect: { phase: MAP_BOUNDARY_DONE }
   - wait: 8s
-  - notify: { work_status: mapping, sub_status: bow_cover }
-  - expect: { phase: MAP_COMPLETE }
-  - wait: 6s
   - notify: { work_status: idle, sub_status: none }
-  - expect: { state: COMPLETED, phase: MAP_COMPLETE }
+  - expect: { state: COMPLETED, phase: MAP_COMPLETING }

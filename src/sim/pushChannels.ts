@@ -55,15 +55,12 @@ function deriveSubStatus(robot: VirtualRobot): string {
       case 'MAP_SCAN_BOUNDARY':
         return 'find_boundary';
       case 'MAP_FOLLOW_BOUNDARY':
-      case 'MAP_FOLLOW_BOUNDARY_LOST':
+      case 'MAP_FOLLOW_BOUNDARY_FAILED':
       case 'MAP_FOLLOW_BOUNDARY_MANUAL':
         return 'edge_mapping';
       case 'MAP_BOUNDARY_DONE':
         return 'map_edge_finish';
-      case 'MAP_COVERAGE_RUN':
-        return 'bow_cover';
-      case 'MAP_COVERAGE_DONE':
-      case 'MAP_COMPLETE':
+      case 'MAP_COMPLETING':
         return 'exit_mapping';
       case 'returning':
         return 'return_dock';
