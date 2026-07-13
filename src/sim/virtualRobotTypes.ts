@@ -18,6 +18,40 @@ import type { SimOnlyEvent, SimTaskNotice } from './simFsmTypes';
 
 export type RobotDomain = 'mapping' | 'mowing' | 'mapEdit' | null;
 
+/**
+ * mapping-v4-final-spec.md §0 #14: `ratel_mapping_task/action` error semantics carry a real
+ * HTTP status — `not_found` → 404, `conflict` → 409 (wrong phase / task not runnable),
+ * `unprocessable` → 422 (`legitimate_starting_point`/`legitimate_end_point` is 0).
+ * `bad_request` (→ 400) is the mock's own addition for malformed input (missing `sn`,
+ * unknown `action`), outside the spec's 404/409/422 taxonomy but consistent with how the
+ * rest of this route file already handles validation failures.
+ */
+export type MappingActionErrorKind = 'bad_request' | 'not_found' | 'conflict' | 'unprocessable';
+
+/**
+ * `EXPAND_AREA` (mapping-v4-final-spec.md §7) needs to trigger `mapStream.switchDataset`,
+ * which lives at the HTTP route layer (`AppRouteContext.mapStream`), not on `VirtualRobot`
+ * itself. This mirrors the shape of `MapStream`'s own switch result without importing
+ * `mapStream.ts`/`scenarioEngine.ts` here (both pull in `VirtualRobot` and would cycle back).
+ */
+export interface MappingDatasetSwitchResult {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly name?: string;
+  readonly patchCount?: number;
+}
+
+export type MappingDatasetSwitcher = (name: string) => MappingDatasetSwitchResult;
+
+export interface MappingActionDeps {
+  readonly switchDataset?: MappingDatasetSwitcher;
+}
+
+export interface MappingActionError {
+  readonly kind: MappingActionErrorKind;
+  readonly message: string;
+}
+
 /** A `RobotDomain` value whose validity has been confirmed (i.e. not `null`). */
 export type NonNullableRobotDomain = 'mapping' | 'mowing' | 'mapEdit';
 
@@ -116,6 +150,7 @@ export interface VirtualRobotSnapshot {
   /** Last WS `NOTIFY_RATEL_STATUS` projection — surfaced for the panel metric cards. */
   readonly lastNotifyWorkStatus: string | null;
   readonly lastNotifySubStatus: string | null;
+  readonly lastNotifySubStatusEnteredAt: number | null;
 }
 
 export interface RecordedEvent {

@@ -1,5 +1,25 @@
-import type { MapPatch } from '../assets/PatchLoader';
+import { loadAllPatches, type MapPatch } from '../assets/PatchLoader';
+import { logger } from '../infra/logger';
 import { encodeMapMessageSliced } from '../ws/protocol';
+
+export type DatasetSwitchResult =
+  | { readonly ok: true; readonly name: string; readonly patchCount: number }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Shared `switchDataset` closure factory — used by `server.ts` (fault/scenario dependency
+ * injection) and `mappingTask.routes.ts` (`EXPAND_AREA`, mapping-v4-final-spec.md §7) so both
+ * call sites drive the same `MapStream` instance through one code path.
+ */
+export function createDatasetSwitcher(mapStream: MapStream): (name: string) => DatasetSwitchResult {
+  return (name: string) => {
+    const nextPatches = loadAllPatches(name);
+    if (nextPatches.length === 0) return { ok: false, error: `dataset not found or empty: ${name}` };
+    mapStream.switchDataset(name, nextPatches);
+    logger.info(`Switched map dataset to ${name} (${nextPatches.length} patches)`);
+    return { ok: true, name, patchCount: nextPatches.length };
+  };
+}
 
 export interface MapFrameOptions {
   readonly sn: string;

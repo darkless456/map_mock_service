@@ -1,6 +1,7 @@
 import type { VirtualRobot, MappingTaskRecord, MowingTaskRecord, VirtualRobotSnapshot } from './virtualRobot';
 import type { RatelStatusPushPayload } from './ratelStatusPush';
 import type { SimTaskState, SimView } from './simFsmTypes';
+import { buildExtendStatus } from './MappingProtocolSnapshot';
 import { createId } from '../infra/ids';
 
 export interface WsEnvelope<TData = Record<string, unknown>> {
@@ -35,7 +36,7 @@ function activeContext(snapshot: VirtualRobotSnapshot) {
  * Coerces internal FSM work-status into the cloud WS enum
  * (`idle` / `mowing` / `charging` / `mapping` / `return_dock` / `error`), per
  * `ratel_backend_api.md` §2.2. `estop` → `error`; legacy `mapping_completed` is not a
- * cloud value → `idle` (completion surfaces as `sub_status: exit_mapping` then `idle`).
+ * cloud value → `idle` (completion surfaces as `sub_status: map_completing` then `idle`).
  * `return_dock`（回桩，docs §13）作为顶层 work_status 原样透传。
  */
 function toCloudWorkStatus(rawWork: string): string {
@@ -45,7 +46,7 @@ function toCloudWorkStatus(rawWork: string): string {
 }
 
 /** Derives `sub_status` from mock FSM when no prior NOTIFY was recorded. */
-function deriveSubStatus(robot: VirtualRobot): string {
+export function deriveSubStatus(robot: VirtualRobot): string {
   const snapshot = robot.snapshot();
   if (snapshot.activeDomain === 'mapping') {
     const ctx = snapshot.mapping;
@@ -61,7 +62,7 @@ function deriveSubStatus(robot: VirtualRobot): string {
       case 'MAP_BOUNDARY_DONE':
         return 'map_edge_finish';
       case 'MAP_COMPLETING':
-        return 'exit_mapping';
+        return 'map_completing';
       case 'returning':
         return 'return_dock';
       default:
@@ -132,6 +133,7 @@ export function buildNotifyRatelStatus(
       sn: payload.sn,
       work_status: workStatus,
       sub_status: subStatus,
+      sub_status_entered_at: robot.lastNotifySubStatusEnteredAt,
       work_msg: ctx.error?.code ?? '',
       battery_level: batteryLevel,
       battery: batteryPayload(batteryLevel, workStatus === 'charging'),
@@ -155,14 +157,11 @@ export function buildNotifyRatelStatus(
             recoverable: ctx.error.recoverable,
           }
         : null,
-      // mapping_api_dvt_gap.md §3 + §4: real-time mapping state fields
+      // mapping-v4-final-spec.md §2: real-time mapping state fields
       ...(workStatus === 'mapping' ? {
-        in_lawn: robot.inLawn ? 1 : 0,
-        edge_start_available: robot.edgeStartAvailable ? 1 : 0,
-        region_closeable: robot.regionCloseable ? 1 : 0,
+        extend_status: buildExtendStatus(robot),
         map_id: 'mock_map_001',
         mode: snapshot.mapping.mode ?? 'auto',
-        sub_status: subStatus,
       } : {}),
     },
   };

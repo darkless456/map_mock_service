@@ -2,7 +2,7 @@
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/mapping/MappingSession.ts. DO NOT EDIT. !!!
 // Source SHA-256: c741a343f727c0026d5e94c66aa114fc4722eb4ae12770631c27bca7ed11b0af
-// Synced at: 2026-07-13T03:46:38.153Z
+// Synced at: 2026-07-13T09:08:25.761Z
 /**
  * MappingSession FSM — task-level `TaskState` + `MappingPhase` tuple from
  * `TaskFSM`. UI binding resolves a `PanelScene` directly from `(state, phase)`

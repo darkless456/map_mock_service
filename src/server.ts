@@ -3,7 +3,7 @@ import { loadAllPatches } from './assets/PatchLoader';
 import { createHttpHandler } from './http/router';
 import { ChaosController } from './sim/chaos';
 import { applyFault } from './sim/faults';
-import { MapStream } from './sim/mapStream';
+import { createDatasetSwitcher, MapStream } from './sim/mapStream';
 import { Recorder } from './sim/recorder';
 import { readRealismConfig } from './sim/realismConfig';
 import { ScenarioEngine } from './sim/scenarioEngine';
@@ -29,13 +29,7 @@ const chaos = new ChaosController(readRealismConfig());
 const recorder = new Recorder();
 recorder.attachRobot(robot);
 
-function switchDataset(name: string) {
-  const nextPatches = loadAllPatches(name);
-  if (nextPatches.length === 0) return { ok: false as const, error: `dataset not found or empty: ${name}` };
-  mapStream.switchDataset(name, nextPatches);
-  logger.info(`Switched map dataset to ${name} (${nextPatches.length} patches)`);
-  return { ok: true as const, name, patchCount: nextPatches.length };
-}
+const switchDataset = createDatasetSwitcher(mapStream);
 
 const scenarioEngine = new ScenarioEngine({
   robot,

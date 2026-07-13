@@ -2,7 +2,7 @@
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/mapping/state/mappingBackendRegistry.ts. DO NOT EDIT. !!!
 // Source SHA-256: 16dab44b92623823e00cb9b45a68182c116894be2c80934a79d62ed8e2e99c7a
-// Synced at: 2026-07-13T03:46:38.153Z
+// Synced at: 2026-07-13T09:08:25.761Z
 import type { MappingPhase } from '../../../domain/mapping/MappingSession';
 import type { BackendStatusRegistry } from '../../shared/mapping/BackendStatusMapper';
 

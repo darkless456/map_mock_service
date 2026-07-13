@@ -1,0 +1,13 @@
+{
+  "name": "mapping_undock_failed",
+  "description": "退桩失败（mapping-v4-final-spec.md §8）：设备在离桩阶段汇报 undocking_failed，任务直接终止（task_status=FAILED），不提供重试路径。",
+  "setup": {
+    "domain": "mapping",
+    "state": "UNDOCKING",
+    "phase": null
+  },
+  "notify": {
+    "work_status": "mapping",
+    "sub_status": "undocking_failed"
+  }
+}

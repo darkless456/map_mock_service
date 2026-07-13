@@ -1,10 +1,15 @@
 import type { RobotWorkStatus, TaskContext } from './fsm-mirror/domain/shared/TaskFSM';
+import type { ExtendStatus } from './MappingProtocolSnapshot';
 
 export interface DeviceProfileInput {
   readonly sn: string;
   readonly nickname: string;
   readonly status: RobotWorkStatus | 'estop';
   readonly activeContext: TaskContext<string>;
+  /** mapping-v4-final-spec.md §4: `robot/detail` mirrors the WS `NOTIFY_RATEL_STATUS` projection. */
+  readonly subStatus: string;
+  readonly subStatusEnteredAt: number | null;
+  readonly extendStatus: ExtendStatus;
 }
 
 /** Detail API uses the device-local spelling instead of WS `return_dock`. */
@@ -43,5 +48,8 @@ export function buildDeviceInfo(input: DeviceProfileInput): Record<string, unkno
     cellular_connected: 0,
     cellular_signal_strength: 'none',
     isConnected: true,
+    sub_status: input.subStatus,
+    sub_status_entered_at: input.subStatusEnteredAt,
+    extend_status: input.extendStatus,
   };
 }

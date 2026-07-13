@@ -19,11 +19,20 @@ import type {
 } from './fsm-mirror/domain/shared/TaskFSM';
 import { buildDeviceInfo as buildDeviceProfile } from './DeviceProfile';
 import { EventLog } from './EventLog';
+import { MappingLabelsTracker } from './MappingLabels';
+import { buildExtendStatus } from './MappingProtocolSnapshot';
 import { MappingTelemetry } from './MappingTelemetry';
 import { computeWorkStatus, shouldStreamMapping } from './RobotStatus';
-import { withSimulatorDefaults } from './SimulatorDefaults';
+import {
+  EXPAND_AREA_DATASET,
+  EXPAND_AREA_MAX_LAWNS,
+  MAP_COMPLETING_DURATION_MS,
+  MAPPING_ACTION_ACK_DELAY_MS,
+  withSimulatorDefaults,
+} from './SimulatorDefaults';
 import type { RatelNotifyPayload } from './mappingNotify';
 import { applyRatelStatusPush, type RatelStatusPushPayload } from './ratelStatusPush';
+import { deriveSubStatus } from './pushChannels';
 import type { SimOnlyEvent, SimView } from './simFsmTypes';
 import { MappingTaskService } from './task/MappingTaskService';
 import { MowingTaskService } from './task/MowingTaskService';
@@ -32,6 +41,8 @@ import { taskModeFromCreateInfo } from './task/taskMode';
 import { buildTranscript } from './transcript';
 import type {
   AnyTaskEvent,
+  MappingActionDeps,
+  MappingActionError,
   MappingTaskRecord,
   MowingTaskRecord,
   RechargeStatusPush,
@@ -45,6 +56,11 @@ import type {
 } from './virtualRobotTypes';
 export type {
   AnyTaskEvent,
+  MappingActionDeps,
+  MappingActionError,
+  MappingActionErrorKind,
+  MappingDatasetSwitchResult,
+  MappingDatasetSwitcher,
   MappingTaskRecord,
   MowingTaskRecord,
   NonNullableRobotDomain,
@@ -78,7 +94,14 @@ export class VirtualRobot extends EventEmitter {
   /** Last WS `NOTIFY_RATEL_STATUS` fields (for dedupe + status projection). */
   lastNotifyWorkStatus: string | null = null;
   lastNotifySubStatus: string | null = null;
-  private readonly mappingTelemetry = new MappingTelemetry();
+  /** ms epoch the current `lastNotifySubStatus` value was entered (mapping-v4-final-spec.md §2). */
+  lastNotifySubStatusEnteredAt: number | null = null;
+  private readonly mappingTelemetry = new MappingTelemetry(() => this.emit('changed', this.snapshot()));
+  private readonly mappingLabels = new MappingLabelsTracker();
+  /** Pending async device-ack timers scheduled by EDGE_START/EDGE_CLOSE (cleared on reset). */
+  private readonly mappingActionTimers: Array<ReturnType<typeof setTimeout>> = [];
+  /** `MAP_COMPLETING` 120s auto-COMPLETE countdown (mapping-v4-final-spec.md §3). */
+  private mapCompletingTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly eventLog: EventLog;
   private readonly mowingTasks = new MowingTaskService();
   private readonly mappingTaskRecords = new MappingTaskService();
@@ -102,16 +125,21 @@ export class VirtualRobot extends EventEmitter {
     return this.mapping as TaskContext<string>;
   }
 
-  get inLawn(): boolean {
-    return this.mappingTelemetry.inLawn;
+  get legitimateStartingPoint(): boolean {
+    return this.mappingTelemetry.legitimateStartingPoint;
   }
 
-  get edgeStartAvailable(): boolean {
-    return this.mappingTelemetry.edgeStartAvailable;
+  get legitimateEndPoint(): boolean {
+    return this.mappingTelemetry.legitimateEndPoint;
   }
 
-  get regionCloseable(): boolean {
-    return this.mappingTelemetry.regionCloseable;
+  /** `ratel_map/labels` accumulated state (mapping-v4-final-spec.md §6). */
+  mappingLabelsList() {
+    return this.mappingLabels.list();
+  }
+
+  mappingLawnCount(): number {
+    return this.mappingLabels.edgeStartCount();
   }
 
   get passageCheckpoints() {
@@ -137,6 +165,7 @@ export class VirtualRobot extends EventEmitter {
       // card reads live sub_status instead of a stale 'none'.
       lastNotifyWorkStatus: this.lastNotifyWorkStatus,
       lastNotifySubStatus: this.lastNotifySubStatus,
+      lastNotifySubStatusEnteredAt: this.lastNotifySubStatusEnteredAt,
     };
   }
 
@@ -154,7 +183,11 @@ export class VirtualRobot extends EventEmitter {
     this.mappingCheckPollCount = 0;
     this.lastNotifyWorkStatus = null;
     this.lastNotifySubStatus = null;
+    this.lastNotifySubStatusEnteredAt = null;
     this.mappingTelemetry.reset();
+    this.mappingLabels.reset();
+    this.clearMappingActionTimers();
+    this.clearMapCompletingCountdown();
     this.mowingTasks.clear();
     this.mappingTaskRecords.clear();
     this.rechargeTasks.clear();
@@ -174,6 +207,7 @@ export class VirtualRobot extends EventEmitter {
     this.mowing = withSimulatorDefaults(initialMowingState, this.mowing.battery ?? 80);
     this.lastNotifyWorkStatus = null;
     this.lastNotifySubStatus = null;
+    this.lastNotifySubStatusEnteredAt = null;
     this.mappingTelemetry.reset();
     const task = this.rechargeTasks.start(this.sn);
     this.emit('changed', this.snapshot());
@@ -247,6 +281,7 @@ export class VirtualRobot extends EventEmitter {
     const sub = this.lastNotifySubStatus ?? 'none';
     this.lastNotifyWorkStatus = null;
     this.lastNotifySubStatus = null;
+    this.lastNotifySubStatusEnteredAt = null;
     this.mappingTelemetry.reset();
     this.pushRatelStatus({ work_status: 'mapping', sub_status: sub });
   }
@@ -258,6 +293,7 @@ export class VirtualRobot extends EventEmitter {
   createMappingTask(input: { sn: string; map_id: string; mode: string }): MappingTaskRecord {
     this.sn = input.sn;
     this.activeDomain = 'mapping';
+    this.mappingLabels.reset();
     const task = this.createMappingTaskRecord(input.sn, input.map_id, input.mode);
     this.dispatchMapping({
       type: 'CMD_START',
@@ -269,34 +305,146 @@ export class VirtualRobot extends EventEmitter {
   }
 
   /**
-   * `POST ratel_mapping_task/action`（PAUSE/RESUME/STOP）：按 `taskId` 精确寻址，缺省按
-   * `latestMappingTaskBySn` 回退；两者都找不到则报错终止（不做静默兜底，对齐建图任务 API
-   * 重构方案 §6.2 的“fail fast”要求）。复用既有 `pauseMapping/resumeMapping/dispatchRaw`
-   * FSM 派发通路，STOP 的 save=true/false 分别映射为 `CMD_CONFIRM`/`CMD_CANCEL`。
+   * `POST ratel_mapping_task/action`（PAUSE/RESUME/STOP/EDGE_START/EDGE_CLOSE）：按 `taskId`
+   * 精确寻址，缺省按 `latestMappingTaskBySn` 回退；两者都找不到则报错终止（不做静默兜底，
+   * 对齐建图任务 API 重构方案 §6.2 的"fail fast"要求）。复用既有 `pauseMapping/resumeMapping/
+   * dispatchRaw` FSM 派发通路，STOP 的 save=true/false 分别映射为 `CMD_CONFIRM`/`CMD_CANCEL`。
+   * EDGE_START/EDGE_CLOSE 见 mapping-v4-final-spec.md §1：只校验并消费 legitimate_* 信号，
+   * 不在此同步切相位——权威过渡由 {@link scheduleMappingActionAck} 异步补推的 NOTIFY 承担。
    */
-  applyMappingTaskAction(input: { sn: string; taskId?: string; action: string; save?: boolean }): string | null {
+  applyMappingTaskAction(
+    input: { sn: string; taskId?: string; action: string; save?: boolean },
+    deps?: MappingActionDeps,
+  ): MappingActionError | null {
     const task = this.mappingTaskRecords.resolve(input.sn, input.taskId);
     if (!task) {
-      return input.taskId
-        ? `mapping task ${input.taskId} not found`
-        : `no active mapping task for sn ${input.sn}`;
+      return {
+        kind: 'not_found',
+        message: input.taskId
+          ? `mapping task ${input.taskId} not found`
+          : `no active mapping task for sn ${input.sn}`,
+      };
     }
     this.sn = input.sn;
     this.activeDomain = 'mapping';
     switch (input.action) {
       case 'PAUSE':
         this.pauseMapping();
-        break;
+        return null;
       case 'RESUME':
         this.resumeMapping();
-        break;
+        return null;
       case 'STOP':
         this.dispatchRaw({ type: input.save ? 'CMD_CONFIRM' : 'CMD_CANCEL' }, 'mapping');
-        break;
+        return null;
+      case 'EDGE_START':
+        return this.applyEdgeStartAction(task);
+      case 'EDGE_CLOSE':
+        return this.applyEdgeCloseAction(task);
+      case 'COMPLETE':
+        return this.applyCompleteAction(task);
+      case 'EXPAND_AREA':
+        return this.applyExpandAreaAction(task, deps);
       default:
-        return `unknown mapping action ${input.action}`;
+        return { kind: 'conflict', message: `unknown mapping action ${input.action}` };
+    }
+  }
+
+  private applyEdgeStartAction(task: MappingTaskRecord): MappingActionError | null {
+    const busy = this.mappingActionBusyError(task);
+    if (busy) return busy;
+    if (this.mapping.phase !== 'MAP_SCAN_BOUNDARY') {
+      return { kind: 'conflict', message: `EDGE_START not allowed in phase ${this.mapping.phase ?? 'null'}` };
+    }
+    if (!this.legitimateStartingPoint) {
+      return { kind: 'unprocessable', message: 'extend_status.legitimate_starting_point is 0' };
+    }
+    this.mappingTelemetry.confirmEdgeStart();
+    this.scheduleMappingActionAck(() => this.pushRatelStatus({ work_status: 'mapping', sub_status: 'edge_mapping' }));
+    return null;
+  }
+
+  private applyEdgeCloseAction(task: MappingTaskRecord): MappingActionError | null {
+    const busy = this.mappingActionBusyError(task);
+    if (busy) return busy;
+    if (this.mapping.phase !== 'MAP_FOLLOW_BOUNDARY' && this.mapping.phase !== 'MAP_FOLLOW_BOUNDARY_MANUAL') {
+      return { kind: 'conflict', message: `EDGE_CLOSE not allowed in phase ${this.mapping.phase ?? 'null'}` };
+    }
+    if (!this.legitimateEndPoint) {
+      return { kind: 'unprocessable', message: 'extend_status.legitimate_end_point is 0' };
+    }
+    this.mappingTelemetry.confirmRegionClosure();
+    this.scheduleMappingActionAck(() => this.pushRatelStatus({ work_status: 'mapping', sub_status: 'map_edge_finish' }));
+    return null;
+  }
+
+  /**
+   * `COMPLETE`（mapping-v4-final-spec.md §1）：仅在 `sub_status === 'map_completing'` 时受理，
+   * 中断 120s 倒计时并立即触发 `CMD_CONFIRM`（此 action 语义本身即"立即生效"，不走异步 ack）。
+   * 重复调用会在第二次因 `task.status` 已不是 `ON_THE_WAY` 而落入 {@link mappingActionBusyError}
+   * 的 409，不需要额外的去重状态。
+   */
+  private applyCompleteAction(task: MappingTaskRecord): MappingActionError | null {
+    const busy = this.mappingActionBusyError(task);
+    if (busy) return busy;
+    if (this.lastNotifySubStatus !== 'map_completing') {
+      return {
+        kind: 'conflict',
+        message: `COMPLETE not allowed outside MAP_COMPLETING (sub_status=${this.lastNotifySubStatus ?? 'none'})`,
+      };
+    }
+    this.clearMapCompletingCountdown();
+    this.dispatchRaw({ type: 'CMD_CONFIRM' }, 'mapping');
+    return null;
+  }
+
+  /**
+   * `EXPAND_AREA`（mapping-v4-final-spec.md §7）：同 `COMPLETE` 只在 `sub_status ===
+   * 'map_completing'` 时受理，但效果立即生效（规格明确此 action 不走异步 ack）——切数据集、
+   * 中断倒计时、把 `sub_status` 推成 `find_boundary`。通过 {@link pushRatelStatus} 走与首块
+   * 草坪完全相同的 NOTIFY 路径，使 `onMappingPhaseChanged` 的既有钩子自然完成 §7 步骤 4/5
+   * （`legitimate_starting_point` 复位 + 追加新 `aisle` label），无需在此重复实现。
+   */
+  private applyExpandAreaAction(task: MappingTaskRecord, deps?: MappingActionDeps): MappingActionError | null {
+    const busy = this.mappingActionBusyError(task);
+    if (busy) return busy;
+    if (this.lastNotifySubStatus !== 'map_completing') {
+      return {
+        kind: 'conflict',
+        message: `EXPAND_AREA not allowed outside MAP_COMPLETING (sub_status=${this.lastNotifySubStatus ?? 'none'})`,
+      };
+    }
+    if (this.mappingLawnCount() >= EXPAND_AREA_MAX_LAWNS) {
+      return { kind: 'conflict', message: `lawn count limit reached (>= ${EXPAND_AREA_MAX_LAWNS})` };
+    }
+    if (!deps?.switchDataset) {
+      return { kind: 'conflict', message: 'switchDataset dependency not configured' };
+    }
+    const switched = deps.switchDataset(EXPAND_AREA_DATASET);
+    if (!switched.ok) {
+      return { kind: 'conflict', message: switched.error ?? `failed to switch dataset ${EXPAND_AREA_DATASET}` };
+    }
+    this.clearMapCompletingCountdown();
+    this.pushRatelStatus({ work_status: 'mapping', sub_status: 'find_boundary' });
+    return null;
+  }
+
+  private mappingActionBusyError(task: MappingTaskRecord): MappingActionError | null {
+    if (task.status !== 'ON_THE_WAY') {
+      return { kind: 'conflict', message: `mapping task ${task.task_id} is not active (status=${task.status})` };
     }
     return null;
+  }
+
+  /** Simulates the device's asynchronous ack for EDGE_START/EDGE_CLOSE (see class doc above). */
+  private scheduleMappingActionAck(effect: () => void): void {
+    const timer = setTimeout(effect, MAPPING_ACTION_ACK_DELAY_MS);
+    (timer as { unref?: () => void }).unref?.();
+    this.mappingActionTimers.push(timer);
+  }
+
+  private clearMappingActionTimers(): void {
+    for (const timer of this.mappingActionTimers.splice(0)) clearTimeout(timer);
   }
 
   listMappingTasks(sn?: string): MappingTaskRecord[] {
@@ -378,6 +526,7 @@ export class VirtualRobot extends EventEmitter {
     if ((event as { type?: string }).type === 'CMD_RESET') {
       this.lastNotifyWorkStatus = null;
       this.lastNotifySubStatus = null;
+      this.lastNotifySubStatusEnteredAt = null;
     }
     if (domain === 'mowing') this.dispatchMowing(event as MowingEvent | SimOnlyEvent);
     else this.dispatchMapping(event as MappingEvent | SimOnlyEvent);
@@ -388,6 +537,7 @@ export class VirtualRobot extends EventEmitter {
     if (event.type === 'CMD_RESET') {
       this.lastNotifyWorkStatus = null;
       this.lastNotifySubStatus = null;
+      this.lastNotifySubStatusEnteredAt = null;
     }
     this.dispatchMapping(event);
   }
@@ -397,6 +547,7 @@ export class VirtualRobot extends EventEmitter {
     if (event.type === 'CMD_RESET') {
       this.lastNotifyWorkStatus = null;
       this.lastNotifySubStatus = null;
+      this.lastNotifySubStatusEnteredAt = null;
     }
     this.dispatchMowing(event);
   }
@@ -448,6 +599,9 @@ export class VirtualRobot extends EventEmitter {
       nickname: this.nickname,
       status: this.workStatus(),
       activeContext: this.activeContext,
+      subStatus: this.lastNotifySubStatus ?? deriveSubStatus(this),
+      subStatusEnteredAt: this.lastNotifySubStatusEnteredAt,
+      extendStatus: buildExtendStatus(this),
     });
   }
 
@@ -479,9 +633,49 @@ export class VirtualRobot extends EventEmitter {
     this.mapping = mappingReducer(this.mapping, event as MappingEvent);
     this.record('mapping', event);
     this.syncActiveMappingTaskFromContext();
+    if (this.mapping.phase !== prev.phase) this.onMappingPhaseChanged(prev.phase, this.mapping.phase);
     const after = this.snapshot();
     this.emitTranscript('mapping', event, before, after, this.mapping !== prev);
     if (this.mapping !== prev) this.emit('changed', after);
+  }
+
+  /**
+   * mapping-v4-final-spec.md §5/§6: `edge_start`/`aisle` labels accumulate off real FSM
+   * phase transitions (not `applySetup`, which is a raw test-only state override).
+   */
+  private onMappingPhaseChanged(from: MappingPhase | null, to: MappingPhase | null): void {
+    this.mappingTelemetry.syncWithPhase(to);
+    if (to === 'MAP_SCAN_BOUNDARY' && from !== 'MAP_SCAN_BOUNDARY') {
+      this.mappingLabels.addAisle();
+    } else if (to === 'MAP_BOUNDARY_DONE' && from !== 'MAP_BOUNDARY_DONE') {
+      this.mappingLabels.addEdgeStart();
+    }
+    if (to === 'MAP_COMPLETING' && from !== 'MAP_COMPLETING') {
+      this.armMapCompletingCountdown();
+    } else if (from === 'MAP_COMPLETING' && to !== 'MAP_COMPLETING') {
+      this.clearMapCompletingCountdown();
+    }
+  }
+
+  /**
+   * mapping-v4-final-spec.md §3: 120s after entering `MAP_COMPLETING`, auto-behave as if the
+   * user tapped `COMPLETE`. `CMD_CONFIRM` at `MAP_COMPLETING` does not change `phase` (only
+   * `state` → `COMPLETED`), so this does not re-trigger {@link onMappingPhaseChanged}.
+   */
+  private armMapCompletingCountdown(): void {
+    this.clearMapCompletingCountdown();
+    this.mapCompletingTimer = setTimeout(() => {
+      this.mapCompletingTimer = null;
+      this.dispatchRaw({ type: 'CMD_CONFIRM' }, 'mapping');
+    }, MAP_COMPLETING_DURATION_MS);
+    (this.mapCompletingTimer as { unref?: () => void }).unref?.();
+  }
+
+  private clearMapCompletingCountdown(): void {
+    if (this.mapCompletingTimer) {
+      clearTimeout(this.mapCompletingTimer);
+      this.mapCompletingTimer = null;
+    }
   }
 
   private dispatchMowing(event: MowingEvent | SimOnlyEvent): void {
@@ -540,9 +734,4 @@ export class VirtualRobot extends EventEmitter {
     this.mappingTelemetry.recordPassageStart();
     this.emit('changed', this.snapshot());
   }
-
-  updateRobotPosition(x: number, y: number): void {
-    this.mappingTelemetry.updateRobotPosition(x, y, this.mapping);
-  }
-
 }

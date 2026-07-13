@@ -1,6 +1,11 @@
 export { VirtualRobot } from './virtualRobotCore';
 export type {
   AnyTaskEvent,
+  MappingActionDeps,
+  MappingActionError,
+  MappingActionErrorKind,
+  MappingDatasetSwitchResult,
+  MappingDatasetSwitcher,
   MappingTaskRecord,
   MowingTaskRecord,
   NonNullableRobotDomain,

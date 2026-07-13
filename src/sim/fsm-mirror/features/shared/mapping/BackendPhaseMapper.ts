@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/shared/mapping/BackendPhaseMapper.ts. DO NOT EDIT. !!!
-// Source SHA-256: 0aa94265a65acb3e9e9ec46dbd54100f47f8fb6e6d6c09fc48ee37597cd796f5
-// Synced at: 2026-07-13T03:46:38.153Z
+// Source SHA-256: 5526b378675ba6cafb7d0efc2ce580021f7c43ac46b73e171a9cf7d21085ec67
+// Synced at: 2026-07-13T09:08:25.761Z
 import type { RobotWorkStatus } from '../../../domain/shared/TaskFSM';
 import { resetUnknownBackendSubStatusLogForTests } from './unknownBackendSubStatus';
 
@@ -32,10 +32,15 @@ const MAPPING_SUB: Readonly<Record<string, PhaseRule>> = {
   find_boundary: toPhase('MAP_SCAN_BOUNDARY'),
   edge_mapping: toPhase('MAP_FOLLOW_BOUNDARY'),
   map_edge_finish: toPhase('MAP_BOUNDARY_DONE'),
-  // TODO(backend, Phase4): "等待建图结束"（MAP_COMPLETING）真实 sub_status 键待定，
-  // 协议定稿后在此补一行。COVERAGE 阶段（原 bow_cover/exit_mapping）已随本次重构
-  // 整体删除，不再映射——真机若仍推送这两个值，会落 `unknown`（安全 no-op，见
+  // "等待建图结束"：后端已确认新的子状态字符串为 `map_completing`，取代旧的
+  // `bow_cover`/`exit_mapping` 二段式（弓字覆盖中 / 退出建图）——后端不再下发这两个
+  // 旧值，固件跳过可见的覆盖阶段直接一次性推送 `map_completing`。旧值不做兼容映射，
+  // 若真机仍推送（理论上不会），按未列出取值处理，落 `unknown` 安全 no-op（见
   // EventAdapter.ts 的 pushPhaseMapResult），不会崩溃，只是暂不推进。
+  map_completing: toPhase('MAP_COMPLETING'),
+  // 退桩失败：后端真实值待确认，暂用假定占位值 `undocking_failed` 解除阻塞
+  // （2026-07-13 决策，非固件文档确认值）。真实值定稿后只需改这一行。
+  undocking_failed: toPhase('MAP_UNDOCKING_FAILED'),
   return_dock: toPhase('returning'),
 };
 
@@ -121,7 +126,7 @@ export function normalizeLegacyPhase(phase: string): string {
     case 'fullBorder':
       return 'MAP_BOUNDARY_DONE';
     // COVERAGE 阶段的 legacy 别名（newAreaChecking/newArea/zigzagging/zigzagged）
-    // 已随本次重构整体删除，不再映射——见上方 MAPPING_SUB 同一 TODO(backend, Phase4)。
+    // 已随本次重构整体删除，不再映射——不存在对应的前端 phase，落 unknown 安全 no-op。
     default:
       return phase;
   }

@@ -2,7 +2,7 @@
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/shared/mapping/unknownBackendSubStatus.ts. DO NOT EDIT. !!!
 // Source SHA-256: 8077a3279ae96f5cfb619574c00baaa618b090d7833d6e5677eb007b3331f140
-// Synced at: 2026-07-13T03:46:38.153Z
+// Synced at: 2026-07-13T09:08:25.761Z
 import type { LoggerLike } from '../../../domain/shared/LoggerLike';
 import { getModuleLogger } from '../../../infra/bridges/log';
 import { LogCategory } from '../../../infra/bridges/log/categories';

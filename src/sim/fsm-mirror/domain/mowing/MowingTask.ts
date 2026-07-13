@@ -2,7 +2,7 @@
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/mowing/MowingTask.ts. DO NOT EDIT. !!!
 // Source SHA-256: 9709ba9c6ab26be2e2ba1575b79f8b9bcda4ed4d62027477ed4e1ca30b24d0f4
-// Synced at: 2026-07-13T03:46:38.153Z
+// Synced at: 2026-07-13T09:08:25.761Z
 /**
  * MowingTask FSM — generalized `TaskState` + `MowingPhase` tuple from TaskFSM.
  *

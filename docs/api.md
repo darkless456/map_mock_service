@@ -7,7 +7,7 @@ This document is the S0-S3 API contract for Mower Dev Simulator. Business API pa
 | Method | Path | Response summary |
 |---|---|---|
 | `POST` | `/ratel/api/v1/wss/acc_ticket` | `{ code, message, ticket, expire_seconds, wss_path_hint }` |
-| `POST` | `/ratel/api/v1/courtyard/robot/detail` | `{ code, message, data: IDevice }` — body `{ sn }`; validates the simulator SN, returns FSM-derived `running_status` / charging data and current map metadata. |
+| `POST` | `/ratel/api/v1/courtyard/robot/detail` | `{ code, message, data: IDevice }` — body `{ sn }`; validates the simulator SN, returns FSM-derived `running_status` / charging data, current map metadata, and (mapping-v4-final-spec.md §4) `sub_status` / `sub_status_entered_at` / `extend_status`, mirroring the WS `NOTIFY_RATEL_STATUS` projection for reconnect recovery. |
 | `POST` | `/ratel/api/v1/courtyard/robot/info/update` | `{ code, message, data: IDevice }` |
 | `POST` | `/ratel/api/v1/courtyard/robot/unbind` | `{ code, message, data: { robot_code, robot_message } }` |
 | `GET/POST` | `/ratel/map-service/api/v1/ratel/map/list` | `{ code, data: { total, items } }`；`items[]` 含 `map_url` / `semantic_map_url` / `real_view_map_url` / `map_origin_x` / `map_origin_y` / `resolution` / `base_version` / `unit` / `increments`（命名对齐 APP端接口文档v2.md） |
@@ -17,14 +17,13 @@ This document is the S0-S3 API contract for Mower Dev Simulator. Business API pa
 | `POST` | `/ratel/api/v1/robot/self_check` | `{ code, data: { checked_at, overall, … } }` — 建图前置触发机器自检 |
 | `POST` | `/ratel/api/v1/mapping/check` | `{ code, data: { bluetooth_status, cellular, wifi, … } }` 扁平 — 建图条件检测（须先 self_check）；Mock 渐进返回） |
 | `POST` | `/ratel/api/v1/mapping/mode` | `{ code, data: { robot_code, robot_message } }` — body `{ sn, mode }` |
-| `POST` | `/ratel/api/v1/mapping/status` | `{ code, data: { work_status, sub_status, map_id, mode, in_lawn, trajectory_url, passage_checkpoints } }` — 重进恢复状态查询（mapping_api_dvt_gap.md §4） |
-| `POST` | `/ratel/api/v1/mapping/manual` | `{ code, data: { robot_code, robot_message, edge_start, region_closure } }` — 手动建图指令（edge_start / region_closure） |
 | `POST` | `/ratel/api/v1/mapping/add_lawn` | `{ code, data: { robot_code, robot_message } }` — 添加新草坪（记录 passageStartPoint） |
+| `POST` | `/map-service/api/v1/ratel_map/labels` | `{ code, data: { map_id, labels } }` — 动态生成的地图标注列表（mapping-v4-final-spec.md §6），`labels[]` 含 `edge_start`/`aisle` 两类，随建图 FSM 阶段推进增量追加 |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/create` | `{ code, data: { task_id, robot_code, robot_message } }` |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/action` | `{ code, data: { robot_code, robot_message } }` |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/list` | `{ code, data: { total, list, task_info, task_notify } }` |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_mapping_task/create` | `{ code, data: { task_id, robot_code, robot_message } }` — replaces removed `mapping/start` (建图任务API重构方案.md §6.2) |
-| `POST` | `/ratel/central-control-service/api/v1/ratel_mapping_task/action` | `{ code, data: { robot_code, robot_message } }` — body `{ sn, task_id?, action: PAUSE\|RESUME\|STOP, payload?: { save } }`; replaces removed `mapping/pause`\|`resume`\|`stop` |
+| `POST` | `/ratel/central-control-service/api/v1/ratel_mapping_task/action` | `{ code, data: { robot_code, robot_message } }` — body `{ sn, task_id?, action: PAUSE\|RESUME\|STOP\|EDGE_START\|EDGE_CLOSE\|COMPLETE\|EXPAND_AREA, payload?: { save } }`; replaces removed `mapping/pause`\|`resume`\|`stop`. `EDGE_START`/`EDGE_CLOSE` (mapping-v4-final-spec.md §1) only accept/consume the `extend_status.legitimate_starting_point`/`legitimate_end_point` signal — the actual `sub_status` transition (`edge_mapping`/`map_edge_finish`) arrives ~800ms later as a separate async device push, mirroring real "accepted ≠ effective" semantics. `COMPLETE` only accepted while `sub_status==='map_completing'`; takes effect immediately (cancels the 120s auto-complete countdown, dispatches `CMD_CONFIRM` synchronously) — see `MAP_COMPLETING_DURATION_MS` in `SimulatorDefaults.ts`. `EXPAND_AREA` (mapping-v4-final-spec.md §7) same precondition as `COMPLETE`, plus rejects with `409` once the `edge_start` label count (§5 `lawn_count`) reaches 15; on success switches `mapStream` to the `mapping_lawn2_aisle` dataset (reused for every lawn beyond the first — see `EXPAND_AREA_DATASET` in `SimulatorDefaults.ts`), cancels the countdown, and pushes `sub_status: find_boundary` (same value set as lawn 1 — "which lawn" is carried only by the `labels` count, never a new field). Errors carry a real HTTP status: `400` malformed body, `404` task not found, `409` wrong phase / task not active / lawn cap reached, `422` legitimacy signal is 0. |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_mapping_task/list` | `{ code, data: { total, list } }` — `list[]` items: `{ task_id, task_status, task_info, task_notify, create_time, update_time }` |
 | `GET` | `/api/health` | Local health status. |
 
@@ -68,7 +67,7 @@ All JSON WS messages use:
 
 | `cmd` | Data fields |
 |---|---|
-| `NOTIFY_RATEL_STATUS` | `sn`, `work_status`, `sub_status`, `in_lawn`, `edge_start_available`, `region_closeable`, `work_msg`, `battery_level`, `battery`, `signals`, `phase`, `state`; simulator also adds `capabilities`, `estop`, `notices`, `error` for dev parity. |
+| `NOTIFY_RATEL_STATUS` | `sn`, `work_status`, `sub_status`, `sub_status_entered_at`, `work_msg`, `battery_level`, `battery`, `signals`, `phase`, `state`; while `work_status=mapping` also carries `extend_status` (`legitimate_starting_point`/`legitimate_end_point`/`manual_closure_suggested`/`locator_status`/`operation_status`/`switch_remote_control`/`area_complete_map_build`/`blade_status`, mapping-v4-final-spec.md §2), `map_id`, `mode`; simulator also adds `capabilities`, `estop`, `notices`, `error` for dev parity. |
 | `NOTIFY_MOW_STATUS` | Flattened `task_id`, `task_status`, `task_type`, `task_message`, `task_error_code`, `mow_area`, `mow_progress`, `estimated_time`; also duplicated under `payload`. |
 | `RATEL_MAPPING_TASK` | `sn`, `payload: { task_id, task_status, map_id, task_message, task_error_code }`. Task-level confirmation push for the mapping task model (建图任务API重构方案.md §6.2), independent from phase-driven `NOTIFY_RATEL_STATUS`. Sent on task creation, FSM changes while a mapping task is active, and terminal status; also replayed on new WS connection if an active task exists (`ON_THE_WAY`/`PAUSE`). |
 | `ROBOT_LOCATION` | `sn`, `mac`, `map_id`, `x`, `y`, `yaw`, `angle`, `timestamp`, `notify_time` |

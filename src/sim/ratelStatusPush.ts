@@ -6,9 +6,6 @@ import type { MappingEvent } from './fsm-mirror/domain/mapping/MappingSession';
 import type { MowingEvent } from './fsm-mirror/domain/mowing/MowingTask';
 
 export interface RatelStatusPushPayload {
-  readonly in_lawn?: number;
-  readonly edge_start_available?: number;
-  readonly region_closeable?: number;
   readonly work_status: string;
   readonly sub_status: string;
   readonly battery_level?: number;
@@ -74,6 +71,19 @@ function applyMappingToIdleCompletion(robot: VirtualRobot): void {
   robot.dispatchMappingEvent({ type: 'CMD_CONFIRM' });
 }
 
+/**
+ * mapping-v4-final-spec.md §8: undocking failure is terminal, no retry path. The FSM mirror
+ * treats `MAP_UNDOCKING_FAILED` as a plain phase value (same convention as the mowing domain's
+ * `RETURN_DOCK_FAILED`, see `BackendPhaseMapper.ts`) — it does not itself drive `state`
+ * to `ERRORED`. The mock layers a terminal `DEVICE_ERROR` on top once that phase lands, so
+ * `MappingTaskService.syncFromContext`'s existing `ERRORED → task_status=FAILED` mapping fires.
+ */
+function applyUndockingFailedTermination(robot: VirtualRobot): void {
+  const ctx = robot.mapping;
+  if (ctx.phase !== 'MAP_UNDOCKING_FAILED' || ctx.state === 'ERRORED') return;
+  robot.dispatchMappingEvent({ type: 'DEVICE_ERROR', code: 'undocking_failed', recoverable: false });
+}
+
 /** Mirrors mowing `work_status` idle edge for mock FSM when backend sends `idle/none`. */
 function applyMowingToIdleCompletion(robot: VirtualRobot): void {
   const ctx = robot.mowing;
@@ -104,8 +114,10 @@ export function applyRatelStatusPush(
   }
 
   const prevWork = robot.lastNotifyWorkStatus;
+  const prevSub = robot.lastNotifySubStatus;
   robot.lastNotifyWorkStatus = work;
   robot.lastNotifySubStatus = sub;
+  if (prevSub !== sub) robot.lastNotifySubStatusEnteredAt = Date.now();
 
   const domain = notifyTargetDomain(work, prevWork, robot.activeDomain);
   if (domain === 'mowing') {
@@ -135,6 +147,7 @@ export function applyRatelStatusPush(
       if (prevWork === 'mapping' && work === 'idle') {
         applyMappingToIdleCompletion(robot);
       }
+      applyUndockingFailedTermination(robot);
     }
   }
 
@@ -143,9 +156,6 @@ export function applyRatelStatusPush(
     sub_status: sub,
     battery_level: input.battery_level,
     sn,
-    in_lawn: robot.inLawn ? 1 : 0,
-    edge_start_available: robot.edgeStartAvailable ? 1 : 0,
-    region_closeable: robot.regionCloseable ? 1 : 0,
   };
 }
 

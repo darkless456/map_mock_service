@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { createHttpHandler, type AppRouteContext } from '../src/http/router';
@@ -132,6 +132,57 @@ describe('machine detail HTTP route', () => {
       assert.equal((charging.json.data as Record<string, unknown>).running_status, 'returning_charge');
       assert.equal((charging.json.data as Record<string, unknown>).battery_charging, 0);
     } finally {
+      await new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
+    }
+  });
+
+  it('extend_status/labels settle through a mapping session and area_complete_map_build clears on idle', async () => {
+    const robot = new VirtualRobot({ sn: 'DETAIL-EXT-SN' });
+    const server = await createTestServer(robot);
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      robot.createMappingTask({ sn: robot.sn, map_id: 'mock_map_001', mode: 'auto' });
+      robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'leave_dock' });
+      robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'find_boundary' });
+
+      let detail = await postJson(serverPort(server), '/ratel/api/v1/courtyard/robot/detail', { sn: robot.sn });
+      let data = detail.json.data as Record<string, unknown>;
+      assert.equal(data.sub_status, 'find_boundary');
+      assert.equal((data.extend_status as Record<string, unknown>).legitimate_starting_point, 0);
+
+      mock.timers.tick(3000);
+      detail = await postJson(serverPort(server), '/ratel/api/v1/courtyard/robot/detail', { sn: robot.sn });
+      data = detail.json.data as Record<string, unknown>;
+      assert.equal((data.extend_status as Record<string, unknown>).legitimate_starting_point, 1);
+
+      const labelsAfterBoundary = await postJson(serverPort(server), '/map-service/api/v1/ratel_map/labels', { map_id: 'mock_map_001' });
+      const listAfterBoundary = (labelsAfterBoundary.json.data as Record<string, unknown>).labels as Array<Record<string, unknown>>;
+      assert.equal(listAfterBoundary.length, 1);
+      assert.equal(listAfterBoundary[0].type, 'aisle');
+
+      robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'edge_mapping' });
+      mock.timers.tick(3000);
+      robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'map_edge_finish' });
+
+      const labelsAfterEdge = await postJson(serverPort(server), '/map-service/api/v1/ratel_map/labels', { map_id: 'mock_map_001' });
+      const listAfterEdge = (labelsAfterEdge.json.data as Record<string, unknown>).labels as Array<Record<string, unknown>>;
+      assert.equal(listAfterEdge.length, 2);
+      assert.equal(listAfterEdge[1].type, 'edge_start');
+
+      robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'map_completing' });
+      detail = await postJson(serverPort(server), '/ratel/api/v1/courtyard/robot/detail', { sn: robot.sn });
+      data = detail.json.data as Record<string, unknown>;
+      assert.equal((data.extend_status as Record<string, unknown>).area_complete_map_build, 1);
+
+      // area_complete_map_build must clear once the task actually goes idle, even though the
+      // read-only FSM mirror keeps reporting `phase: MAP_COMPLETING` afterwards.
+      robot.pushRatelStatus({ work_status: 'idle', sub_status: 'none' });
+      detail = await postJson(serverPort(server), '/ratel/api/v1/courtyard/robot/detail', { sn: robot.sn });
+      data = detail.json.data as Record<string, unknown>;
+      assert.equal(data.sub_status, 'none');
+      assert.equal((data.extend_status as Record<string, unknown>).area_complete_map_build, 0);
+    } finally {
+      mock.timers.reset();
       await new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
     }
   });

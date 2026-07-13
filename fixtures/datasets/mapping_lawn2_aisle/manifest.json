@@ -1,0 +1,14 @@
+{
+  "name": "mapping_lawn2_aisle",
+  "scenario": "第 2 块草坪通道录制 + 建图（EXPAND_AREA 运行时切换，自动生成）",
+  "frameCount": 109,
+  "resolution": 0.05000000074505806,
+  "world": {
+    "origin_x": 40.30000019073486,
+    "origin_y": 6.449999809265137,
+    "cols": 40,
+    "rows": 40
+  },
+  "notes": "由 scripts/generate-lawn2-aisle-dataset.mjs 从 mapping_happy 派生：15 帧线性插值通道过渡帧 + 平移 (30, 0)m 的第 2 块草坪帧（按 1/8 抽稀，94 帧）。图像内容为复用/占位，非真实录制。设计为供 EXPAND_AREA 触发的 mapStream.switchDataset 运行时切入播放，与 mapping_multilawn（静态预加载、跨两块草坪连续播放）用途不同，见 mapping-v4-final-spec.md §7 + 附录 B。",
+  "compatibleScenarios": []
+}

@@ -45,6 +45,14 @@ export const handleMapRoutes: RouteHandler<AppRouteContext> = async (req, res, u
     return true;
   }
 
+  // POST /map-service/api/v1/ratel_map/labels -- dynamic label list (mapping-v4-final-spec.md §6)
+  if (url.pathname === '/map-service/api/v1/ratel_map/labels' && methodIs(req, 'POST')) {
+    const body = await readJsonBody(req);
+    const mapId = stringBodyField(body, 'map_id') ?? 'mock_map_001';
+    sendOk(res, { map_id: mapId, labels: ctx.robot.mappingLabelsList() });
+    return true;
+  }
+
   if (url.pathname === '/ratel/api/v1/map/delete' && methodIs(req, 'POST')) {
     const body = await readJsonBody(req);
     const mapId = stringBodyField(body, 'maps_id') ?? stringBodyField(body, 'map_id');

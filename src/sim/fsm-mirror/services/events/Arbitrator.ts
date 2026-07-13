@@ -2,7 +2,7 @@
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/infra/events/Arbitrator.ts. DO NOT EDIT. !!!
 // Source SHA-256: 1771423ef68537218081f2a285f87271050abc951b3628056b897e9cbaf0517f
-// Synced at: 2026-07-13T03:46:38.153Z
+// Synced at: 2026-07-13T09:08:25.761Z
 import type { TaskEvent, TaskSource } from '../../domain/shared/TaskFSM';
 
 export type UnknownArbitratedEvent = {

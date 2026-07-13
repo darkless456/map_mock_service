@@ -8,36 +8,11 @@ function robotOkPayload(extra: Record<string, unknown> = {}) {
 }
 
 export const handleMappingRoutes: RouteHandler<AppRouteContext> = async (req, res, url, ctx) => {
-  // POST /ratel/api/v1/mapping/status -- recovery status query (mapping_api_dvt_gap.md 4)
-  if (url.pathname === '/ratel/api/v1/mapping/status' && methodIs(req, 'POST')) {
-    const body = await readJsonBody(req);
-    const sn = stringBodyField(body, 'sn') ?? ctx.robot.sn;
-    if (!sn) { sendError(res, 400, 'sn is required'); return true; }
-    const snap = ctx.robot.snapshot();
-    const isMapping = snap.workStatus === 'mapping';
-    const baseUrl = ctx.port ? `http://localhost:${ctx.port}` : '';
-    sendJson(res, 200, { code: 200, message: 'Success', data: isMapping ? {
-      work_status: 'mapping', sub_status: ctx.robot.lastNotifySubStatus ?? 'edge_mapping',
-      map_id: 'mock_map_001', mode: snap.mapping.mode ?? 'auto',
-      in_lawn: ctx.robot.inLawn ? 1 : 0,
-      trajectory_url: ctx.robot.generateTrajectoryUrl(baseUrl),
-      passage_checkpoints: ctx.robot.passageCheckpoints,
-    } : { work_status: 'idle' } });
-    return true;
-  }
-
-  // POST /ratel/api/v1/mapping/manual -- manual mapping commands (edge_start / region_closure)
-  if (url.pathname === '/ratel/api/v1/mapping/manual' && methodIs(req, 'POST')) {
-    const body = await readJsonBody(req);
-    const sn = stringBodyField(body, 'sn') ?? ctx.robot.sn;
-    if (!sn) { sendError(res, 400, 'sn is required'); return true; }
-    const edgeStart = body.edge_start === 1 || body.edge_start === true || body.edge_start === '1';
-    const regionClosure = body.region_closure === 1 || body.region_closure === true || body.region_closure === '1';
-    if (edgeStart) ctx.robot.confirmEdgeStart();
-    if (regionClosure) ctx.robot.confirmRegionClosure();
-    sendJson(res, 200, { code: 200, message: 'Success', data: robotOkPayload({ edge_start: edgeStart, region_closure: regionClosure }) });
-    return true;
-  }
+  // NOTE: `/ratel/api/v1/mapping/status` and `/ratel/api/v1/mapping/manual` are removed
+  // (one-shot cutover, mapping-v4-final-spec.md §10). `robot/detail` is now the sole
+  // sub_status/extend_status snapshot authority, and manual edge_start/region_closure
+  // commands move to `ratel_mapping_task/action` (EDGE_START/EDGE_CLOSE). Unmatched
+  // requests to the old paths fall through to the generic 404 below — no alias branch.
 
   // POST /ratel/api/v1/mapping/add_lawn -- add new lawn (record passageStartPoint)
   if (url.pathname === '/ratel/api/v1/mapping/add_lawn' && methodIs(req, 'POST')) {

@@ -1,6 +1,7 @@
-import type { VirtualRobot, MappingTaskRecord } from '../virtualRobot';
+import type { MappingActionDeps, MappingActionError, VirtualRobot, MappingTaskRecord } from '../virtualRobot';
 
-const VALID_ACTIONS = new Set(['PAUSE', 'RESUME', 'STOP']);
+// mapping-v4-final-spec.md §1: full VALID_ACTIONS set (all 7 batches landed).
+const VALID_ACTIONS = new Set(['PAUSE', 'RESUME', 'STOP', 'EDGE_START', 'EDGE_CLOSE', 'COMPLETE', 'EXPAND_AREA']);
 
 export function createMappingTask(
   robot: VirtualRobot,
@@ -18,11 +19,19 @@ export function createMappingTask(
 export function applyMappingTaskAction(
   robot: VirtualRobot,
   body: Record<string, unknown>,
-): { error?: string } {
+  deps?: MappingActionDeps,
+): { error?: MappingActionError } {
   const sn = typeof body.sn === 'string' ? body.sn.trim() : '';
-  if (!sn) return { error: 'sn is required' };
+  if (!sn) return { error: { kind: 'bad_request', message: 'sn is required' } };
   const action = typeof body.action === 'string' ? body.action.trim() : '';
-  if (!VALID_ACTIONS.has(action)) return { error: 'action must be one of PAUSE|RESUME|STOP' };
+  if (!VALID_ACTIONS.has(action)) {
+    return {
+      error: {
+        kind: 'bad_request',
+        message: 'action must be one of PAUSE|RESUME|STOP|EDGE_START|EDGE_CLOSE|COMPLETE|EXPAND_AREA',
+      },
+    };
+  }
   // task_id is optional per API doc; robot.applyMappingTaskAction fail-fasts if
   // neither task_id nor the latest active task for sn can be resolved.
   const taskId = typeof body.task_id === 'string' && body.task_id.trim() ? body.task_id.trim() : undefined;
@@ -30,7 +39,7 @@ export function applyMappingTaskAction(
     ? body.payload as Record<string, unknown>
     : undefined;
   const save = payload?.save === true || payload?.save === 1 || payload?.save === '1';
-  const err = robot.applyMappingTaskAction({ sn, taskId, action, save });
+  const err = robot.applyMappingTaskAction({ sn, taskId, action, save }, deps);
   return err ? { error: err } : {};
 }
 

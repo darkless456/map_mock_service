@@ -22,8 +22,9 @@ YAML scenarios drive **cloud-accurate** `NOTIFY_RATEL_STATUS` pushes over WebSoc
 | `find_boundary` | `WORKING` + `MAP_SCAN_BOUNDARY` → **CreateMap** |
 | `edge_mapping` | 自动：`WORKING/MAP_FOLLOW_BOUNDARY`（自动沿边）；*手摇（`mode=remote`）*：`WORKING` → `REMOTE_CONTROL` + `MAP_FOLLOW_BOUNDARY_MANUAL` → **ManualMap** 交接用户手摇沿边 |
 | `map_edge_finish` | `MAP_BOUNDARY_DONE`；手摇态由此 *退出遥控* 回到自动 `WORKING`，进入「Loading」过渡 |
-| `exit_mapping` | Legacy preview signal；新流程通常不再需要 |
-| `work_status: idle` + `sub_status: none` | `mapping->idle` → `MAP_COMPLETING` + `CMD_CONFIRM` → `COMPLETED/MAP_COMPLETING` |
+| `map_completing` | `WORKING` + `MAP_COMPLETING`；120s 倒计时开始（`MAP_COMPLETING_DURATION_MS`），用户可 `COMPLETE`/`EXPAND_AREA`，或放任倒计时到期自动等效 `COMPLETE`（mapping-v4-final-spec.md §3）。取代了旧的 `bow_cover`/`exit_mapping` 二段式——后端不再下发这两个值，mock 收到也会安全 no-op，不会崩溃 |
+| `undocking_failed` | `ERRORED`（mock 侧派发一次不可恢复 `DEVICE_ERROR` 驱动，见 §8）；终态，无重试路径，仅 `CMD_RESET` 能清空回 `IDLE` |
+| `work_status: idle` + `sub_status: none` | `mapping->idle` → `MAP_COMPLETING` + `CMD_CONFIRM` → `COMPLETED/MAP_COMPLETING`（历史兜底路径；新流程推荐显式走 `map_completing` → `COMPLETE` action，见下方"建图 v4 action 流程"）|
 
 Between steps, scenarios use `wait: 5s`–`20s` (stream scenario holds 30s in streamable phases).
 
@@ -122,30 +123,42 @@ Both scenarios rely on the mirrored mower FSM where `work_status: emergency_stop
 | `mapping_stream_incremental.yaml` | **无限循环**：在可推流建图阶段间循环，持续广播 `MAP_INCREMENTAL`（测建图渲染）| 手动停止 |
 | `mowing_trajectory_stream.yaml` | **无限循环**：保持 `ON_THE_WAY`，沿语义地图路线持续推 `ROBOT_LOCATION`（测割草轨迹渲染）| 手动停止 |
 
-## Manual mapping with passages (v1.6)
+## 建图 v4 action 流程（`ratel_mapping_task/action`）
 
-The `mapping_happy_manual.yaml` scenario now supports the full DVT remote mapping workflow:
+> `POST /ratel/api/v1/mapping/manual` 和 `POST /ratel/api/v1/mapping/status` 已整体删除
+> （mapping-v4-final-spec.md §10，一次性切换，不保留兼容别名）。手动沿边起点确认/闭合改走
+> `ratel_mapping_task/action` 的 `EDGE_START`/`EDGE_CLOSE`；断线重连恢复改读 `robot/detail`
+> 的 `sub_status`/`sub_status_entered_at`/`extend_status`。
 
-1. **Switch to remote**: App sends `POST /ratel/api/v1/mapping/mode { mode: "remote" }` or scenario emits `CMD_SWITCH_MANUAL`
-2. **Add new lawn**: App sends `POST /ratel/api/v1/mapping/add_lawn` -> mock records `passageStartPoint`
-3. **Robot moves**: WS `NOTIFY_RATEL_STATUS` carries `in_lawn: 1` and `edge_start_available: 1`
-4. **Confirm edge start**: App sends `POST /ratel/api/v1/mapping/manual { edge_start: 1 }` -> mock records `passageEndPoint`, WS clears `edge_start_available`
-5. **App computes passage**: Call `RustKit.queryTrajectorySegment()` between start/end -> construct `BoundaryFeature` -> render in `MapBuilder.passages`
-6. **Region closure**: When robot returns near start, WS pushes `region_closeable: 1` -> user clicks confirm -> `POST /ratel/api/v1/mapping/manual { region_closure: 1 }`
+这四个 action（`EDGE_START`/`EDGE_CLOSE`/`COMPLETE`/`EXPAND_AREA`）都不是 scenario YAML 的
+`notify`/`emit` 步骤能驱动的——它们是真实 HTTP 请求，走 `POST ratel_mapping_task/action`
+`{ sn, task_id?, action, payload? }`，须由 App（或 `curl`/测试）主动发起，因此不在 9 个
+checked-in scenario 文件里；对应回归覆盖在 `__tests__/mappingTaskAction.test.ts`、
+`__tests__/mapCompleting.test.ts`、`__tests__/expandArea.test.ts`。
 
-### Recovery flow (APP killed and reopened)
+**EDGE_START / EDGE_CLOSE**（"受理不等于生效"，§1）：
 
-1. `POST /ratel/api/v1/mapping/status` -> get `trajectory_url` + `passage_checkpoints`
-2. `RustKit.loadTrajectoryFromUrl()` -> restore trajectory engine
-3. For each checkpoint pair, call `RustKit.queryTrajectorySegment()` -> rebuild passages
-4. Pass reconstructed `BoundaryFeature[]` to `MapBuilder.passages`
+1. `sub_status` 进入 `find_boundary`（`MAP_SCAN_BOUNDARY`）后，`extend_status.legitimate_starting_point`
+   延迟 ~3s 由 0 结算为 1（mock 侧对规格未定义的置位时机的自主决策，见 `MappingTelemetry.ts`）。
+2. 此时调用 `EDGE_START` 返回 `200`（仅消费该信号，不同步切相位），~800ms 后设备异步补推
+   `sub_status: edge_mapping`（`MAP_FOLLOW_BOUNDARY`/`MAP_FOLLOW_BOUNDARY_MANUAL`）。
+3. 提前调用（信号未结算）返回 `422`；相位不对（如已在 `edge_mapping`）返回 `409`；任务不存在
+   返回 `404`。
+4. 进入 `edge_mapping` 后同理，`extend_status.legitimate_end_point` 延迟 ~3s 结算，`EDGE_CLOSE`
+   成功后 ~800ms 异步补推 `sub_status: map_edge_finish`（`MAP_BOUNDARY_DONE`）。
 
-### New supported steps
+**COMPLETE / EXPAND_AREA**（"立即生效"，倒计时期间的用户主动终结/续接，§1/§3）：
 
-| Step | Purpose |
-|------|---------|
-| `notify` | Now carries `in_lawn`, `edge_start_available`, `region_closeable` in WS payload |
-| `emit` | New events: `CONFIRM_EDGE_START`, `CONFIRM_REGION_CLOSURE`, `RECORD_PASSAGE_START` |
+- 前置条件均为 `sub_status === 'map_completing'`（`MAP_COMPLETING`，120s 倒计时中），否则 `409`。
+- `COMPLETE`：清倒计时 + 同步 `CMD_CONFIRM` → `task_status=COMPLETE`。重复调用因任务已终态
+  （`status` 不再 `ON_THE_WAY`）自然落入 `409`。
+- `EXPAND_AREA`：`edge_start` label 计数（即 §5 `lawn_count`）≥15 时 `409`；否则清倒计时 →
+  `mapStream.switchDataset('mapping_lawn2_aisle', ...)` → 同步推 `sub_status: find_boundary`
+  （与首块草坪完全相同的值，"第几块"完全由 `labels` 计数区分，不新增字段）。之后复用同一套
+  `EDGE_START → edge_mapping → EDGE_CLOSE → map_edge_finish` 流程录制第 2 块及以上草坪。
+
+**退桩失败**（§8）：`fault: mapping_undock_failed` 直接把 `mapping.state` 驱动到 `ERRORED`、
+任务 `task_status=FAILED`，终态不提供重试路径。
 
 ## Supported steps
 
