@@ -26,6 +26,7 @@ import { computeWorkStatus, shouldStreamMapping } from './RobotStatus';
 import {
   EXPAND_AREA_DATASET,
   EXPAND_AREA_MAX_LAWNS,
+  MANUAL_SCAN_START_GATE_REQUIRED,
   MAP_COMPLETING_DURATION_MS,
   MAPPING_ACTION_ACK_DELAY_MS,
   withSimulatorDefaults,
@@ -355,7 +356,7 @@ export class VirtualRobot extends EventEmitter {
   private applyEdgeStartAction(task: MappingTaskRecord): MappingActionError | null {
     const busy = this.mappingActionBusyError(task);
     if (busy) return busy;
-    if (this.mapping.phase !== 'MAP_SCAN_BOUNDARY') {
+    if (this.mapping.phase !== 'MAP_SCAN_BOUNDARY_MANUAL') {
       return { kind: 'conflict', message: `EDGE_START not allowed in phase ${this.mapping.phase ?? 'null'}` };
     }
     if (!this.legitimateStartingPoint) {
@@ -432,7 +433,9 @@ export class VirtualRobot extends EventEmitter {
   }
 
   private mappingActionBusyError(task: MappingTaskRecord): MappingActionError | null {
-    if (task.status !== 'ON_THE_WAY') {
+    const acceptsManualAction =
+      task.status === 'PAUSE' && this.mapping.state === 'REMOTE_CONTROL';
+    if (task.status !== 'ON_THE_WAY' && !acceptsManualAction) {
       return { kind: 'conflict', message: `mapping task ${task.task_id} is not active (status=${task.status})` };
     }
     if (this.pendingMappingAction) {
@@ -640,7 +643,11 @@ export class VirtualRobot extends EventEmitter {
     const before = this.snapshot();
     const prev = this.mapping;
     this.ensureScenarioMappingTask(event);
-    this.mapping = mappingReducer(this.mapping, event as MappingEvent);
+    // 场景需要能直接发出后端 phase 推送；是否在手动寻边阶段消费这些推送由 App 的
+    // manualScanStartGateRequired 决定。EDGE_START API 自身仍在 applyEdgeStartAction 严格校验。
+    this.mapping = mappingReducer(this.mapping, event as MappingEvent, undefined, {
+      manualScanStartGateRequired: MANUAL_SCAN_START_GATE_REQUIRED,
+    });
     this.record('mapping', event);
     this.syncActiveMappingTaskFromContext();
     if (this.mapping.phase !== prev.phase) this.onMappingPhaseChanged(prev.phase, this.mapping.phase);
@@ -655,7 +662,10 @@ export class VirtualRobot extends EventEmitter {
    */
   private onMappingPhaseChanged(from: MappingPhase | null, to: MappingPhase | null): void {
     this.mappingTelemetry.syncWithPhase(to);
-    if (to === 'MAP_SCAN_BOUNDARY' && from !== 'MAP_SCAN_BOUNDARY') {
+    if (
+      (to === 'MAP_SCAN_BOUNDARY' || to === 'MAP_SCAN_BOUNDARY_MANUAL') &&
+      from !== to
+    ) {
       this.mappingLabels.addAisle();
     } else if (to === 'MAP_BOUNDARY_DONE' && from !== 'MAP_BOUNDARY_DONE') {
       this.mappingLabels.addEdgeStart();

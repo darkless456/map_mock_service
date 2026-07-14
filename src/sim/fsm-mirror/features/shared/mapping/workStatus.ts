@@ -2,7 +2,7 @@
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/features/shared/mapping/workStatus.ts. DO NOT EDIT. !!!
 // Source SHA-256: d1d6ea1b3fe35a9d29020895704c1aa48440b273544d86fb99e9f7263b6a7118
-// Synced at: 2026-07-13T09:08:25.761Z
+// Synced at: 2026-07-14T11:20:49.179Z
 /**
  * `work_status` 单一事实源（SSOT）。
  *

@@ -40,7 +40,7 @@ export class MappingTelemetry {
     if (phase === this.lastPhase) return;
     this.lastPhase = phase;
     this.clearTimers();
-    if (phase === 'MAP_SCAN_BOUNDARY') {
+    if (phase === 'MAP_SCAN_BOUNDARY_MANUAL') {
       this.legitimateStartingPoint = false;
       this.startSettleTimer = setTimeout(() => {
         this.startSettleTimer = null;

@@ -17,7 +17,7 @@ guide:
   simulates:
     - emit CMD_START mode=remote 自建建图任务（IDLE → PREPARING）
     - 按顺序推送 NOTIFY_RATEL_STATUS（precondition → leave_dock → find_boundary → edge_mapping → …）
-    - 沿边状态（edge_mapping）交接手摇：WORKING/MAP_SCAN_BOUNDARY → REMOTE_CONTROL/MAP_FOLLOW_BOUNDARY_MANUAL
+    - 手动寻边（find_boundary）交接手摇：REMOTE_CONTROL/MAP_SCAN_BOUNDARY_MANUAL；edge_mapping 后进入手动沿边
     - 手摇沿边窗口（停留 20s）持续广播 MAP_INCREMENTAL 增量帧，模拟用户摇控机器沿边上传建图数据
     - 沿边闭合（map_edge_finish）设备驱动退出遥控：REMOTE_CONTROL → WORKING/MAP_BOUNDARY_DONE
     - work_status idle 触发 MAP_COMPLETING 后进入完成页
@@ -55,7 +55,7 @@ steps:
   - expect: { state: UNDOCKING }
   - wait: 6s
   - notify: { work_status: mapping, sub_status: find_boundary }
-  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY }
+  - expect: { state: REMOTE_CONTROL, phase: MAP_SCAN_BOUNDARY_MANUAL, mode: remote }
   - wait: 10s
   # 进入沿边：手摇模式把控制权交给用户（REMOTE_CONTROL / MAP_FOLLOW_BOUNDARY_MANUAL）。
   - notify: { work_status: mapping, sub_status: edge_mapping }

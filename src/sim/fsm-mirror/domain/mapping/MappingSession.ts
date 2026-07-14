@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/mapping/MappingSession.ts. DO NOT EDIT. !!!
-// Source SHA-256: c741a343f727c0026d5e94c66aa114fc4722eb4ae12770631c27bca7ed11b0af
-// Synced at: 2026-07-13T09:08:25.761Z
+// Source SHA-256: e7f9e05f6663742e3de26a0e999359a7c9d41858913e164b08cafd2d27bbbb45
+// Synced at: 2026-07-14T11:20:49.179Z
 /**
  * MappingSession FSM — task-level `TaskState` + `MappingPhase` tuple from
  * `TaskFSM`. UI binding resolves a `PanelScene` directly from `(state, phase)`
@@ -27,6 +27,7 @@ import { safeLog, type LoggerLike } from '../shared/LoggerLike';
 
 export type MappingBusinessPhase =
   | 'MAP_SCAN_BOUNDARY'
+  | 'MAP_SCAN_BOUNDARY_MANUAL'
   | 'MAP_SCAN_BOUNDARY_FAILED'
   | 'MAP_UNDOCKING_FAILED'
   | 'MAP_FOLLOW_BOUNDARY'
@@ -41,6 +42,7 @@ export type MappingState = TaskState;
 
 export const MAPPING_PHASES: readonly MappingBusinessPhase[] = [
   'MAP_SCAN_BOUNDARY',
+  'MAP_SCAN_BOUNDARY_MANUAL',
   'MAP_SCAN_BOUNDARY_FAILED',
   'MAP_UNDOCKING_FAILED',
   'MAP_FOLLOW_BOUNDARY',
@@ -63,6 +65,8 @@ export interface MappingSignals {
   readonly canStartFollowBoundary: boolean;
   readonly canCloseBoundary: boolean;
   readonly lawnCount: number | null;
+  /** 手动寻边的 EDGE_START 已被后端成功受理。 */
+  readonly manualScanStarted: boolean;
 }
 
 export type MappingContext = TaskContext<MappingPhase> & MappingSignals;
@@ -72,6 +76,7 @@ export const initialMappingState: MappingContext = {
   canStartFollowBoundary: false,
   canCloseBoundary: false,
   lawnCount: null,
+  manualScanStarted: false,
 };
 
 // ─── Events ────────────────────────────────────────────────────────────
@@ -89,6 +94,10 @@ export type MappingEvent =
   | TaskEvent<MappingPhase>
   | { readonly type: 'RECONCILE_STARTED' }
   | { readonly type: 'RECONCILE_PAUSED' }
+  /** 建图完成页的“添加草坪”：回到手动沿边，复用当前建图会话。 */
+  | { readonly type: 'CMD_ADD_LAWN' }
+  /** EDGE_START 请求成功，允许手动寻边后的设备阶段推进。 */
+  | { readonly type: 'CMD_MANUAL_SCAN_STARTED' }
   | {
       readonly type: 'DEVICE_FOLLOW_BOUNDARY_READY';
       readonly ready: boolean;
@@ -124,10 +133,16 @@ const baseReducer = createTaskReducer<MappingPhase>({
  * illegal in the current state so callers can detect no-op transitions with
  * `next === prev`.
  */
+export interface MappingReducerOptions {
+  /** 关闭时允许 mock 直接推送手动沿边/闭合阶段。默认开启。 */
+  readonly manualScanStartGateRequired?: boolean;
+}
+
 export function mappingReducer(
   ctx: MappingContext,
   event: MappingEvent,
   logger?: LoggerLike,
+  options: MappingReducerOptions = {},
 ): MappingContext {
   // `MAP_COMPLETING` means the device is waiting for mapping completion. It is not a local
   // sticky state: all subsequent device events continue through the normal FSM path so an
@@ -162,7 +177,13 @@ export function mappingReducer(
   ) {
     const next = baseReducer(ctx, event, logger);
     if (next === ctx) return ctx;
-    return { ...next, canStartFollowBoundary: false, canCloseBoundary: false, lawnCount: null };
+    return {
+      ...next,
+      canStartFollowBoundary: false,
+      canCloseBoundary: false,
+      lawnCount: null,
+      manualScanStarted: false,
+    };
   }
 
   // CMD_RESET：通用层只有"终态 → 全新 createInitialTaskContext"这条路径才会把 capabilities
@@ -177,9 +198,16 @@ export function mappingReducer(
         canStartFollowBoundary: ctx.canStartFollowBoundary,
         canCloseBoundary: ctx.canCloseBoundary,
         lawnCount: ctx.lawnCount,
+        manualScanStarted: ctx.manualScanStarted,
       };
     }
-    return { ...next, canStartFollowBoundary: false, canCloseBoundary: false, lawnCount: null };
+    return {
+      ...next,
+      canStartFollowBoundary: false,
+      canCloseBoundary: false,
+      lawnCount: null,
+      manualScanStarted: false,
+    };
   }
 
   // 任务级 WS 推送（RATEL_MAPPING_TASK）/ 任务列表对齐：仅在本地仍处于 IDLE
@@ -209,6 +237,74 @@ export function mappingReducer(
       event,
       logger,
     );
+  }
+
+  // 当前草坪结束后继续添加草坪：不结束/重建任务，直接恢复手动沿边 UI。
+  // 自动建图转手动的设备指令由调用层单独下发；本地先切换，确保摇控面板立即可见。
+  if (event.type === 'CMD_ADD_LAWN') {
+    if (ctx.state !== 'WORKING' || ctx.phase !== 'MAP_COMPLETING') return ctx;
+    return commit(
+      ctx,
+      {
+        ...ctx,
+        state: 'REMOTE_CONTROL',
+        mode: 'remote',
+        phase: 'MAP_FOLLOW_BOUNDARY_MANUAL',
+        resumeTo: { state: 'WORKING', phase: 'MAP_FOLLOW_BOUNDARY' },
+        error: null,
+        manualScanStarted: true,
+      },
+      event,
+      logger,
+    );
+  }
+
+  if (event.type === 'CMD_MANUAL_SCAN_STARTED') {
+    if (ctx.state !== 'REMOTE_CONTROL' || ctx.phase !== 'MAP_SCAN_BOUNDARY_MANUAL') {
+      return ctx;
+    }
+    return commit(ctx, { ...ctx, manualScanStarted: true }, event, logger);
+  }
+
+  // 手动建图任务的后端 `find_boundary` 先进入手动寻边。它与自动寻边共用后端
+  // sub_status，但手动模式必须直接交给摇控面板，用户点击“开始”后才开始沿边。
+  if (
+    event.type === 'DEVICE_PHASE' &&
+    event.phase === 'MAP_SCAN_BOUNDARY' &&
+    ctx.mode === 'remote' &&
+    (ctx.state === 'PREPARING' ||
+      ctx.state === 'UNDOCKING' ||
+      ctx.state === 'WORKING' ||
+      ctx.state === 'RESUMING' ||
+      ctx.state === 'REMOTE_CONTROL')
+  ) {
+    return commit(
+      ctx,
+      {
+        ...ctx,
+        state: 'REMOTE_CONTROL',
+        phase: 'MAP_SCAN_BOUNDARY_MANUAL',
+        resumeTo: { state: 'WORKING', phase: 'MAP_FOLLOW_BOUNDARY' },
+        error: null,
+        manualScanStarted: false,
+      },
+      event,
+      logger,
+    );
+  }
+
+  if (
+    options.manualScanStartGateRequired !== false &&
+    !ctx.manualScanStarted &&
+    ctx.state === 'REMOTE_CONTROL' &&
+    ctx.phase === 'MAP_SCAN_BOUNDARY_MANUAL' &&
+    event.type === 'DEVICE_PHASE' &&
+    (event.phase === 'MAP_FOLLOW_BOUNDARY' ||
+      event.phase === 'MAP_FOLLOW_BOUNDARY_MANUAL' ||
+      event.phase === 'MAP_BOUNDARY_DONE' ||
+      event.phase === 'MAP_COMPLETING')
+  ) {
+    return ctx;
   }
 
   // CMD_SWITCH_MANUAL：标记遥控意图，走后端驱动路径。
@@ -284,6 +380,7 @@ export function mappingReducer(
         ts: event.ts,
       },
       logger,
+      options,
     );
   }
 
@@ -523,7 +620,8 @@ function sameContext(a: MappingContext, b: MappingContext): boolean {
     a.error === b.error &&
     a.canStartFollowBoundary === b.canStartFollowBoundary &&
     a.canCloseBoundary === b.canCloseBoundary &&
-    a.lawnCount === b.lawnCount
+    a.lawnCount === b.lawnCount &&
+    a.manualScanStarted === b.manualScanStarted
   );
 }
 

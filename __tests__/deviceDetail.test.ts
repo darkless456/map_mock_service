@@ -154,7 +154,7 @@ describe('machine detail HTTP route', () => {
     const server = await createTestServer(robot);
     mock.timers.enable({ apis: ['setTimeout'] });
     try {
-      robot.createMappingTask({ sn: robot.sn, map_id: 'mock_map_001', mode: 'auto' });
+      robot.createMappingTask({ sn: robot.sn, map_id: 'mock_map_001', mode: 'remote' });
       robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'leave_dock' });
       robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'find_boundary' });
 

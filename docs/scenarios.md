@@ -19,7 +19,7 @@ YAML scenarios drive **cloud-accurate** `NOTIFY_RATEL_STATUS` pushes over WebSoc
 |-------------------|----------------------|
 | `precondition` | Stay `PREPARING`（设备自检，不跳屏）|
 | `leave_dock` | `UNDOCKING` → **DeviceStart** |
-| `find_boundary` | `WORKING` + `MAP_SCAN_BOUNDARY` → **CreateMap** |
+| `find_boundary` | 自动：`WORKING` + `MAP_SCAN_BOUNDARY` → **CreateMap**；手动（`mode=remote`）：`REMOTE_CONTROL` + `MAP_SCAN_BOUNDARY_MANUAL` → **ManualMap** |
 | `edge_mapping` | 自动：`WORKING/MAP_FOLLOW_BOUNDARY`（自动沿边）；*手摇（`mode=remote`）*：`WORKING` → `REMOTE_CONTROL` + `MAP_FOLLOW_BOUNDARY_MANUAL` → **ManualMap** 交接用户手摇沿边 |
 | `map_edge_finish` | `MAP_BOUNDARY_DONE`；手摇态由此 *退出遥控* 回到自动 `WORKING`，进入「Loading」过渡 |
 | `map_completing` | `WORKING` + `MAP_COMPLETING`；120s 倒计时开始（`MAP_COMPLETING_DURATION_MS`），用户可 `COMPLETE`/`EXPAND_AREA`，或放任倒计时到期自动等效 `COMPLETE`（mapping-v4-final-spec.md §3）。取代了旧的 `bow_cover`/`exit_mapping` 二段式——后端不再下发这两个值，mock 收到也会安全 no-op，不会崩溃 |
@@ -138,8 +138,9 @@ checked-in scenario 文件里；对应回归覆盖在 `__tests__/mappingTaskActi
 
 **EDGE_START / EDGE_CLOSE**（"受理不等于生效"，§1）：
 
-1. `sub_status` 进入 `find_boundary`（`MAP_SCAN_BOUNDARY`）后，`extend_status.legitimate_starting_point`
-   延迟 ~3s 由 0 结算为 1（mock 侧对规格未定义的置位时机的自主决策，见 `MappingTelemetry.ts`）。
+1. 手动建图的 `sub_status` 进入 `find_boundary`（`REMOTE_CONTROL` + `MAP_SCAN_BOUNDARY_MANUAL`）后，
+   `extend_status.legitimate_starting_point` 延迟 ~3s 由 0 结算为 1（mock 侧对规格未定义的
+   置位时机的自主决策，见 `MappingTelemetry.ts`）。自动寻边 `MAP_SCAN_BOUNDARY` 不接受 `EDGE_START`。
 2. 此时调用 `EDGE_START` 返回 `200`（仅消费该信号，不同步切相位），~800ms 后设备异步补推
    `sub_status: edge_mapping`（`MAP_FOLLOW_BOUNDARY`/`MAP_FOLLOW_BOUNDARY_MANUAL`）。
 3. 提前调用（信号未结算）返回 `422`；相位不对（如已在 `edge_mapping`）返回 `409`；任务不存在

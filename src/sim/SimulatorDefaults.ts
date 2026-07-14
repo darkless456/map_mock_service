@@ -18,6 +18,12 @@ export const MAPPING_ACTION_ACK_DELAY_MS = 800;
 export const MAP_COMPLETING_DURATION_MS = 120_000;
 
 /**
+ * Mirror the Mower debug default: scenarios may directly push manual mapping phases.
+ * The Mower client owns whether those pushes advance its UI.
+ */
+export const MANUAL_SCAN_START_GATE_REQUIRED = false;
+
+/**
  * mapping-v4-final-spec.md §7: dataset `EXPAND_AREA` switches `mapStream` to. All lawns
  * beyond the first reuse this same fixture (its own visual content isn't load-bearing — the
  * "which lawn number" signal is carried entirely by the §5 `labels` count, not by dataset

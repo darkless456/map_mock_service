@@ -75,19 +75,20 @@ describe('ratel_mapping_task/action EDGE_START/EDGE_CLOSE', () => {
     }
   });
 
-  it('returns 409 outside MAP_SCAN_BOUNDARY and 422 before the legitimacy signal settles, then 200 + async edge_mapping ack', async () => {
+  it('requires MAP_SCAN_BOUNDARY_MANUAL and a legitimate starting point before accepting EDGE_START', async () => {
     const robot = new VirtualRobot({ sn: 'SN-EDGE-2' });
     const { server, port } = await startServer(robot);
     mock.timers.enable({ apis: ['setTimeout'] });
     try {
-      await postJson(port, CREATE_PATH, { sn: 'SN-EDGE-2', map_id: 'mock_map_001', mode: 'auto' });
+      await postJson(port, CREATE_PATH, { sn: 'SN-EDGE-2', map_id: 'mock_map_001', mode: 'remote' });
 
-      // Task exists but is still PREPARING/UNDOCKING (not MAP_SCAN_BOUNDARY yet) -> 409.
+      // Task exists but is still PREPARING/UNDOCKING (not MAP_SCAN_BOUNDARY_MANUAL yet) -> 409.
       const wrongPhase = await postJson(port, ACTION_PATH, { sn: 'SN-EDGE-2', action: 'EDGE_START' });
       assert.equal(wrongPhase.status, 409);
 
       robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'leave_dock' });
       robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'find_boundary' });
+      assert.equal(robot.snapshot().mapping.phase, 'MAP_SCAN_BOUNDARY_MANUAL');
 
       // Correct phase, but the settle timer (batch 1) hasn't flipped legitimate_starting_point yet -> 422.
       const notYetLegit = await postJson(port, ACTION_PATH, { sn: 'SN-EDGE-2', action: 'EDGE_START' });
@@ -105,7 +106,7 @@ describe('ratel_mapping_task/action EDGE_START/EDGE_CLOSE', () => {
 
       mock.timers.tick(800);
       assert.equal(robot.snapshot().lastNotifySubStatus, 'edge_mapping');
-      assert.equal(robot.snapshot().mapping.phase, 'MAP_FOLLOW_BOUNDARY');
+      assert.equal(robot.snapshot().mapping.phase, 'MAP_FOLLOW_BOUNDARY_MANUAL');
     } finally {
       mock.timers.reset();
       server.close();

@@ -71,7 +71,7 @@ const VALID_ACTIONS = new Set(['PAUSE', 'RESUME', 'STOP', 'EDGE_START', 'EDGE_CL
 
 | Action | 语义 | 前置条件 | 设备权威 ack（sub_status） | 失败语义 |
 |---|---|---|---|---|
-| `EDGE_START` | 用户点击"开始"，请求设备确认起点并开始沿边 | 任务 active；`extend_status.legitimate_starting_point === 1` | `work_status=mapping, sub_status=edge_mapping`（已在镜像中映射，无需等待同步） | `422`：`legitimate_starting_point=0`；`409`：phase 不允许/重复请求/设备忙；`404`：任务不存在 |
+| `EDGE_START` | 用户点击"开始"，请求设备确认起点并开始沿边 | `phase === MAP_SCAN_BOUNDARY_MANUAL`；任务 active；`extend_status.legitimate_starting_point === 1` | `work_status=mapping, sub_status=edge_mapping`（已在镜像中映射，无需等待同步） | `422`：`legitimate_starting_point=0`；`409`：phase 不允许/重复请求/设备忙；`404`：任务不存在 |
 | `EDGE_CLOSE` | 用户点击"完成"（沿边页），请求设备闭合当前边界 | 任务 active；`extend_status.legitimate_end_point === 1` | `sub_status=map_edge_finish`（已映射至 `MAP_BOUNDARY_DONE`，无需等待同步） | `422`：`legitimate_end_point=0`；`409`/`404` 同上 |
 | `COMPLETE` | 建图完成页三按钮之一——"完成"：直接结束整张建图任务，中断 120s 倒计时 | 当前 `sub_status === 'map_completing'`（即 `MAP_COMPLETING`，已可达，见 §3） | 内部触发 `CMD_CONFIRM` → `task_status=COMPLETE` | `409`：当前不在 `MAP_COMPLETING`（非法调用时机）/ 重复请求；`404`：任务不存在 |
 | `EXPAND_AREA` | 建图完成页三按钮之一——"添加草坪"：中断倒计时，开始下一块草坪的通道录制 | 当前 `sub_status === 'map_completing'`（即 `MAP_COMPLETING`，已可达，见 §3） | 中断倒计时 → 触发数据集切换 → `sub_status=find_boundary`（见 §7） | `409`：当前不在 `MAP_COMPLETING`/ 重复请求；`404`：任务不存在 |

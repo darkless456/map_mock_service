@@ -2,7 +2,7 @@
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/infra/events/EventAdapter.ts. DO NOT EDIT. !!!
 // Source SHA-256: d19845d17dc4b1394e7a34438195ae6c9cdddccae20920cd3b296231beddac5e
-// Synced at: 2026-07-13T09:08:25.761Z
+// Synced at: 2026-07-14T11:20:49.179Z
 import type {
   DeviceEventSource,
   RobotWorkStatus,
