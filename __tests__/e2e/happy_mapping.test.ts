@@ -83,9 +83,11 @@ describe('e2e scenarios', () => {
     assert.ok(engine.listScenarios().includes('mapping_happy_auto'));
     const result = await engine.run({ name: 'mapping_happy_auto' });
     assert.equal(result.ok, true, result.error);
-    assert.equal(robot.snapshot().mapping.state, 'COMPLETED');
+    assert.equal(robot.snapshot().mapping.state, 'WORKING');
+    assert.equal(robot.snapshot().mapping.phase, 'MAP_COMPLETING');
     assert.deepEqual([...engine.listScenarios()].sort(), [
       'mapping_estop_edge_follow',
+      'mapping_expand_area',
       'mapping_happy_auto',
       'mapping_happy_auto_multilawn',
       'mapping_happy_manual',
@@ -124,18 +126,19 @@ describe('e2e scenarios', () => {
           { notify: { work_status: 'mapping', sub_status: 'leave_dock' } },
           { expect: { state: 'UNDOCKING' } },
           { notify: { work_status: 'mapping', sub_status: 'find_boundary' } },
-          { expect: { state: 'WORKING', phase: 'MAP_SCAN_BOUNDARY' } },
+          { expect: { state: 'REMOTE_CONTROL', phase: 'MAP_SCAN_BOUNDARY_MANUAL', mode: 'remote' } },
           { notify: { work_status: 'mapping', sub_status: 'edge_mapping' } },
           { expect: { state: 'REMOTE_CONTROL', phase: 'MAP_FOLLOW_BOUNDARY_MANUAL', mode: 'remote' } },
           { notify: { work_status: 'mapping', sub_status: 'map_edge_finish' } },
           { expect: { state: 'WORKING', phase: 'MAP_BOUNDARY_DONE', mode: 'auto' } },
-          { notify: { work_status: 'idle', sub_status: 'none' } },
-          { expect: { state: 'COMPLETED', phase: 'MAP_COMPLETING' } },
+          { notify: { work_status: 'mapping', sub_status: 'map_completing' } },
+          { expect: { state: 'WORKING', phase: 'MAP_COMPLETING' } },
         ],
       },
     });
     assert.equal(result.ok, true, result.error);
-    assert.equal(robot.snapshot().mapping.state, 'COMPLETED');
+    assert.equal(robot.snapshot().mapping.state, 'WORKING');
+    assert.equal(robot.snapshot().mapping.phase, 'MAP_COMPLETING');
   });
 
   it('pushes MAP_INCREMENTAL when entering a streamable mapping phase', async () => {

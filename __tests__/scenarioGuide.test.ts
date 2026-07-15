@@ -23,6 +23,7 @@ describe('scenarioGuide', () => {
     const names = catalog.map(entry => entry.name).sort();
     assert.deepEqual(names, [
       'mapping_estop_edge_follow',
+      'mapping_expand_area',
       'mapping_happy_auto',
       'mapping_happy_auto_multilawn',
       'mapping_happy_manual',

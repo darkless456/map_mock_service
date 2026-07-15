@@ -1,16 +1,16 @@
 name: mapping_happy_auto
 description: >-
   正常建图 happy flow。自建建图任务（emit CMD_START，无需 App HTTP ratel_mapping_task/create），
-  按云端 NOTIFY_RATEL_STATUS 顺序从自检走到 COMPLETED，驱动 App 页面跳转。
+  按云端 NOTIFY_RATEL_STATUS 顺序从自检走到 MAP_COMPLETING 完成选择页。
 guide:
   title: 建图 — 正常流程（happy flow）
   domain_label: 建图
-  summary: 模拟云端建图 NOTIFY 全链路，从自检到 COMPLETED，验证正常建图主流程与页面跳转。
+  summary: 模拟云端建图 NOTIFY 全链路，从自检到 MAP_COMPLETING 完成选择页。
   when_to_use: >-
     验证建图主流程 UI、FSM 与导航（Prepare → DeviceStart → CreateMap → 完成）是否与后端 §5.1 状态机一致。
   simulates:
     - emit CMD_START 自建建图任务（IDLE → PREPARING）
-    - 按顺序推送 NOTIFY_RATEL_STATUS（precondition → leave_dock → find_boundary → … → idle）
+    - 按顺序推送 NOTIFY_RATEL_STATUS（precondition → leave_dock → find_boundary → … → map_completing）
     - Mock FSM 与 App TaskEventPipeline 同步迁移，各阶段间保留数秒便于观察
   prerequisites:
     - 已启动 map_mock_service（npm start），App mock 指向 http://localhost:9900
@@ -19,14 +19,14 @@ guide:
     - 启动模拟器与 App，确认 mock 配置 enabled
     - 浏览器打开 /sim/panel，场景选择 mapping_happy_auto
     - 点击「运行场景」，观察 App 页面与右侧状态中 mapping.state / phase
-    - 等待场景结束（约 1.5 分钟），确认最终 state 为 COMPLETED
+    - 等待完成选择页出现，确认 state=WORKING、phase=MAP_COMPLETING
   auto_behavior:
     - setup 为 IDLE，emit CMD_START 进入 PREPARING
-    - 依次 notify 各 sub_status，expect 校验 FSM 快照，直至 COMPLETED
+    - 依次 notify 各 sub_status，expect 校验 FSM 快照，直至 MAP_COMPLETING
     - 不自动发送 MAP_INCREMENTAL（侧重 NOTIFY 导航；如需增量帧用 mapping_stream_incremental）
   duration: 约 1.5 分钟
   pushes:
-    - NOTIFY_RATEL_STATUS（work_status=mapping / idle）
+    - NOTIFY_RATEL_STATUS（work_status=mapping）
 domain: mapping
 dataset: mapping_happy
 setup:
@@ -49,5 +49,5 @@ steps:
   - notify: { work_status: mapping, sub_status: map_edge_finish }
   - expect: { phase: MAP_BOUNDARY_DONE }
   - wait: 8s
-  - notify: { work_status: idle, sub_status: none }
-  - expect: { state: COMPLETED, phase: MAP_COMPLETING }
+  - notify: { work_status: mapping, sub_status: map_completing }
+  - expect: { state: WORKING, phase: MAP_COMPLETING }

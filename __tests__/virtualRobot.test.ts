@@ -21,6 +21,17 @@ describe('VirtualRobot mapping domain', () => {
     assert.equal(robot.shouldStreamMap(), true);
   });
 
+  it('keeps a remote-control mapping task active instead of projecting PAUSE', () => {
+    const robot = new VirtualRobot({ sn: 'SN-REMOTE' });
+    robot.startMapping({ sn: robot.sn, mode: 'remote' });
+    robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'leave_dock' });
+    robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'find_boundary' });
+    robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'edge_mapping' });
+
+    assert.equal(robot.snapshot().mapping.state, 'REMOTE_CONTROL');
+    assert.equal(robot.activeMappingTask()?.status, 'ON_THE_WAY');
+  });
+
   it('pauses then resumes mapping, broadcasting a confirming frame that clears RESUMING', () => {
     const robot = new VirtualRobot({ sn: 'SN-R' });
     robot.startMapping({ sn: 'SN-R', mode: 'auto' });

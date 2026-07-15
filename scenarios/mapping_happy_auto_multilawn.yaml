@@ -1,7 +1,7 @@
 name: mapping_happy_auto_multilawn
 description: >-
   全自动多草坪建图 happy flow（对齐 docs/v4-mapping-api-gap.md D5，全自动版）。自建建图任务，
-  按 NOTIFY_RATEL_STATUS 顺序在两块草坪之间自动衔接（第 1 块完成 → 通道 → 第 2 块 → COMPLETED），
+  按 NOTIFY_RATEL_STATUS 顺序在两块草坪之间自动衔接（第 1 块完成 → 通道 → 第 2 块 → MAP_COMPLETING），
   不经过用户 API 确认（CONFIRM_ADD_LAWN 尚未实现，见 A1/C3 缺口）。
 guide:
   title: 建图 — 全自动多草坪流程（2 块草坪）
@@ -15,7 +15,7 @@ guide:
     - 第 1 块草坪：precondition → leave_dock → find_boundary → edge_mapping → map_edge_finish
     - 通道过渡（沿用 find_boundary sub_status，phase 重新进入 MAP_SCAN_BOUNDARY，驱动 mapStream 播放通道帧）
     - 第 2 块草坪：find_boundary → edge_mapping → map_edge_finish
-    - idle 触发 MAP_COMPLETING → COMPLETED
+    - map_completing 进入活跃的完成选择页
   prerequisites:
     - 已启动 map_mock_service（npm start）
     - 已运行 `node scripts/generate-multilawn-dataset.mjs` 生成 fixtures/datasets/mapping_multilawn
@@ -23,7 +23,7 @@ guide:
   user_steps:
     - 浏览器打开 /sim/panel，数据集选择 mapping_multilawn，场景选择 mapping_happy_auto_multilawn
     - 点击「运行场景」，观察 App 地图页 MAP_INCREMENTAL 是否在两块草坪间连续推送（无跳变/断流）
-    - 等待场景结束，确认最终 state 为 COMPLETED
+    - 等待场景结束，确认最终 state=WORKING、phase=MAP_COMPLETING
   auto_behavior:
     - setup 为 IDLE，emit CMD_START 进入 PREPARING
     - 依次 notify 第 1 块草坪 sub_status，expect 校验 FSM 快照
@@ -32,7 +32,7 @@ guide:
     - 全程保持 WORKING + streaming phase，mapTimer 持续广播 mapping_multilawn 数据集帧
   duration: 约 2 分钟
   pushes:
-    - NOTIFY_RATEL_STATUS（work_status=mapping / idle）
+    - NOTIFY_RATEL_STATUS（work_status=mapping）
     - MAP_INCREMENTAL（进入可推流 phase 后由 mapTimer 自动持续广播）
 domain: mapping
 dataset: mapping_multilawn
@@ -65,5 +65,5 @@ steps:
   - notify: { work_status: mapping, sub_status: map_edge_finish }
   - expect: { phase: MAP_BOUNDARY_DONE }
   - wait: 8s
-  - notify: { work_status: idle, sub_status: none }
-  - expect: { state: COMPLETED, phase: MAP_COMPLETING }
+  - notify: { work_status: mapping, sub_status: map_completing }
+  - expect: { state: WORKING, phase: MAP_COMPLETING }

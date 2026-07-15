@@ -111,7 +111,9 @@ describe('EXPAND_AREA', () => {
       assert.equal(mapStream.dataset, 'mapping_lawn2_aisle');
       assert.ok(mapStream.patchCount > 0);
       assert.equal(robot.snapshot().lastNotifySubStatus, 'find_boundary');
-      assert.equal(robot.snapshot().mapping.phase, 'MAP_SCAN_BOUNDARY');
+      assert.equal(robot.snapshot().mapping.state, 'REMOTE_CONTROL');
+      assert.equal(robot.snapshot().mapping.mode, 'remote');
+      assert.equal(robot.snapshot().mapping.phase, 'MAP_SCAN_BOUNDARY_MANUAL');
 
       const labelsAfter = await postJson(port, LABELS_PATH, { map_id: 'mock_map_001' });
       const listAfter = (labelsAfter.json.data as Record<string, unknown>).labels as Array<Record<string, unknown>>;
@@ -122,8 +124,9 @@ describe('EXPAND_AREA', () => {
       assert.equal((data.extend_status as Record<string, unknown>).legitimate_starting_point, 0);
 
       // The lawn-1 120s countdown must be cancelled — ticking it out must not fire another CMD_CONFIRM.
+      const dispatchCountAfterExpand = dispatchSpy.mock.callCount();
       mock.timers.tick(120_000);
-      assert.equal(dispatchSpy.mock.callCount(), 0);
+      assert.equal(dispatchSpy.mock.callCount(), dispatchCountAfterExpand);
     } finally {
       mock.timers.reset();
       server.close();

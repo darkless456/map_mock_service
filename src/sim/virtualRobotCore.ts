@@ -428,6 +428,9 @@ export class VirtualRobot extends EventEmitter {
       return { kind: 'conflict', message: switched.error ?? `failed to switch dataset ${EXPAND_AREA_DATASET}` };
     }
     this.clearMapCompletingCountdown();
+    // 新草坪统一从手动寻边开始；先更新 mirror 的 remote 意图，再广播 find_boundary，
+    // 保证 Mock 快照与 App 都投影为 REMOTE_CONTROL / MAP_SCAN_BOUNDARY_MANUAL。
+    this.dispatchRaw({ type: 'CMD_ADD_LAWN' }, 'mapping');
     this.pushRatelStatus({ work_status: 'mapping', sub_status: 'find_boundary' });
     return null;
   }

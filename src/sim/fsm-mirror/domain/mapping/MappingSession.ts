@@ -1,8 +1,8 @@
 /* eslint-disable */
 // @ts-nocheck
 // !!! AUTO-GENERATED FROM mower/src/domain/mapping/MappingSession.ts. DO NOT EDIT. !!!
-// Source SHA-256: e7f9e05f6663742e3de26a0e999359a7c9d41858913e164b08cafd2d27bbbb45
-// Synced at: 2026-07-14T11:20:49.179Z
+// Source SHA-256: 239451c19f1257b4a65c04f2f2a41e982295e2cc4162c270717c50b1b30fb6d8
+// Synced at: 2026-07-15T03:07:50.896Z
 /**
  * MappingSession FSM — task-level `TaskState` + `MappingPhase` tuple from
  * `TaskFSM`. UI binding resolves a `PanelScene` directly from `(state, phase)`
@@ -210,8 +210,7 @@ export function mappingReducer(
     };
   }
 
-  // 任务级 WS 推送（RATEL_MAPPING_TASK）/ 任务列表对齐：仅在本地仍处于 IDLE
-  // （例如重连后发现设备正在建图）时生效，绝不覆盖或倒退已经更靠后的相位——
+  // 任务级 WS 推送（RATEL_MAPPING_TASK）/ 任务列表对齐：不经过命令 ACK 仲裁器，
   // 具体业务 phase 仍完全交给后续 work_status/sub_status 遥测通道去填充。
   if (event.type === 'RECONCILE_STARTED') {
     if (ctx.state !== 'IDLE') return ctx;
@@ -224,14 +223,26 @@ export function mappingReducer(
   }
 
   if (event.type === 'RECONCILE_PAUSED') {
-    if (ctx.state !== 'IDLE') return ctx;
+    if (
+      ctx.state !== 'IDLE' &&
+      ctx.state !== 'PREPARING' &&
+      ctx.state !== 'UNDOCKING' &&
+      ctx.state !== 'WORKING' &&
+      ctx.state !== 'RESUMING'
+    ) {
+      return ctx;
+    }
+    const resumeTo =
+      ctx.state === 'IDLE'
+        ? { state: 'WORKING' as const, phase: ctx.phase }
+        : ctx.resumeTo ?? { state: ctx.state, phase: ctx.phase };
     return commit(
       ctx,
       {
         ...ctx,
         state: 'PAUSED',
-        mode: 'auto',
-        resumeTo: { state: 'WORKING', phase: ctx.phase },
+        mode: ctx.state === 'IDLE' ? 'auto' : ctx.mode,
+        resumeTo,
         error: null,
       },
       event,
@@ -361,6 +372,32 @@ export function mappingReducer(
       return ctx;
     }
     return { ...ctx, mode: 'remote' };
+  }
+
+  // 切回自动：手摇寻边(MAP_SCAN_BOUNDARY_MANUAL)阶段退出遥控应回到自动寻边
+  // (MAP_SCAN_BOUNDARY)，而非该阶段 resumeTo 预置的自动沿边(MAP_FOLLOW_BOUNDARY)——
+  // 后者会让切回瞬间面板显示"自动沿边"而设备实际仍在寻边。手摇沿边
+  // (MAP_FOLLOW_BOUNDARY_MANUAL)与 PAUSED 寻边切手摇(phase 仍为 MAP_SCAN_BOUNDARY)的
+  // resumeTo 已正确，交给下方 baseReducer 的通用 CMD_EXIT_MANUAL 处理。
+  if (
+    event.type === 'CMD_EXIT_MANUAL' &&
+    ctx.state === 'REMOTE_CONTROL' &&
+    ctx.phase === 'MAP_SCAN_BOUNDARY_MANUAL' &&
+    ctx.capabilities.canSwitchAuto
+  ) {
+    return commit(
+      ctx,
+      {
+        ...ctx,
+        state: 'WORKING',
+        mode: 'auto',
+        phase: 'MAP_SCAN_BOUNDARY',
+        resumeTo: null,
+        error: null,
+      },
+      event,
+      logger,
+    );
   }
 
   // 后端 edge_mapping 在遥控模式下直接升级为 MAP_FOLLOW_BOUNDARY_MANUAL：

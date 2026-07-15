@@ -59,11 +59,11 @@ export class MappingTaskService {
       case 'RESUMING':
       case 'PREPARING':
       case 'UNDOCKING':
+      case 'REMOTE_CONTROL':
         task.status = 'ON_THE_WAY';
         task.task_message = '';
         break;
       case 'PAUSED':
-      case 'REMOTE_CONTROL':
         task.status = 'PAUSE';
         task.task_message = 'Paused by user';
         break;

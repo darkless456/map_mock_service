@@ -12,7 +12,7 @@
         "increments": [
           {
             "element_id": "001",
-            "type": 99,
+            "type": 71,
             "action": "add",
             "shape": "polygon",
             "points": [
@@ -1101,8 +1101,8 @@
             "source": "robot"
           },
           {
-            "element_id": "001",
-            "type": 98,
+            "element_id": "002",
+            "type": 71,
             "action": "add",
             "shape": "polygon",
             "points": [
@@ -94334,8 +94334,8 @@
             "source": "robot"
           },
           {
-            "element_id": "001",
-            "type": 99,
+            "element_id": "002",
+            "type": 71,
             "action": "add",
             "shape": "polygon",
             "points": [
@@ -96228,8 +96228,8 @@
             "source": "robot"
           },
           {
-            "element_id": "001",
-            "type": 98,
+            "element_id": "003",
+            "type": 71,
             "action": "add",
             "shape": "polygon",
             "points": [

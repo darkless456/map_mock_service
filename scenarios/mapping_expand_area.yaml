@@ -1,0 +1,54 @@
+name: mapping_expand_area
+description: >-
+  添加草坪联调场景。第一块草坪闭合后停在活跃的 map_completing 选择窗口，
+  等待 App 发送 EXPAND_AREA；成功后由 Mock 核心切换数据集并推送 find_boundary。
+guide:
+  title: 建图 - 添加草坪
+  domain_label: 建图
+  summary: 验证完成页“添加草坪”通过 EXPAND_AREA 回到手动寻边流程。
+  when_to_use: 验证完成页、EXPAND_AREA、第二块草坪手动寻边和遥控面板。
+  simulates:
+    - 自动完成第一块草坪的退桩、寻边、沿边和闭合
+    - 进入 WORKING / MAP_COMPLETING，并保持任务 ON_THE_WAY
+    - 等待 App 点击“添加草坪”发送 EXPAND_AREA
+    - EXPAND_AREA 成功后由 Mock 核心推送 find_boundary
+  prerequisites:
+    - 已启动 map_mock_service，App mock 指向当前服务
+    - App 已登录且 WS 已连接
+  user_steps:
+    - 在 App 选择自动建图
+    - 在模拟面板运行本场景
+    - 完成页出现后点击“添加草坪”
+    - 确认 App 进入 REMOTE_CONTROL / MAP_SCAN_BOUNDARY_MANUAL 并显示遥控面板
+  auto_behavior:
+    - 场景只推进到活跃的 MAP_COMPLETING，不发送 idle 或 COMPLETE
+    - 后续状态由 EXPAND_AREA、EDGE_START、EDGE_CLOSE、COMPLETE action 驱动
+  duration: 约 45 秒后进入交互等待
+  pushes:
+    - NOTIFY_RATEL_STATUS
+    - RATEL_MAPPING_TASK
+    - MAP_INCREMENTAL
+domain: mapping
+dataset: mapping_happy
+setup:
+  state: IDLE
+  phase: null
+steps:
+  - emit: { type: CMD_START, mode: auto, taskMode: MAP_BUILD }
+  - notify: { work_status: mapping, sub_status: precondition }
+  - expect: { state: PREPARING, mode: auto }
+  - wait: 3s
+  - notify: { work_status: mapping, sub_status: leave_dock }
+  - expect: { state: UNDOCKING }
+  - wait: 4s
+  - notify: { work_status: mapping, sub_status: find_boundary }
+  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY, mode: auto }
+  - wait: 6s
+  - notify: { work_status: mapping, sub_status: edge_mapping }
+  - expect: { state: WORKING, phase: MAP_FOLLOW_BOUNDARY, mode: auto }
+  - wait: 12s
+  - notify: { work_status: mapping, sub_status: map_edge_finish }
+  - expect: { state: WORKING, phase: MAP_BOUNDARY_DONE, mode: auto }
+  - wait: 5s
+  - notify: { work_status: mapping, sub_status: map_completing }
+  - expect: { state: WORKING, phase: MAP_COMPLETING }
