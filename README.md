@@ -23,6 +23,9 @@ Default URL: `http://localhost:9900`.
 | Script | Purpose |
 |---|---|
 | `npm start` | Run `tsx src/server.ts`. |
+| `npm run start:split` | Run with the existing disconnected double-lawn map for split tests. |
+| `npm run start:merge` | Run with the adjacent double-lawn map and local assets for merge tests. |
+| `npm run generate:map-edit-fixtures` | Regenerate deterministic semantic/RGB assets for the merge profile. |
 | `npm run build` | Type-check the TypeScript simulator. |
 | `npm run check-fixtures` | Validate hot-loaded fixture JSON/JSONC files. |
 | `npm test` | Run Node's TS unit and e2e scenario test suite. |
@@ -35,6 +38,7 @@ Default URL: `http://localhost:9900`.
 |---|---:|---|
 | `PORT` | `9900` | HTTP and WebSocket port. |
 | `MOCK_DATA_DIR` | `mapping_happy` | Dataset name under `fixtures/datasets`: `mapping_happy`, `mowing_trajectory`, `recharge_return`, or `fixed_maps`. |
+| `MAP_EDIT_PROFILE` | `split` | Static map-edit fixture profile: `split` or `merge`. Prefer the matching npm scripts above. |
 | `ROBOT_SN` | `MOCK:00:11:22:33:44` | Default robot SN. |
 | `PUSH_INTERVAL_MS` | `200` | Map incremental frame interval. |
 | `MAP_MOCK_SLICE_BYTES` / `MMR_SLICE_BYTES` | disabled | Force map-frame base64 slicing for RustKit fragment reassembly tests. Slice boundaries are rounded down to a 4-character base64 boundary. |
@@ -56,6 +60,7 @@ The service only registers the mower API paths below. The mower app calls device
 | `POST` | `/ratel/api/v1/courtyard/robot/unbind` | Reset virtual robot state. |
 | `GET/POST` | `/ratel/map-service/api/v1/ratel/map/list` | Return semantic + real-scene basemap URLs, map metadata (`resolution` / `origin`), and annotation increments. |
 | `POST` | `/ratel/map-service/api/v1/ratel/semantic/save` | Save annotation increment package in memory and dispatch `CMD_SAVE`. |
+| `POST` | `/ratel/api/v1/map/topology/edit` | Apply a merge to the current map, increment `base_version`, and publish the merged `type:71` boundary through the next `map/list`. |
 | `POST` | `/ratel/api/v1/map/delete` | Delete an in-memory map package. |
 | `POST` | `/ratel/api/v1/robot/self_check` | 通知机器开始自检（建图前置第一步） |
 | `POST` | `/ratel/api/v1/mapping/check` | 建图条件检测 → 轮询直至六项齐全（mock 每次多返回一项） |
@@ -79,6 +84,12 @@ Each `map/list` item carries both basemap URLs and shared world metadata:
 ## Test Data Fixtures
 
 Hot-editable API response data lives in `fixtures/`. Edit `fixtures/**/*.jsonc` or `fixtures/maps/map_list.json`; the next request uses the new content without restarting the simulator. Static map increments and charging dock points come from `fixtures/maps/map_list.json`; `semantic/save` only creates in-memory runtime overrides.
+
+Map editing uses isolated single-map profiles:
+
+- `npm run start:split` serves the existing disconnected `001` / `002` fixture from `fixtures/maps/map_list.json`.
+- `npm run start:merge` serves `fixtures/maps/profiles/merge/map_list.json`, where `001` / `002` share a 4 m edge. The profile has its own semantic and RGB assets, so it does not modify or cache-conflict with the split map.
+- Merge state is in memory. Restarting `start:merge` resets the map to separate `001` / `002` lawns and `base_version: 1`.
 
 Run `npm run check-fixtures` after editing fixtures. See [docs/fixtures-guide.md](docs/fixtures-guide.md) and [docs/data-dictionary.md](docs/data-dictionary.md).
 

@@ -3,6 +3,7 @@ import { hostBaseUrl, methodIs, readJsonBody, sendError, sendJson, sendOk, strin
 import { readBasemapAsset, readRealsceneAsset } from '../../assets/BasemapAsset';
 import { buildMapListResponse } from '../../fixtures/mapList.fixture';
 import { deleteSemanticOverride, setSemanticOverride, type IncrementPackage } from '../../fixtures/semanticOverrides';
+import { applyTopologyEdit } from '../../fixtures/topologyEdit';
 import type { AppRouteContext } from '../router';
 
 function isIncrementPackage(value: Record<string, unknown>): value is Record<string, unknown> & {
@@ -18,6 +19,21 @@ export const handleMapRoutes: RouteHandler<AppRouteContext> = async (req, res, u
     methodIs(req, 'GET', 'POST')
   ) {
     sendJson(res, 200, buildMapListResponse(hostBaseUrl(req, ctx.port)));
+    return true;
+  }
+
+  if (url.pathname === '/ratel/api/v1/map/topology/edit' && methodIs(req, 'POST')) {
+    const result = applyTopologyEdit(await readJsonBody(req));
+    if (!result.ok) {
+      sendError(res, result.status, result.message);
+      return true;
+    }
+    sendOk(res, {
+      robot_code: 0,
+      map_id: result.mapId,
+      base_version: result.baseVersion,
+      area_id: result.resultAreaId,
+    });
     return true;
   }
 
@@ -97,4 +113,3 @@ export const handleMapRoutes: RouteHandler<AppRouteContext> = async (req, res, u
 
   return false;
 };
-

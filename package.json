@@ -5,6 +5,9 @@
   "main": "src/server.ts",
   "scripts": {
     "start": "tsx src/server.ts",
+    "start:split": "MAP_EDIT_PROFILE=split tsx src/server.ts",
+    "start:merge": "MAP_EDIT_PROFILE=merge tsx src/server.ts",
+    "generate:map-edit-fixtures": "node scripts/generate-map-edit-fixtures.mjs",
     "build": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "check-fixtures": "node scripts/check-fixtures.mjs",

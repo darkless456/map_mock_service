@@ -1,0 +1,53 @@
+{
+  "code": 200,
+  "message": "ok",
+  "data": {
+    "total": 1,
+    "items": [
+      {
+        "map_id": "map_edit_adjacent_double_lawn",
+        "name": "Adjacent double lawn",
+        "map_url": "profile://merge/full_semanticmap.png",
+        "semantic_map_url": "profile://merge/full_semanticmap.png",
+        "real_view_map_url": "profile://merge/full_rgbmap.png",
+        "base_version": 1,
+        "unit": "meter",
+        "resolution": 0.05,
+        "map_origin_x": -4,
+        "map_origin_y": -4,
+        "area": 16,
+        "is_use": true,
+        "increments": [
+          {
+            "element_id": "001",
+            "type": 71,
+            "action": "add",
+            "shape": "polygon",
+            "points": [
+              { "x": 2, "y": 2 },
+              { "x": 0, "y": 2 },
+              { "x": 0, "y": -2 },
+              { "x": 2, "y": -2 }
+            ],
+            "properties": { "area": 8 },
+            "source": "robot"
+          },
+          {
+            "element_id": "002",
+            "type": 71,
+            "action": "add",
+            "shape": "polygon",
+            "points": [
+              { "x": 0, "y": 2 },
+              { "x": -2, "y": 2 },
+              { "x": -2, "y": -2 },
+              { "x": 0, "y": -2 }
+            ],
+            "properties": { "area": 8 },
+            "source": "robot"
+          }
+        ]
+      }
+    ]
+  }
+}
