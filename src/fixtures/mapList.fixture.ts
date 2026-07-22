@@ -2,11 +2,8 @@ import path from 'node:path';
 import { buildMapAssetUrl, buildRealsceneAssetUrl } from '../assets/BasemapAsset';
 import { fixtureLoader, FIXTURE_ROOT } from '../fixtures';
 import { getSemanticOverride, type IncrementPackage } from './semanticOverrides';
-import {
-  mapListFixturePath,
-  resolveMapEditProfile,
-  type MapEditProfile,
-} from './mapEditProfile';
+
+const MAP_LIST_FIXTURE_PATH = 'maps/map_list.json';
 
 /**
  * `map/list` 列表项，字段命名对齐 APP 端接口文档的 `Rsp.data.items`。
@@ -53,8 +50,8 @@ export interface MapListResponse {
   readonly data: MapListData;
 }
 
-function readMapListFixture(profile: MapEditProfile): MapListResponse {
-  return fixtureLoader.read(mapListFixturePath(profile), validateMapListFixture);
+function readMapListFixture(): MapListResponse {
+  return fixtureLoader.read(MAP_LIST_FIXTURE_PATH, validateMapListFixture);
 }
 
 function validateMapListFixture(parsed: unknown): MapListResponse {
@@ -71,11 +68,8 @@ function validateMapListFixture(parsed: unknown): MapListResponse {
   return parsed as MapListResponse;
 }
 
-export function buildMapListResponse(
-  baseUrl: string,
-  profile: MapEditProfile = resolveMapEditProfile(),
-): MapListResponse {
-  const fixture = readMapListFixture(profile);
+export function buildMapListResponse(baseUrl: string): MapListResponse {
+  const fixture = readMapListFixture();
   const items = fixture.data.items.map<MapItem>(item => {
     const semanticUrl = buildMapAssetUrl(baseUrl, item.map_id);
     const realsceneUrl = buildRealsceneAssetUrl(baseUrl, item.map_id);

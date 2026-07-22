@@ -10,11 +10,9 @@ import { ScenarioEngine } from './sim/scenarioEngine';
 import { VirtualRobot } from './sim/virtualRobot';
 import { createWsServer } from './ws/wsServer';
 import { logger } from './infra/logger';
-import { resolveMapEditProfile } from './fixtures/mapEditProfile';
 
 const PORT = Number.parseInt(process.env.PORT || '9900', 10);
 const MOCK_DATA_DIR = process.env.MOCK_DATA_DIR || 'mapping_happy';
-const MAP_EDIT_PROFILE = resolveMapEditProfile();
 
 logger.info(`Loading map patches from dataset ${MOCK_DATA_DIR} ...`);
 const patches = loadAllPatches(MOCK_DATA_DIR);
@@ -88,7 +86,6 @@ process.on('SIGTERM', shutdown);
 server.listen(PORT, '0.0.0.0', () => {
   logger.info(`Mower Dev Simulator running on http://0.0.0.0:${PORT}`);
   logger.info(`  Dataset:         ${MOCK_DATA_DIR}`);
-  logger.info(`  Map edit profile: ${MAP_EDIT_PROFILE}`);
   logger.info(`  Robot SN:        ${robot.sn}`);
   logger.info('  Auth endpoint:   POST /ratel/api/v1/wss/acc_ticket');
   logger.info(`  WebSocket:       ws://localhost:${PORT}/acc?ticket=<ticket>`);

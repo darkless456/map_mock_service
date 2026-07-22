@@ -78,24 +78,13 @@ function stripJsonComments(input) {
   return output;
 }
 
-for (const relativePath of [
-  'maps/map_list.json',
-  'maps/profiles/merge/map_list.json',
-]) {
+{
+  const relativePath = 'maps/map_list.json';
   const mapList = readFixture(relativePath);
   assertObject(mapList, `fixtures/${relativePath}`);
   assertObject(mapList.data, `fixtures/${relativePath}.data`);
   if (!Array.isArray(mapList.data.items)) {
     throw new Error(`fixtures/${relativePath}.data.items must be an array`);
-  }
-}
-
-for (const relativePath of [
-  'maps/profiles/merge/full_semanticmap.png',
-  'maps/profiles/merge/full_rgbmap.png',
-]) {
-  if (!fs.existsSync(path.join(fixturesRoot, relativePath))) {
-    throw new Error(`fixtures/${relativePath} is required`);
   }
 }
 

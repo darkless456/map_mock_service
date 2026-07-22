@@ -6,7 +6,6 @@ import {
   type ProtocolPoint,
   type ProtocolUnit,
 } from './semanticOverrides';
-import { resolveMapEditProfile, type MapEditProfile } from './mapEditProfile';
 
 const AREA_BOUNDARY_TYPE = 71;
 const EPSILON = 1e-7;
@@ -26,7 +25,6 @@ export type TopologyEditResult =
 
 export function applyTopologyEdit(
   body: Record<string, unknown>,
-  profile: MapEditProfile = resolveMapEditProfile(),
 ): TopologyEditResult {
   const mapId = nonEmptyString(body.map_id);
   const baseVersion = finiteNumber(body.base_version);
@@ -50,7 +48,7 @@ export function applyTopologyEdit(
     return failure(400, 'merge area ids must be unique');
   }
 
-  const map = buildMapListResponse('http://map-edit.local', profile).data.items.find(
+  const map = buildMapListResponse('http://map-edit.local').data.items.find(
     item => item.map_id === mapId,
   );
   if (!map) return failure(404, `map ${mapId} not found`);
