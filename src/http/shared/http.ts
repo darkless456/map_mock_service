@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { currentRequestDebug, isBusinessRequest, readRawBody, sanitizeDebugPayload } from '../requestDebug';
 
 export type JsonRecord = Record<string, unknown>;
 
@@ -20,9 +21,10 @@ export type RouteHandler<TContext extends HttpRouteDeps> = (
 export function setCorsHeaders(res: ServerResponse): void {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Expose-Headers', 'X-Mock-Request-Id');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Authorization, Content-Type, platform, X-Device, X-Device-Id, X-Device-Version',
+    'Authorization, Content-Type, platform, X-Device, X-Device-Id, X-Device-Version, X-Mock-Debug-Echo',
   );
 }
 
@@ -33,8 +35,12 @@ export function sendJson(
   headers: Record<string, string> = {},
 ): void {
   if (res.writableEnded) return;
+  const debug = currentRequestDebug();
+  const responseBody = debug?.echoEnabled && isBusinessRequest(debug.path)
+    ? withRequestDebug(body, debug.requestId, debug.requestPayload)
+    : body;
   res.writeHead(statusCode, { 'Content-Type': 'application/json', ...headers });
-  res.end(JSON.stringify(body));
+  res.end(JSON.stringify(responseBody));
 }
 
 export function sendOk<T>(res: ServerResponse, data: T, message = 'Success'): void {
@@ -54,17 +60,24 @@ export function sendError(
 export async function readJsonBody<T extends JsonRecord = JsonRecord>(
   req: IncomingMessage,
 ): Promise<T> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  const raw = Buffer.concat(chunks).toString('utf8').trim();
+  const raw = (await readRawBody(req)).trim();
   if (!raw) return {} as T;
   const parsed = JSON.parse(raw) as unknown;
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error('JSON body must be an object');
   }
   return parsed as T;
+}
+
+function withRequestDebug(body: unknown, requestId: string, requestPayload: unknown): unknown {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return body;
+  return {
+    ...body,
+    _mock: {
+      requestId,
+      requestPayload: sanitizeDebugPayload(requestPayload),
+    },
+  };
 }
 
 export function methodIs(req: IncomingMessage, ...methods: string[]): boolean {

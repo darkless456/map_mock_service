@@ -41,6 +41,33 @@ Default URL: `http://localhost:9900`.
 | `JWT_SECRET` | local mock secret | JWT verification secret. |
 | `TICKET_SECRET` | local mock secret | `/acc` ticket signing secret. |
 | `SIM_PANEL` | enabled | Set `SIM_PANEL=0` to disable `/sim/*` control APIs. |
+| `MOCK_ECHO_REQUEST_PAYLOAD` | disabled | Set to `1` to append a redacted `_mock.requestPayload` to business JSON responses. Intended only for local debugging. |
+| `MOCK_DEBUG_PAYLOAD_MAX_BYTES` | `65536` | Maximum serialized request payload retained in debug output before it is replaced by a truncated preview. |
+
+## HTTP request debugging
+
+Every HTTP response includes an `X-Mock-Request-Id` header. Business requests are also written to an active recorder and streamed to the control panel event timeline with method, path, query, status, duration, and redacted request payload.
+
+The normal response body remains identical to the backend contract. To inspect a request payload directly in React Native's response viewer, enable echoing for one request:
+
+```http
+X-Mock-Debug-Echo: 1
+```
+
+Alternatively, start the service with `MOCK_ECHO_REQUEST_PAYLOAD=1`. JSON business responses then include:
+
+```json
+{
+  "code": 200,
+  "data": {},
+  "_mock": {
+    "requestId": "...",
+    "requestPayload": {}
+  }
+}
+```
+
+This does not apply to `/sim/*`, `/api/health`, binary assets, or WebSocket messages. Keys such as `password`, `token`, `ticket`, `secret`, and credentials are replaced with `[REDACTED]`; oversized payloads are represented by truncation metadata and a short preview.
 
 ## Business HTTP API
 
@@ -132,7 +159,7 @@ For visual regression checks, run `mapping_stream_incremental` to keep `MAP_INCR
 | `POST` | `/sim/chaos` | Set WS latency/drop/reorder knobs. |
 | `POST` | `/sim/ble/register` | Placeholder for mower mock BLE control-channel registration. |
 | `POST` | `/sim/ble/notify` | Placeholder echo endpoint for future BLE notify injection. |
-| `WS` | `/sim/inspect` | Live reducer transcript stream for the panel and debugging. |
+| `WS` | `/sim/inspect` | Live reducer transcript and business HTTP request stream for the panel and debugging. |
 
 Checked-in scenarios live in [scenarios](scenarios). `recordings/*.jsonl` is git-ignored by default; commit only curated regression recordings intentionally.
 

@@ -106,6 +106,14 @@ describe('machine detail HTTP route', () => {
       assert.equal(data.bound_map_count, 1);
       assert.equal(typeof data.map_id, 'string');
       assert.match(data.map_url as string, /^http:\/\/127\.0\.0\.1:\d+\/sim\/assets\/full_semanticmap\.png\?map_id=/);
+      // Archived real-gateway fields (APP端接口文档-额外补充.md): not yet consumed by IDeviceInfo,
+      // but the mock should still return them for response parity.
+      assert.equal(data.access_role, 'owner');
+      assert.equal(typeof data.wifi_ssid, 'string');
+      assert.equal(typeof data.ble_mac, 'string');
+      assert.equal(data.rtk_is_fixed, 0);
+      assert.equal(data.rtk_satellites_used, 0);
+      assert.equal(data.battery_temperature, 25);
     } finally {
       await new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
     }
@@ -125,6 +133,8 @@ describe('machine detail HTTP route', () => {
       });
       assert.equal((mowing.json.data as Record<string, unknown>).running_status, 'mowing');
       assert.equal((mowing.json.data as Record<string, unknown>).battery_charging, 0);
+      assert.equal((mowing.json.data as Record<string, unknown>).rtk_is_fixed, 1);
+      assert.equal((mowing.json.data as Record<string, unknown>).rtk_satellites_used, 20);
 
       robot.startRecharge(robot.sn);
       const charging = await postJson(serverPort(server), '/ratel/api/v1/courtyard/robot/detail', {
@@ -132,6 +142,7 @@ describe('machine detail HTTP route', () => {
       });
       assert.equal((charging.json.data as Record<string, unknown>).running_status, 'returning_charge');
       assert.equal((charging.json.data as Record<string, unknown>).battery_charging, 0);
+      assert.equal((charging.json.data as Record<string, unknown>).rtk_is_fixed, 0);
     } finally {
       await new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
     }

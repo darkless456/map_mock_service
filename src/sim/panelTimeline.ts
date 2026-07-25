@@ -25,6 +25,7 @@ function resetVisitedPhases() {
 
 function classifyEvent(payload) {
   if (payload && payload.kind === 'hello') return 'cmd';
+  if (payload && payload.kind === 'http' && payload.statusCode >= 400) return 'error';
   const cmd = payload.cmd || payload.kind || '';
   if (cmd === 'NOTIFY_RATEL_STATUS' || String(cmd).indexOf('NOTIFY') >= 0) return 'notify';
   if (cmd === 'transcript' || payload.kind === 'transcript') return 'fsm';
@@ -34,6 +35,7 @@ function classifyEvent(payload) {
 
 function eventTitle(payload) {
   if (payload.cmd) return payload.cmd;
+  if (payload.kind === 'http') return (payload.method || 'HTTP') + ' ' + (payload.path || '');
   // pushEvent already unwrapped transcript envelopes, so a transcript card
   // reaches here as { kind: 'transcript', event, before, after }.
   if (payload.kind === 'hello') return 'hello (snapshot)';
@@ -53,8 +55,8 @@ function eventTitle(payload) {
 //   - hello:      { kind: 'hello', snapshot: <VirtualRobotSnapshot> }
 // Both are flattened so downstream code reads .before / .after / .event directly.
 // Plain app-WS NOTIFY payloads pass through unchanged. NOTE: those NOTIFY bodies
-// ride the business wss, not the inspect socket, so the inspect timeline only
-// ever sees transcript/hello.
+// ride the business wss, not the inspect socket. The inspect timeline receives
+// transcript/hello envelopes plus business HTTP entries from the recorder.
 function unwrapInspect(payload) {
   if (payload && payload.kind === 'transcript' && payload.transcript) {
     const t = payload.transcript;
@@ -95,6 +97,14 @@ function eventMeta(payload) {
   // event came from without expanding the payload.
   const source = payload.source || (payload.event && payload.event.source);
   if (source) parts.push('[' + source + ']');
+
+  if (payload.kind === 'http') {
+    parts.push('[http]');
+    if (payload.statusCode) parts.push(String(payload.statusCode));
+    if (payload.durationMs != null) parts.push(payload.durationMs + 'ms');
+    if (payload.requestId) parts.push('id=' + payload.requestId);
+    return parts.join(' ');
+  }
 
   if (payload.cmd === 'NOTIFY_RATEL_STATUS' || String(payload.cmd).indexOf('NOTIFY') >= 0) {
     // NOTIFY cards: show "work_status → sub_status" (arrow form, more scannable

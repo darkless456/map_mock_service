@@ -12,6 +12,8 @@ describe('sim panel', () => {
     assert.match(html, /id="dataset"/);
     assert.match(html, /id="fault"/);
     assert.match(html, /id="realism-summary"/);
+    assert.match(html, /payload\.kind === 'http'/);
+    assert.match(html, /payload\.requestId/);
   });
 
   it('injects the FSM-derived phase graph into the client script', () => {

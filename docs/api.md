@@ -29,10 +29,11 @@ This document is the S0-S3 API contract for Mower Dev Simulator. Business API pa
 
 ### Notes
 
+- Every HTTP response carries `X-Mock-Request-Id`. The default JSON body remains contract-exact. For local RN debugging only, send `X-Mock-Debug-Echo: 1` (or start with `MOCK_ECHO_REQUEST_PAYLOAD=1`) to add `_mock: { requestId, requestPayload }` to business JSON responses. Debug payloads are redacted and size-limited; `/sim/*`, health, binary assets, and WebSocket messages are excluded.
 - `map/list` 的 `items[].increments[]` 为标注 / 点位增量，单项形如 `{ element_id, type, shape, points, properties, source }`。`type` 是 0-255 语义码：禁区 `251`、圆禁区 `201`、虚拟墙 `254`、**充电桩 `69`** 等。静态增量数据源为 `fixtures/maps/map_list.json`；`semantic/save` 写入的运行时覆盖保存在内存中，并在后续 `map/list` 中覆盖对应地图项。
 - `increments[].source` = `"robot"` / `"app"`，标识数据来源并决定 APP 端可编辑性：`robot`（机器人/后端上报，如充电桩）只读不可编辑、不参与 `semantic/save` 回传；`app`（用户绘制，如禁区/虚拟墙）可编辑可保存。**`semantic/save` 的回传 body 不含 `source`**（与 `APP端接口文档v2.md` 一致）。
 - `ratel_backend_api.md`（`pudu_ratel_app_mower/build-docs/`）中若示例使用 `/ratel/open-platform-service/api/v1/ratel_task/{action,list}`，模拟器不实现该路径。Mower App 实际调用 `/ratel/central-control-service/api/v1/...`，模拟器与之对齐。
-- Device detail requires `POST` because the mower app's HTTP bridge posts `{ sn }` to this constant. The response is derived from the same virtual-robot FSM as task APIs and `NOTIFY_RATEL_STATUS`: `return_dock` is translated to the device-detail spelling `returning_charge`, and `estop` to `emergency_stop`. An active `RECHARGE` task is projected as `returning_charge` before its asynchronous first WS status frame. `battery_charging` is `1` only while the FSM is charging. `map_id` / `map_url` point to the active `map/list` fixture entry.
+- Device detail requires `POST` because the mower app's HTTP bridge posts `{ sn }` to this constant. The response is derived from the same virtual-robot FSM as task APIs and `NOTIFY_RATEL_STATUS`: `return_dock` is translated to the device-detail spelling `returning_charge`, and `estop` to `emergency_stop`. An active `RECHARGE` task is projected as `returning_charge` before its asynchronous first WS status frame. `battery_charging` is `1` only while the FSM is charging. `map_id` / `map_url` point to the active `map/list` fixture entry. The payload also carries the fields the mower app's `IDeviceInfo` consumes for the home-screen battery/charging/connectivity/map placeholders (`bt_connected`, `wifi_connected`/`wifi_rssi`/`wifi_signal_strength`, `cellular_connected`/`cellular_signal_strength`, `isConnected`, `bound_map_count`) plus fields the real gateway returns but the app does not yet consume (`ble_mac`, `access_role`, `wifi_ssid`, `rtk_is_fixed`, `rtk_satellites_used`, `battery_temperature`) — archived per `APP端接口文档-额外补充.md` for response parity; `rtk_is_fixed`/`rtk_satellites_used` derive from whether the FSM is `mowing`/`mapping`, and `battery_temperature` bumps while charging.
 - Map list supports `POST` because the mower app's HTTP bridge currently posts to that constant.
 - Unknown routes return `404 { code: 404, message: 'deprecated; removed in simulator v1' }`.
 
@@ -109,4 +110,4 @@ On WS connect the simulator sends `MAP_FIX` and an initial `NOTIFY_RATEL_STATUS`
 | `GET` | `/sim/assets/full_semanticmap.png` | Semantic basemap image returned by map list (`map_url` / `semantic_map_url`). |
 | `GET` | `/sim/assets/full_rgbmap.png` | Real-scene (RGB) basemap image returned by map list (`real_view_map_url`). |
 | `GET` | `/sim/assets/mapping_trajectory.bin` | Mock trajectory binary file for recovery testing (f32 triplets: x, y, t). |
-| `WS` | `/sim/inspect` | Live reducer transcript stream. |
+| `WS` | `/sim/inspect` | Live reducer transcript and business HTTP request stream. |

@@ -16,7 +16,8 @@ import type { RatelStatusPushPayload } from '../sim/ratelStatusPush';
 import type { RechargeStatusPush, VirtualRobot, VirtualRobotSnapshot } from '../sim/virtualRobot';
 import { MapStream } from '../sim/mapStream';
 import type { ChaosController } from '../sim/chaos';
-import type { Recorder } from '../sim/recorder';
+import type { Recorder, RecordingEntry } from '../sim/recorder';
+import { isBusinessRequest } from '../http/requestDebug';
 import { OutboundHub } from './outbound';
 import { handleInboundMessage } from './inbound';
 import {
@@ -149,6 +150,15 @@ export function createWsServer({
   };
   robot.on('transcript', onTranscript);
 
+  const onRecorderEntry = (entry: RecordingEntry) => {
+    if (entry.kind !== 'http' || typeof entry.path !== 'string' || !isBusinessRequest(entry.path)) return;
+    const message = JSON.stringify(entry);
+    inspectWss.clients.forEach(client => {
+      if (client.readyState === client.OPEN) client.send(message);
+    });
+  };
+  recorder?.on('entry', onRecorderEntry);
+
   const onRatelStatus = (payload: RatelStatusPushPayload) => {
     outbound.broadcastJson(buildNotifyRatelStatus(robot, payload));
   };
@@ -226,6 +236,7 @@ export function createWsServer({
       clearInterval(mowTimer);
       robot.off('changed', onChanged);
       robot.off('transcript', onTranscript);
+      recorder?.off('entry', onRecorderEntry);
       robot.off('ratelStatus', onRatelStatus);
       robot.off('rechargeStatus', onRechargeStatus);
       closeWebSocketClients(wss);

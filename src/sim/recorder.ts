@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { IncomingMessage } from 'node:http';
+import { EventEmitter } from 'node:events';
 import { parseRobotDomain } from './virtualRobot';
 import type { RobotDomain, VirtualRobot, VirtualRobotTranscript } from './virtualRobot';
 
@@ -35,13 +35,24 @@ export interface ReplayResult {
   readonly file?: string;
 }
 
-export class Recorder {
+export interface HttpRecordingDetails {
+  readonly requestId: string;
+  readonly method: string;
+  readonly path: string;
+  readonly query: Record<string, string | string[]>;
+  readonly requestPayload: unknown;
+  readonly statusCode: number;
+  readonly durationMs: number;
+}
+
+export class Recorder extends EventEmitter {
   private activeFile: string | null = null;
   private activeEntries = 0;
   private startedAt: string | null = null;
   private robotListener: ((transcript: VirtualRobotTranscript) => void) | null = null;
 
   constructor(private readonly recordingRoot = DEFAULT_RECORDING_ROOT) {
+    super();
     fs.mkdirSync(this.recordingRoot, { recursive: true });
   }
 
@@ -88,18 +99,19 @@ export class Recorder {
   }
 
   record(entry: Omit<RecordingEntry, 'ts'> & { readonly ts?: number }): void {
+    const persistedEntry = { ...entry, ts: entry.ts ?? Date.now() } as RecordingEntry;
+    this.emit('entry', persistedEntry);
     if (!this.activeFile) return;
-    const line = JSON.stringify({ ts: entry.ts ?? Date.now(), ...entry });
+    const line = JSON.stringify(persistedEntry);
     fs.appendFileSync(this.activeFile, `${line}\n`, 'utf8');
     this.activeEntries += 1;
   }
 
-  recordHttp(req: IncomingMessage, pathName: string): void {
+  recordHttp(details: HttpRecordingDetails): void {
     this.record({
       dir: 'in',
       kind: 'http',
-      method: req.method ?? 'GET',
-      path: pathName,
+      ...details,
     });
   }
 
