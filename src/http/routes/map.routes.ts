@@ -2,7 +2,8 @@ import type { RouteHandler } from '../shared/http';
 import { hostBaseUrl, methodIs, readJsonBody, sendError, sendJson, sendOk, stringBodyField } from '../shared/http';
 import { readBasemapAsset, readRealsceneAsset } from '../../assets/BasemapAsset';
 import { buildMapListResponse } from '../../fixtures/mapList.fixture';
-import { deleteSemanticOverride, setSemanticOverride, type IncrementPackage } from '../../fixtures/semanticOverrides';
+import { deleteSemanticOverride, type IncrementPackage } from '../../fixtures/semanticOverrides';
+import { applySemanticSave } from '../../fixtures/semanticSave';
 import { applyTopologyEdit } from '../../fixtures/topologyEdit';
 import type { AppRouteContext } from '../router';
 
@@ -46,18 +47,15 @@ export const handleMapRoutes: RouteHandler<AppRouteContext> = async (req, res, u
       sendError(res, 400, 'map_id and increments are required');
       return true;
     }
-    const pkg: IncrementPackage = {
-      name: typeof body.name === 'string' ? body.name : undefined,
-      area: typeof body.area === 'number' ? body.area : typeof body.lawn_area === 'number' ? body.lawn_area : undefined,
-      map_id: body.map_id,
-      base_version: typeof body.base_version === 'number' ? body.base_version + 1 : 1,
-      timestamp: Date.now(),
-      unit: typeof body.unit === 'string' ? body.unit as IncrementPackage['unit'] : 'meter',
-      increments: body.increments,
-    };
-    setSemanticOverride(pkg.map_id, pkg);
+    // increments 是 delta，必须按 element_id 合并进现有地图，不能整包替换
+    // （替换会把机器侧的 type=71 区域边界等一起抹掉，见 semanticSave.ts 文件头）。
+    const result = applySemanticSave(body);
+    if (!result.ok) {
+      sendError(res, result.status, result.message);
+      return true;
+    }
     ctx.robot.dispatchRaw({ type: 'CMD_SAVE' }, 'mapping');
-    sendOk(res, { base_version: pkg.base_version });
+    sendOk(res, { base_version: result.baseVersion });
     return true;
   }
 
