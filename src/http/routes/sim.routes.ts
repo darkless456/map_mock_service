@@ -127,6 +127,38 @@ export const handleSimRoutes: RouteHandler<AppRouteContext> = async (req, res, u
     return true;
   }
 
+  // mapping_snapshot_recovery_design.md §19.5 item 2: inject the track/query fault scenario.
+  if (url.pathname === '/sim/track-query' && methodIs(req, 'POST')) {
+    const body = await readJsonBody(req);
+    sendOk(res, ctx.robot.setTrackQueryScenario({
+      mode: typeof body.mode === 'string' ? body.mode as never : undefined,
+      delayMs: typeof body.delayMs === 'number' ? body.delayMs : undefined,
+      errorStatus: typeof body.errorStatus === 'number' ? body.errorStatus : undefined,
+      pointCount: body.pointCount === null || typeof body.pointCount === 'number' ? body.pointCount as never : undefined,
+    }));
+    return true;
+  }
+
+  // §19.5 item 3: force the active mapping task terminal (COMPLETE/CANCEL/FAILED),
+  // optionally backdating update_time via `ageMs` to cross the 120s countdown boundary.
+  if (url.pathname === '/sim/mapping-task/status' && methodIs(req, 'POST')) {
+    const body = await readJsonBody(req);
+    const status = typeof body.status === 'string' ? body.status.trim().toUpperCase() : '';
+    const allowed = ['ON_THE_WAY', 'PAUSE', 'COMPLETE', 'CANCEL', 'FAILED'];
+    if (!allowed.includes(status)) {
+      sendError(res, 400, `status must be one of ${allowed.join('|')}`);
+      return true;
+    }
+    sendOk(res, ctx.robot.forceMappingTaskStatus(status as never, {
+      ageMs: typeof body.ageMs === 'number' ? body.ageMs : undefined,
+      mapId: typeof body.mapId === 'string' ? body.mapId : undefined,
+      mode: typeof body.mode === 'string' ? body.mode : undefined,
+      message: typeof body.message === 'string' ? body.message : undefined,
+      errorCode: typeof body.errorCode === 'number' ? body.errorCode : undefined,
+    }));
+    return true;
+  }
+
   if (url.pathname === '/sim/reset' && methodIs(req, 'POST')) {
     ctx.robot.reset();
     sendOk(res, ctx.robot.snapshot());

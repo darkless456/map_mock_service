@@ -50,6 +50,26 @@ export class MappingTaskService {
     return Object.fromEntries(this.latestBySn);
   }
 
+  /**
+   * mapping_snapshot_recovery_design.md §19.5 item 3: force the active task into a
+   * terminal state (COMPLETE/CANCEL/FAILED) for recovery tests, and optionally backdate
+   * `updated_at` by `ageMs` so the app-side 120 s completion countdown / terminal-notice
+   * window can be crossed deterministically. Creates a task if `sn` has none.
+   */
+  forceStatus(
+    sn: string,
+    status: MappingTaskRecord['status'],
+    opts: { ageMs?: number; mapId?: string; mode?: string; message?: string; errorCode?: number } = {},
+  ): MappingTaskRecord {
+    const task = this.active(sn) ?? this.create(sn, opts.mapId ?? 'mock_map_001', opts.mode ?? 'auto');
+    task.status = status;
+    if (typeof opts.message === 'string') task.task_message = opts.message;
+    if (typeof opts.errorCode === 'number') task.task_error_code = opts.errorCode;
+    const ageMs = typeof opts.ageMs === 'number' && opts.ageMs > 0 ? opts.ageMs : 0;
+    task.updated_at = Date.now() - ageMs;
+    return task;
+  }
+
   syncFromContext(sn: string, mapping: MappingContext): void {
     const task = this.active(sn);
     if (!task) return;

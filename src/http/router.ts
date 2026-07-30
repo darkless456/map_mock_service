@@ -14,6 +14,7 @@ import { handleDeviceRoutes } from './routes/device.routes';
 import { handleMapRoutes } from './routes/map.routes';
 import { handleMappingRoutes } from './routes/mapping.routes';
 import { handleMappingTaskRoutes } from './routes/mappingTask.routes';
+import { handleTrackRoutes } from './routes/track.routes';
 import { handleTaskRoutes } from './routes/task.routes';
 import { handleRechargeRoutes } from './routes/recharge.routes';
 import { handleSimRoutes } from './routes/sim.routes';
@@ -46,6 +47,7 @@ const ROUTES: readonly RouteHandler<AppRouteContext>[] = [
   handleMapRoutes,
   handleMappingRoutes,
   handleMappingTaskRoutes,
+  handleTrackRoutes,
   handleTaskRoutes,
   handleRechargeRoutes,
   handleSimRoutes,

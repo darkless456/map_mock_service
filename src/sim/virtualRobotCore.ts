@@ -22,6 +22,7 @@ import { EventLog } from './EventLog';
 import { MappingLabelsTracker } from './MappingLabels';
 import { buildExtendStatus } from './MappingProtocolSnapshot';
 import { MappingTelemetry } from './MappingTelemetry';
+import { MappingTrackHistory, type TrackPoint, type TrackQueryParams, type TrackQueryScenario } from './MappingTrackHistory';
 import { computeWorkStatus, shouldStreamMapping } from './RobotStatus';
 import {
   EXPAND_AREA_DATASET,
@@ -99,6 +100,7 @@ export class VirtualRobot extends EventEmitter {
   lastNotifySubStatusEnteredAt: number | null = null;
   private readonly mappingTelemetry = new MappingTelemetry(() => this.emit('changed', this.snapshot()));
   private readonly mappingLabels = new MappingLabelsTracker();
+  private readonly trackHistory = new MappingTrackHistory();
   /** Pending async device-ack timers scheduled by EDGE_START/EDGE_CLOSE (cleared on reset). */
   private readonly mappingActionTimers: Array<ReturnType<typeof setTimeout>> = [];
   /** A device action has been accepted and is awaiting its authoritative status push. */
@@ -145,6 +147,27 @@ export class VirtualRobot extends EventEmitter {
     return this.mappingLabels.edgeStartCount();
   }
 
+  /** `location/track/query` synthetic history + fault scenario (design §8 / §19.5). */
+  trackQueryScenario(): Readonly<TrackQueryScenario> {
+    return this.trackHistory.scenario();
+  }
+
+  setTrackQueryScenario(next: Partial<TrackQueryScenario>): TrackQueryScenario {
+    return this.trackHistory.setScenario(next);
+  }
+
+  trackQuery(params: TrackQueryParams): TrackPoint[] {
+    return this.trackHistory.query(params);
+  }
+
+  /** Force the active mapping task terminal (design §19.5 item 3); see MappingTaskService.forceStatus. */
+  forceMappingTaskStatus(
+    status: MappingTaskRecord['status'],
+    opts: { ageMs?: number; mapId?: string; mode?: string; message?: string; errorCode?: number } = {},
+  ): MappingTaskRecord {
+    return this.mappingTaskRecords.forceStatus(this.sn, status, opts);
+  }
+
   get passageCheckpoints() {
     return this.mappingTelemetry.passageCheckpoints;
   }
@@ -189,6 +212,7 @@ export class VirtualRobot extends EventEmitter {
     this.lastNotifySubStatusEnteredAt = null;
     this.mappingTelemetry.reset();
     this.mappingLabels.reset();
+    this.trackHistory.reset();
     this.clearMappingActionTimers();
     this.clearMapCompletingCountdown();
     this.mowingTasks.clear();
