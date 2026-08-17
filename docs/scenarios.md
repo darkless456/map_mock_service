@@ -11,7 +11,14 @@ YAML scenarios drive **cloud-accurate** `NOTIFY_RATEL_STATUS` pushes over WebSoc
 | `POST /ratel_mapping_task/create` | Mock FSM `CMD_START` + WS `mapping` + `precondition` |
 | Dedup | Identical `(work_status, sub_status)` is not pushed twice |
 
-**Important:** 当前 9 个场景均自包含（`setup: { state: IDLE }` + `emit CMD_START` 由场景自行建任务，无需 App 先发 HTTP `ratel_mapping_task/create` / `ratel_task/create`）。直接在 `/sim/panel` 运行即可驱动 App FSM 与导航；如需配合真机轨迹/瓦片渲染，App 仍需连上 WS（割草轨迹还需 `LOCATION_REGISTER`）。
+**Important:** 场景均自包含（`setup: { state: IDLE }` + `emit CMD_START` 由场景自行建任务，无需 App 先发 HTTP `ratel_mapping_task/create` / `ratel_task/create`）。直接在 `/sim/panel` 运行即可驱动 App FSM 与导航；如需配合真机轨迹/瓦片渲染，App 仍需连上 WS（割草轨迹还需 `LOCATION_REGISTER`）。
+
+两个「交互等待」场景是例外，它们只负责造出前置状态，后续推进由 **App 主动调用 HTTP** 触发：
+
+| 场景 | 停在哪里 | 等 App 做什么 |
+|------|----------|----------------|
+| `mapping_expand_area` | `WORKING` + `MAP_COMPLETING`（建图完成页）| `ratel_mapping_task/action` 的 `EXPAND_AREA` |
+| `mapedit_add_lawn` | `work_status: idle`（设备空闲、已有一块草坪）| 地图编辑页「添加 → 添加草坪」→ `POST /ratel/api/v1/mapping/expansion`（§9.1）|
 
 ## Mapping `sub_status` sequence (§5.1)
 
@@ -22,9 +29,9 @@ YAML scenarios drive **cloud-accurate** `NOTIFY_RATEL_STATUS` pushes over WebSoc
 | `find_boundary` | 自动：`WORKING` + `MAP_SCAN_BOUNDARY` → **CreateMap**；手动（`mode=remote`）：`REMOTE_CONTROL` + `MAP_SCAN_BOUNDARY_MANUAL` → **ManualMap** |
 | `edge_mapping` | 自动：`WORKING/MAP_FOLLOW_BOUNDARY`（自动沿边）；*手摇（`mode=remote`）*：`WORKING` → `REMOTE_CONTROL` + `MAP_FOLLOW_BOUNDARY_MANUAL` → **ManualMap** 交接用户手摇沿边 |
 | `map_edge_finish` | `MAP_BOUNDARY_DONE`；手摇态由此 *退出遥控* 回到自动 `WORKING`，进入「Loading」过渡 |
-| `map_completing` | `WORKING` + `MAP_COMPLETING`；120s 倒计时开始（`MAP_COMPLETING_DURATION_MS`），用户可 `COMPLETE`/`EXPAND_AREA`，或放任倒计时到期自动等效 `COMPLETE`（mapping-v4-final-spec.md §3）。取代了旧的 `bow_cover`/`exit_mapping` 二段式——后端不再下发这两个值，mock 收到也会安全 no-op，不会崩溃 |
+| `expand_area` | `WORKING` + `MAP_COMPLETING`；120s 倒计时开始（`MAP_COMPLETING_DURATION_MS`），同时 `extend_status.wait_extend_timestamp` 置为进入窗口的那一刻（ms epoch，窗口外恒为 `0`）——App 用它作倒计时锚点，用户可 `COMPLETE`/`EXPAND_AREA`，或放任倒计时到期自动等效 `COMPLETE`（mapping-v4-final-spec.md §3）。取代了旧的 `bow_cover`/`exit_mapping` 二段式——后端不再下发这两个值，mock 收到也会安全 no-op，不会崩溃 |
 | `undocking_failed` | `ERRORED`（mock 侧派发一次不可恢复 `DEVICE_ERROR` 驱动，见 §8）；终态，无重试路径，仅 `CMD_RESET` 能清空回 `IDLE` |
-| `work_status: idle` + `sub_status: none` | `mapping->idle` → `MAP_COMPLETING` + `CMD_CONFIRM` → `COMPLETED/MAP_COMPLETING`（历史兜底路径；新流程推荐显式走 `map_completing` → `COMPLETE` action，见下方"建图 v4 action 流程"）|
+| `work_status: idle` + `sub_status: none` | `mapping->idle` → `MAP_COMPLETING` + `CMD_CONFIRM` → `COMPLETED/MAP_COMPLETING`（历史兜底路径；新流程推荐显式走 `expand_area` → `COMPLETE` action，见下方"建图 v4 action 流程"）|
 
 Between steps, scenarios use `wait: 5s`–`20s` (stream scenario holds 30s in streamable phases).
 
@@ -150,7 +157,7 @@ checked-in scenario 文件里；对应回归覆盖在 `__tests__/mappingTaskActi
 
 **COMPLETE / EXPAND_AREA**（"立即生效"，倒计时期间的用户主动终结/续接，§1/§3）：
 
-- 前置条件均为 `sub_status === 'map_completing'`（`MAP_COMPLETING`，120s 倒计时中），否则 `409`。
+- 前置条件均为 `sub_status === 'expand_area'`（`MAP_COMPLETING`，120s 倒计时中），否则 `409`。
 - `COMPLETE`：清倒计时 + 同步 `CMD_CONFIRM` → `task_status=COMPLETE`。重复调用因任务已终态
   （`status` 不再 `ON_THE_WAY`）自然落入 `409`。
 - `EXPAND_AREA`：`edge_start` label 计数（即 §5 `lawn_count`）≥15 时 `409`；否则清倒计时 →

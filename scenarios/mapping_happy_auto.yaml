@@ -10,7 +10,7 @@ guide:
     验证建图主流程 UI、FSM 与导航（Prepare → DeviceStart → CreateMap → 完成）是否与后端 §5.1 状态机一致。
   simulates:
     - emit CMD_START 自建建图任务（IDLE → PREPARING）
-    - 按顺序推送 NOTIFY_RATEL_STATUS（precondition → leave_dock → find_boundary → … → map_completing）
+    - 按顺序推送 NOTIFY_RATEL_STATUS（precondition → leave_dock → find_boundary → … → expand_area）
     - Mock FSM 与 App TaskEventPipeline 同步迁移，各阶段间保留数秒便于观察
   prerequisites:
     - 已启动 map_mock_service（npm start），App mock 指向 http://localhost:9900
@@ -49,5 +49,5 @@ steps:
   - notify: { work_status: mapping, sub_status: map_edge_finish }
   - expect: { phase: MAP_BOUNDARY_DONE }
   - wait: 8s
-  - notify: { work_status: mapping, sub_status: map_completing }
+  - notify: { work_status: mapping, sub_status: expand_area }
   - expect: { state: WORKING, phase: MAP_COMPLETING }

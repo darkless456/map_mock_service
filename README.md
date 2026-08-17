@@ -91,6 +91,7 @@ The service only registers the mower API paths below. The mower app calls device
 | `POST` | `/ratel/central-control-service/api/v1/ratel_mapping_task/action` | Handle mapping `PAUSE`, `RESUME`, or `STOP`. |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_mapping_task/list` | Return mapping tasks and their current FSM-derived status. |
 | `POST` | `/ratel/api/v1/mapping/mode` | `CMD_SWITCH_MANUAL` / `CMD_EXIT_MANUAL` for `remote` / `auto`. |
+| `POST` | `/ratel/api/v1/mapping/expansion` | 发起地图扩展（APP端接口文档 §9.1）——地图编辑页「添加草坪」。body `{ sn, map_id }`；成功返回 `{ code: 200, message: "SUCCESS" }`（成功响应不带 `data`），随后自动推送 `precondition → leave_dock → find_boundary`（`mode=remote`）。区别于 `ratel_mapping_task/action` 的 `EXPAND_AREA`（建图完成页入口，要求 `sub_status === 'expand_area'`）。 |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/create` | Create mowing task, dispatch `CMD_START` + `NOTIFY_RATEL_STATUS` sequence (`map_check` → `leave_dock` → `mowing`). |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/action` | Handle `PAUSE`, `RESUME`, `CANCEL`, and `FINISH_AND_RETURN_DOCK`. |
 | `POST` | `/ratel/central-control-service/api/v1/ratel_task/list` | Return task list and active `task_notify`. |

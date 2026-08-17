@@ -72,20 +72,22 @@ async function dispatch(path: string, chaos: ChaosController): Promise<{ elapsed
 
 describe('HTTP realism delay', () => {
   it('delays business routes but not control routes', async () => {
+    // 注入 200ms（而非 20ms）：阈值要扛得住 `node --test` 并行跑其它用例时的调度抖动，否则
+    // 「控制路由未被延迟」这条断言会随机变红（20ms 档下实测约每三次一次）。
     const chaos = new ChaosController({
       enabled: true,
-      httpDelayMinMs: 20,
-      httpDelayMaxMs: 20,
+      httpDelayMinMs: 200,
+      httpDelayMaxMs: 200,
       wsDelayMinMs: 0,
       wsDelayMaxMs: 0,
     });
 
     const business = await dispatch('/ratel/unknown', chaos);
-    assert.ok(business.elapsed >= 15, `expected business route delay, got ${business.elapsed}ms`);
+    assert.ok(business.elapsed >= 150, `expected business route delay, got ${business.elapsed}ms`);
     assert.equal(business.res.statusCode, 404);
 
     const control = await dispatch('/sim/state', chaos);
-    assert.ok(control.elapsed < 15, `expected control route to skip delay, got ${control.elapsed}ms`);
+    assert.ok(control.elapsed < 100, `expected control route to skip delay, got ${control.elapsed}ms`);
     assert.equal(control.res.statusCode, 200);
   });
 });

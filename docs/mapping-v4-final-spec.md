@@ -20,7 +20,7 @@
 | 1 | 用户指令 action 名称集合 | 新增 `EDGE_START` / `EDGE_CLOSE` / `COMPLETE` / `EXPAND_AREA`（在既有 `PAUSE`/`RESUME`/`STOP` 基础上） | ✅ 已定 |
 | 2 | `/ratel/api/v1/mapping/manual` 处理方式 | **直接删除**，不做兼容别名过渡 | ✅ 已定 |
 | 3 | FSM 相关改动的流程（硬约束） | 一律先在 `pudu_ratel_app_mower` 落地，再 `npm run sync-fsm-mirror` 同步回本仓库；map_mock_service 不维护脱离镜像的平行 FSM 逻辑 | ✅ 已定（见 §0.1） |
-| 4 | `MAP_COMPLETING` 的 `sub_status` 值 | **后端已确认**：真实值为 `map_completing`（取代旧的 `bow_cover`/`exit_mapping` 二段式，后端不再下发这两个旧值）。已在 `pudu_ratel_app_mower` 的 `BackendPhaseMapper.ts` 落地 `map_completing → MAP_COMPLETING` 并 `sync-fsm-mirror` 同步回本仓库（2026-07-13） | ✅ 已定 |
+| 4 | `MAP_COMPLETING` 的 `sub_status` 值 | **2026-08-15 更正**：真实值为 `expand_area`（"等待用户决定是否再加一块草坪"），不是 2026-07-13 记录的 `map_completing`。Mower 侧 `BackendPhaseMapper.ts` 已把 `map_completing` 降为 `SKIP`、`expand_area → MAP_COMPLETING` 作为唯一入口；本仓库的推送、action 门禁、场景 YAML 均已跟随改为 `expand_area` | ✅ 已定（值已更正）|
 | 5 | `extend_status` 承载 cmd | 与 `NOTIFY_RATEL_STATUS` 保持一致，不新增 cmd；`sub_status`/`sub_status_entered_at` 同样挂在 `NOTIFY_RATEL_STATUS.data` 下；`RATEL_MAPPING_TASK` 不携带相位 | ✅ 已定 |
 | 6 | `sub_status`/`sub_status_entered_at` 查询快照端点 | `robot/detail`（唯一权威端点）；`/ratel/api/v1/mapping/status` 整体删除 | ✅ 已定 |
 | 7 | `lawn_count` 来源 | 无独立协议字段；由消费方统计 `ratel_map/labels` 中 `type==='edge_start'` 的 label 个数得出 | ✅ 已定 |
@@ -52,7 +52,8 @@
 映射并同步之前，map_mock_service **不自行发明占位字符串**对外下发。发明的占位值即使能让
 mock 自身链路跑通，也会在真实 App 的 `BackendPhaseMapper`（同一份镜像）中落入 `unknown`
 分支，造成"mock 上验证通过、真机上失效"的假象——这正是只读镜像机制本身要防止的问题。
-本次改造中的两个实例：`MAP_COMPLETING`（§3）已由后端确认真实值 `map_completing`；
+本次改造中的两个实例：`MAP_COMPLETING`（§3）的真实值为 `expand_area`（2026-08-15 更正，
+旧记录 `map_completing` 已作废）；
 `MAP_UNDOCKING_FAILED`（§8）真实值未知，经项目负责人决策先用假定占位值 `undocking_failed`
 落地（这是在 mower 仓库里做出的、明确标注"待后端定稿回改"的决策，而非 mock 自行绕过约束）。
 
@@ -73,8 +74,8 @@ const VALID_ACTIONS = new Set(['PAUSE', 'RESUME', 'STOP', 'EDGE_START', 'EDGE_CL
 |---|---|---|---|---|
 | `EDGE_START` | 用户点击"开始"，请求设备确认起点并开始沿边 | `phase === MAP_SCAN_BOUNDARY_MANUAL`；任务 active；`extend_status.legitimate_starting_point === 1` | `work_status=mapping, sub_status=edge_mapping`（已在镜像中映射，无需等待同步） | `422`：`legitimate_starting_point=0`；`409`：phase 不允许/重复请求/设备忙；`404`：任务不存在 |
 | `EDGE_CLOSE` | 用户点击"完成"（沿边页），请求设备闭合当前边界 | 任务 active；`extend_status.legitimate_end_point === 1` | `sub_status=map_edge_finish`（已映射至 `MAP_BOUNDARY_DONE`，无需等待同步） | `422`：`legitimate_end_point=0`；`409`/`404` 同上 |
-| `COMPLETE` | 建图完成页三按钮之一——"完成"：直接结束整张建图任务，中断 120s 倒计时 | 当前 `sub_status === 'map_completing'`（即 `MAP_COMPLETING`，已可达，见 §3） | 内部触发 `CMD_CONFIRM` → `task_status=COMPLETE` | `409`：当前不在 `MAP_COMPLETING`（非法调用时机）/ 重复请求；`404`：任务不存在 |
-| `EXPAND_AREA` | 建图完成页三按钮之一——"添加草坪"：中断倒计时，开始下一块草坪的通道录制 | 当前 `sub_status === 'map_completing'`（即 `MAP_COMPLETING`，已可达，见 §3） | 中断倒计时 → 触发数据集切换 → `sub_status=find_boundary`（见 §7） | `409`：当前不在 `MAP_COMPLETING`/ 重复请求；`404`：任务不存在 |
+| `COMPLETE` | 建图完成页三按钮之一——"完成"：直接结束整张建图任务，中断 120s 倒计时 | 当前 `sub_status === 'expand_area'`（即 `MAP_COMPLETING`，已可达，见 §3） | 内部触发 `CMD_CONFIRM` → `task_status=COMPLETE` | `409`：当前不在 `MAP_COMPLETING`（非法调用时机）/ 重复请求；`404`：任务不存在 |
+| `EXPAND_AREA` | 建图完成页三按钮之一——"添加草坪"：中断倒计时，开始下一块草坪的通道录制 | 当前 `sub_status === 'expand_area'`（即 `MAP_COMPLETING`，已可达，见 §3） | 中断倒计时 → 触发数据集切换 → `sub_status=find_boundary`（见 §7） | `409`：当前不在 `MAP_COMPLETING`/ 重复请求；`404`：任务不存在 |
 
 **响应语义**：四个 action 的 HTTP 响应仅表示"设备受理请求"，不得让 mock 本地乐观切换 phase
 （`COMPLETE`/`EXPAND_AREA` 除外——这两个动作的语义本身就是"发生在倒计时内的用户主动终结/
@@ -82,7 +83,7 @@ const VALID_ACTIONS = new Set(['PAUSE', 'RESUME', 'STOP', 'EDGE_START', 'EDGE_CL
 保持"受理不等于生效"，最终以 `sub_status` 推送为准。
 
 **`COMPLETE`/`EXPAND_AREA` 的前置状态已可达**：`MAP_COMPLETING` 的真实 `sub_status`
-（`map_completing`）已在 `pudu_ratel_app_mower` 落地并同步（见 §3），因此这两个 action 的
+（`expand_area`）已在 `pudu_ratel_app_mower` 落地并同步（见 §3），因此这两个 action 的
 "设备已在 `MAP_COMPLETING` 等待"前置状态在协议层已经可达，可以正常实现与验证。
 
 **Legacy 清理**：`POST /ratel/api/v1/mapping/manual` **直接删除**，不做兼容别名、不保留过渡期。
@@ -128,19 +129,25 @@ const VALID_ACTIONS = new Set(['PAUSE', 'RESUME', 'STOP', 'EDGE_START', 'EDGE_CL
 
 ---
 
-## 3. `MAP_COMPLETING` 生命周期（✅ 后端已确认真实值，2026-07-13）
+## 3. `MAP_COMPLETING` 生命周期（✅ 真实值 = `expand_area`，2026-08-15 更正）
 
 `pudu_ratel_app_mower` 的 `BackendPhaseMapper.ts`（`src/features/shared/mapping/
-BackendPhaseMapper.ts`）已在 `MAPPING_SUB` 表新增：
+BackendPhaseMapper.ts`）的 `MAPPING_SUB` 表：
 
 ```ts
-map_completing: toPhase('MAP_COMPLETING'),
+expand_area: toPhase('MAP_COMPLETING'),   // 唯一入口
+map_completing: SKIP,                     // 固件不下发；显式 no-op，不是 unknown
 ```
 
-**依据**：后端已确认新的子状态字符串为 `map_completing`，取代旧的 `bow_cover`/
+**依据**：固件的真实值是 `expand_area`（语义为"等待用户决定是否再加一块草坪"）。
+2026-07-13 本节记录的 `map_completing` 是错的，已于 2026-08-15 更正。它取代旧的 `bow_cover`/
 `exit_mapping` 二段式（弓字覆盖中 / 退出建图）——**后端不再下发这两个旧值**，固件跳过可见的
-覆盖阶段，直接一次性推送 `map_completing`。`bow_cover`/`exit_mapping` 不做兼容映射，按未列出
+覆盖阶段，直接一次性推送 `expand_area`。`bow_cover`/`exit_mapping` 不做兼容映射，按未列出
 取值处理；若真机意外仍推送（理论上不会发生），安全降级为 `unknown` no-op，不会崩溃。
+
+**为什么 `map_completing` 必须是 `SKIP` 而不是删掉、更不能改回 `toPhase`**：改回 `toPhase`
+会开出一个**拿不到 `wait_extend_timestamp` 锚点**的第二入口——App 进完成页即按"倒计时已归零"
+自动下发完成请求；整行删掉则落到 `unknown`，刷 warn 日志。
 
 > 修正记录：本节此前（同日早些时候）曾错误地复用旧字符串 `exit_mapping` 作为
 > `MAP_COMPLETING` 的触发值，推理依据是"COVERAGE 重构前 `exit_mapping` 语义未变"。项目负责人
@@ -153,7 +160,9 @@ map_completing: toPhase('MAP_COMPLETING'),
 
 **mock 侧待实现**：
 - `MappingProtocolSnapshot`：记录当前 `sub_status`/`sub_status_entered_at`，在
-  `sub_status` 变为 `map_completing` 时刻记录 `entered_at = 当前时间`。
+  `sub_status` 变为 `expand_area` 时刻记录 `entered_at = 当前时间`，同一时刻写入
+  `extend_status.wait_extend_timestamp`（ms epoch）——这是 App 完成等待页倒计时的**唯一**锚点，
+  必须与 mock 自己的 120s 自动完成定时器同源，窗口外恒为 `0`。
 - 120s 倒计时：常量 `MAP_COMPLETING_DURATION_MS = 120_000`（建议放 `SimulatorDefaults.ts`），
   到期后自动等效于用户点击 `COMPLETE`。
 - 中断路径：倒计时期间收到 `COMPLETE` 或 `EXPAND_AREA` 均立即清除倒计时定时器。
@@ -326,7 +335,7 @@ undocking_failed: toPhase('MAP_UNDOCKING_FAILED'),
    `docs/api.md`/`docs/scenarios.md` 中的对应条目。
 3. **直接删除** `POST /ratel/api/v1/mapping/manual`（不做兼容别名、不保留过渡期）；调用方
    （含 scenario YAML）直接切到 `ratel_mapping_task/action` 的 `EDGE_START`/`EDGE_CLOSE`。
-4. `MAP_COMPLETING`（`map_completing`，后端已确认）与 `MAP_UNDOCKING_FAILED`（`undocking_failed`，
+4. `MAP_COMPLETING`（`expand_area`，2026-08-15 更正）与 `MAP_UNDOCKING_FAILED`（`undocking_failed`，
    假定占位值，待后端定稿回改）的 `sub_status` 映射均已按 §0.1 硬约束在
    `pudu_ratel_app_mower` 落地 + `sync-fsm-mirror` 同步完成（见 §3、§8）。
 5. 现有 scenario YAML（`mapping_happy_manual.yaml` 等）中消费旧字段名（`in_lawn`/
@@ -415,6 +424,7 @@ NRTK 自检本次不做（§9），不属于本轮范围。
 7. 无任何运行中的场景/协议投影依赖已删除的 legacy 分支（`mapping/manual`、
    `mapping/status`、`edge_start_available`、`region_closeable`、`in_lawn`、旧 coverage
    phase）。
-8. `map_completing` 收到时权威过渡到 `MAP_COMPLETING`，`sub_status_entered_at` 同步刷新；
+8. `expand_area` 收到时权威过渡到 `MAP_COMPLETING`，`sub_status_entered_at` 与
+   `extend_status.wait_extend_timestamp` 同步刷新（窗口外后者恒为 `0`）；
    `undocking_failed` 收到时权威过渡到 `MAP_UNDOCKING_FAILED` 并终止任务（`task_status=FAILED`），
    不提供重试路径。

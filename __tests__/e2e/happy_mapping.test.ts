@@ -86,6 +86,7 @@ describe('e2e scenarios', () => {
     assert.equal(robot.snapshot().mapping.state, 'WORKING');
     assert.equal(robot.snapshot().mapping.phase, 'MAP_COMPLETING');
     assert.deepEqual([...engine.listScenarios()].sort(), [
+      'mapedit_add_lawn',
       'mapping_estop_edge_follow',
       'mapping_expand_area',
       'mapping_happy_auto',
@@ -131,7 +132,7 @@ describe('e2e scenarios', () => {
           { expect: { state: 'REMOTE_CONTROL', phase: 'MAP_FOLLOW_BOUNDARY_MANUAL', mode: 'remote' } },
           { notify: { work_status: 'mapping', sub_status: 'map_edge_finish' } },
           { expect: { state: 'WORKING', phase: 'MAP_BOUNDARY_DONE', mode: 'auto' } },
-          { notify: { work_status: 'mapping', sub_status: 'map_completing' } },
+          { notify: { work_status: 'mapping', sub_status: 'expand_area' } },
           { expect: { state: 'WORKING', phase: 'MAP_COMPLETING' } },
         ],
       },

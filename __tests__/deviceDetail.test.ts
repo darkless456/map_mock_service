@@ -193,10 +193,14 @@ describe('machine detail HTTP route', () => {
       assert.equal(listAfterEdge.length, 2);
       assert.equal(listAfterEdge[1].type, 'edge_start');
 
-      robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'map_completing' });
+      robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'expand_area' });
       detail = await postJson(serverPort(server), '/ratel/api/v1/courtyard/robot/detail', { sn: robot.sn });
       data = detail.json.data as Record<string, unknown>;
       assert.equal((data.extend_status as Record<string, unknown>).area_complete_map_build, 1);
+      // 完成等待页倒计时锚点：只在 expand_area 窗口里是真实时刻，App 用它算剩余秒数。
+      const waitTs = (data.extend_status as Record<string, unknown>).wait_extend_timestamp;
+      assert.equal(typeof waitTs, 'number');
+      assert.ok((waitTs as number) > 0);
 
       // area_complete_map_build must clear once the task actually goes idle, even though the
       // read-only FSM mirror keeps reporting `phase: MAP_COMPLETING` afterwards.
@@ -205,6 +209,9 @@ describe('machine detail HTTP route', () => {
       data = detail.json.data as Record<string, unknown>;
       assert.equal(data.sub_status, 'none');
       assert.equal((data.extend_status as Record<string, unknown>).area_complete_map_build, 0);
+      // 窗口关闭后锚点归 0——真机就是这个语义（字段常在，无窗口时为 0），
+      // App 侧 `toEpochMs(0) === null` 会读成「倒计时已归零」。
+      assert.equal((data.extend_status as Record<string, unknown>).wait_extend_timestamp, 0);
     } finally {
       mock.timers.reset();
       await new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));

@@ -30,6 +30,8 @@ import {
   MANUAL_SCAN_START_GATE_REQUIRED,
   MAP_COMPLETING_DURATION_MS,
   MAPPING_ACTION_ACK_DELAY_MS,
+  MAPPING_EXPANSION_FIND_BOUNDARY_DELAY_MS,
+  MAPPING_EXPANSION_UNDOCK_DELAY_MS,
   withSimulatorDefaults,
 } from './SimulatorDefaults';
 import type { RatelNotifyPayload } from './mappingNotify';
@@ -107,6 +109,13 @@ export class VirtualRobot extends EventEmitter {
   private pendingMappingAction: 'EDGE_START' | 'EDGE_CLOSE' | null = null;
   /** `MAP_COMPLETING` 120s auto-COMPLETE countdown (mapping-v4-final-spec.md §3). */
   private mapCompletingTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * 等待窗口的起始时刻（ms epoch），即 {@link armMapCompletingCountdown} 被调用的那一刻。
+   * `null` = 当前不在等待窗口里。对外经 `extend_status.wait_extend_timestamp` 暴露，App
+   * 用它作为完成页倒计时的锚点（不再用「最后一次事件到达时刻」）——所以它必须与本类真正
+   * 用来 auto-COMPLETE 的那个 timer 同源，否则 Mock 自己归零和 App 显示归零会对不上。
+   */
+  private mapCompletingStartedAt: number | null = null;
   private readonly eventLog: EventLog;
   private readonly mowingTasks = new MowingTaskService();
   private readonly mappingTaskRecords = new MappingTaskService();
@@ -406,7 +415,7 @@ export class VirtualRobot extends EventEmitter {
   }
 
   /**
-   * `COMPLETE`（mapping-v4-final-spec.md §1）：仅在 `sub_status === 'map_completing'` 时受理，
+   * `COMPLETE`（mapping-v4-final-spec.md §1）：仅在 `sub_status === 'expand_area'` 时受理，
    * 中断 120s 倒计时并立即触发 `CMD_CONFIRM`（此 action 语义本身即"立即生效"，不走异步 ack）。
    * 重复调用会在第二次因 `task.status` 已不是 `ON_THE_WAY` 而落入 {@link mappingActionBusyError}
    * 的 409，不需要额外的去重状态。
@@ -414,7 +423,7 @@ export class VirtualRobot extends EventEmitter {
   private applyCompleteAction(task: MappingTaskRecord): MappingActionError | null {
     const busy = this.mappingActionBusyError(task);
     if (busy) return busy;
-    if (this.lastNotifySubStatus !== 'map_completing') {
+    if (this.lastNotifySubStatus !== 'expand_area') {
       return {
         kind: 'conflict',
         message: `COMPLETE not allowed outside MAP_COMPLETING (sub_status=${this.lastNotifySubStatus ?? 'none'})`,
@@ -427,7 +436,7 @@ export class VirtualRobot extends EventEmitter {
 
   /**
    * `EXPAND_AREA`（mapping-v4-final-spec.md §7）：同 `COMPLETE` 只在 `sub_status ===
-   * 'map_completing'` 时受理，但效果立即生效（规格明确此 action 不走异步 ack）——切数据集、
+   * 'expand_area'` 时受理，但效果立即生效（规格明确此 action 不走异步 ack）——切数据集、
    * 中断倒计时、把 `sub_status` 推成 `find_boundary`。通过 {@link pushRatelStatus} 走与首块
    * 草坪完全相同的 NOTIFY 路径，使 `onMappingPhaseChanged` 的既有钩子自然完成 §7 步骤 4/5
    * （`legitimate_starting_point` 复位 + 追加新 `aisle` label），无需在此重复实现。
@@ -435,7 +444,7 @@ export class VirtualRobot extends EventEmitter {
   private applyExpandAreaAction(task: MappingTaskRecord, deps?: MappingActionDeps): MappingActionError | null {
     const busy = this.mappingActionBusyError(task);
     if (busy) return busy;
-    if (this.lastNotifySubStatus !== 'map_completing') {
+    if (this.lastNotifySubStatus !== 'expand_area') {
       return {
         kind: 'conflict',
         message: `EXPAND_AREA not allowed outside MAP_COMPLETING (sub_status=${this.lastNotifySubStatus ?? 'none'})`,
@@ -459,6 +468,97 @@ export class VirtualRobot extends EventEmitter {
     return null;
   }
 
+  /**
+   * `POST /ratel/api/v1/mapping/expansion`（APP端接口文档 §9.1「发起地图扩展」）——地图编辑页
+   * 「添加草坪」入口。与完成页的 `EXPAND_AREA`（{@link applyExpandAreaAction}）是两条不同链路：
+   * `EXPAND_AREA` 要求设备正停在 `expand_area` 的选择窗口里，而这里设备处于 idle，App 选中
+   * 一张既有地图后直接发起，复用那条通路必然 409。
+   *
+   * §9.1 明确 PuduLink 只按 sn 取 MAC 并透传 `RATEL_MAPPING_TASK_EXPANSION`，**既不校验 map_id
+   * 是否存在也不落库**，所以此处同样不校验 map_id——扩展状态全部归设备（本类）所有。接口成功只
+   * 代表「设备已确认指令」，真正把 App 带进建图页的是 {@link scheduleExpansionLaunch} 补推的
+   * `precondition → leave_dock → find_boundary` 序列。
+   */
+  startMappingExpansion(
+    input: { sn: string; mapId: string },
+    deps?: MappingActionDeps,
+  ): MappingActionError | null {
+    const sn = input.sn.trim();
+    const mapId = input.mapId.trim();
+    if (!sn) return { kind: 'bad_request', message: 'sn is required' };
+    if (!mapId) return { kind: 'bad_request', message: 'map_id is required' };
+    // §9.1 失败原因「无法获取设备 MAC」：模拟器只认自己这一台虚拟机器。
+    if (sn !== this.sn) return { kind: 'not_found', message: `device mac not found for sn ${sn}` };
+    const busy = this.expansionBusyError();
+    if (busy) return busy;
+    if (this.mappingLawnCount() >= EXPAND_AREA_MAX_LAWNS) {
+      return { kind: 'conflict', message: `lawn count limit reached (>= ${EXPAND_AREA_MAX_LAWNS})` };
+    }
+    if (!deps?.switchDataset) {
+      return { kind: 'conflict', message: 'switchDataset dependency not configured' };
+    }
+    const switched = deps.switchDataset(EXPAND_AREA_DATASET);
+    if (!switched.ok) {
+      return { kind: 'conflict', message: switched.error ?? `failed to switch dataset ${EXPAND_AREA_DATASET}` };
+    }
+
+    this.activeDomain = 'mapping';
+    this.clearMappingActionTimers();
+    this.clearMapCompletingCountdown();
+    // 地图编辑入口意味着设备已回到 idle，但 mock 里上一段建图会话的 FSM 可能还停在
+    // WORKING/COMPLETED —— 那样 `CMD_START` 会被非 IDLE 守卫吞掉，状态永远推不动。先把建图
+    // FSM 与 notify 去重归位（与 {@link startRecharge} 归位割草 FSM 同理）。
+    // `mappingLabels` 属于地图资产而非会话状态，**刻意不清**。
+    this.mapping = withSimulatorDefaults(initialMappingState, this.mapping.battery ?? 80);
+    this.lastNotifyWorkStatus = null;
+    this.lastNotifySubStatus = null;
+    this.lastNotifySubStatusEnteredAt = null;
+    this.mappingTelemetry.reset();
+    // 与 {@link createMappingTask} 的三处关键差异：
+    //  1. map_id 复用 App 选中的既有地图，不新生成；
+    //  2. mode 固定 remote —— §9.1 body 没有 mode 字段，而 Mower 跳转写死 `mode: 'remote'`，
+    //     新草坪一律从手动寻边起步；
+    //  3. **不 reset mappingLabels** —— 既有 edge_start/aisle label 代表「已有草坪」，Mower 的
+    //     useMappingPassageCapture 靠它判定通道端点归属，清掉会让通道画不出来。
+    this.createMappingTaskRecord(this.sn, mapId, 'remote');
+    this.dispatchMapping({ type: 'CMD_START', mode: 'remote', taskMode: 'MAP_BUILD' });
+    // 首帧必须带 `work_status: 'mapping'`：Mower 的 `PREPARING + idle` 是显式的启动失败判据。
+    this.pushRatelStatus({ work_status: 'mapping', sub_status: 'precondition' });
+    this.scheduleExpansionLaunch();
+    return null;
+  }
+
+  /** 地图扩展要求设备空闲：任一域仍有活跃任务都按 §9.1「设备返回非成功码」拒绝。 */
+  private expansionBusyError(): MappingActionError | null {
+    const mapping = this.activeMappingTask();
+    if (mapping && (mapping.status === 'ON_THE_WAY' || mapping.status === 'PAUSE')) {
+      return {
+        kind: 'conflict',
+        message: `mapping task ${mapping.task_id} is still active (status=${mapping.status})`,
+      };
+    }
+    const mowing = this.activeTask();
+    if (mowing && (mowing.status === 'ON_THE_WAY' || mowing.status === 'PAUSE')) {
+      return {
+        kind: 'conflict',
+        message: `mowing task ${mowing.task_id} is still active (status=${mowing.status})`,
+      };
+    }
+    return null;
+  }
+
+  /** 设备确认扩展指令后自行推进的状态序列（见 MAPPING_EXPANSION_*_DELAY_MS 的注释）。 */
+  private scheduleExpansionLaunch(): void {
+    this.scheduleMappingTimer(MAPPING_EXPANSION_UNDOCK_DELAY_MS, () => {
+      this.pushRatelStatus({ work_status: 'mapping', sub_status: 'leave_dock' });
+    });
+    // mode=remote 下 find_boundary 投影为 REMOTE_CONTROL / MAP_SCAN_BOUNDARY_MANUAL，
+    // 与 Mower 跳转时携带的 `mode: 'remote'` 对齐（遥控面板 + 手动寻边）。
+    this.scheduleMappingTimer(MAPPING_EXPANSION_FIND_BOUNDARY_DELAY_MS, () => {
+      this.pushRatelStatus({ work_status: 'mapping', sub_status: 'find_boundary' });
+    });
+  }
+
   private mappingActionBusyError(task: MappingTaskRecord): MappingActionError | null {
     const acceptsManualAction =
       task.status === 'PAUSE' && this.mapping.state === 'REMOTE_CONTROL';
@@ -474,10 +574,15 @@ export class VirtualRobot extends EventEmitter {
   /** Simulates the device's asynchronous ack for EDGE_START/EDGE_CLOSE (see class doc above). */
   private scheduleMappingActionAck(action: 'EDGE_START' | 'EDGE_CLOSE', effect: () => void): void {
     this.pendingMappingAction = action;
-    const timer = setTimeout(() => {
+    this.scheduleMappingTimer(MAPPING_ACTION_ACK_DELAY_MS, () => {
       this.pendingMappingAction = null;
       effect();
-    }, MAPPING_ACTION_ACK_DELAY_MS);
+    });
+  }
+
+  /** Registers a device-side timer so {@link clearMappingActionTimers} (STOP/reset) can cancel it. */
+  private scheduleMappingTimer(delayMs: number, effect: () => void): void {
+    const timer = setTimeout(effect, delayMs);
     (timer as { unref?: () => void }).unref?.();
     this.mappingActionTimers.push(timer);
   }
@@ -711,6 +816,7 @@ export class VirtualRobot extends EventEmitter {
    */
   private armMapCompletingCountdown(): void {
     this.clearMapCompletingCountdown();
+    this.mapCompletingStartedAt = Date.now();
     this.mapCompletingTimer = setTimeout(() => {
       this.mapCompletingTimer = null;
       this.dispatchRaw({ type: 'CMD_CONFIRM' }, 'mapping');
@@ -719,10 +825,22 @@ export class VirtualRobot extends EventEmitter {
   }
 
   private clearMapCompletingCountdown(): void {
+    this.mapCompletingStartedAt = null;
     if (this.mapCompletingTimer) {
       clearTimeout(this.mapCompletingTimer);
       this.mapCompletingTimer = null;
     }
+  }
+
+  /**
+   * 等待窗口起点（ms epoch），不在窗口里时为 `0`。
+   *
+   * 用 `0` 而不是省略字段：真机上该字段时刻都在报文里，未进入等待窗口时就是 `0`——
+   * App 侧 `toEpochMs` 把 `0` 判为「无值」，语义是「倒计时已归零」。保持一致才能让
+   * 真机测试覆盖到 App 的归零分支。
+   */
+  waitExtendTimestamp(): number {
+    return this.mapCompletingStartedAt ?? 0;
   }
 
   private dispatchMowing(event: MowingEvent | SimOnlyEvent): void {

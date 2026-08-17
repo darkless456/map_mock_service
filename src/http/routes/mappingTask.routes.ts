@@ -2,21 +2,12 @@ import type { RouteHandler } from '../shared/http';
 import { methodIs, readJsonBody, sendError, sendJson, stringBodyField } from '../shared/http';
 import { createDatasetSwitcher } from '../../sim/mapStream';
 import { applyMappingTaskAction, buildMappingTaskListData, createMappingTask } from '../../sim/task/MappingTaskBridge';
-import type { MappingActionErrorKind } from '../../sim/virtualRobot';
 import type { AppRouteContext } from '../router';
+import { MAPPING_ERROR_STATUS } from './mappingErrors';
 
 const MAPPING_TASK_BASE = '/ratel/central-control-service/api/v1/ratel_mapping_task';
 // 与割草任务列表一致的坑点：后端 limit 缺省为 0 会返回空列表，mock 侧同样要求显式默认值。
 const DEFAULT_LIMIT = 10;
-
-// mapping-v4-final-spec.md §0 #14: real HTTP status per error kind (404/409/422; 400 is the
-// mock's own bucket for malformed input, see MappingActionErrorKind doc).
-const ACTION_ERROR_STATUS: Readonly<Record<MappingActionErrorKind, number>> = {
-  bad_request: 400,
-  not_found: 404,
-  conflict: 409,
-  unprocessable: 422,
-};
 
 export const handleMappingTaskRoutes: RouteHandler<AppRouteContext> = async (req, res, url, ctx) => {
   if (url.pathname === `${MAPPING_TASK_BASE}/create` && methodIs(req, 'POST')) {
@@ -47,7 +38,7 @@ export const handleMappingTaskRoutes: RouteHandler<AppRouteContext> = async (req
       // Fail fast per refactor plan §6.2 + mapping-v4-final-spec.md §0 #14: missing/
       // unresolvable task_id, wrong phase, or an unsigned legitimacy flag all surface as an
       // explicit HTTP status (400/404/409/422), never a silent no-op or a flattened 200.
-      const status = ACTION_ERROR_STATUS[result.error.kind];
+      const status = MAPPING_ERROR_STATUS[result.error.kind];
       sendError(res, status, result.error.message, status, { data: { robot_code: -1, robot_message: result.error.message } });
       return true;
     }

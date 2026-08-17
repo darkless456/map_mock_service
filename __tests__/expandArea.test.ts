@@ -43,7 +43,7 @@ function postJson(port: number, path: string, body: Record<string, unknown>) {
 function enterMapCompleting(robot: VirtualRobot): void {
   robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'leave_dock' });
   robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'find_boundary' });
-  robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'map_completing' });
+  robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'expand_area' });
 }
 
 /** Cheaply closes N lawns (aisle + edge_start label pairs) without settle timers or actions. */
@@ -162,7 +162,7 @@ describe('EXPAND_AREA', () => {
       robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'leave_dock' });
       closeLawns(robot, 15);
       assert.equal(robot.mappingLawnCount(), 15);
-      robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'map_completing' });
+      robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'expand_area' });
 
       const res = await postJson(port, ACTION_PATH, { sn: 'SN-EXPAND-4', action: 'EXPAND_AREA' });
       assert.equal(res.status, 409);

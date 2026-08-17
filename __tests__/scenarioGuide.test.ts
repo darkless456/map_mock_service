@@ -22,6 +22,7 @@ describe('scenarioGuide', () => {
     const catalog = listScenarioGuideSummaries(DEFAULT_SCENARIO_ROOT);
     const names = catalog.map(entry => entry.name).sort();
     assert.deepEqual(names, [
+      'mapedit_add_lawn',
       'mapping_estop_edge_follow',
       'mapping_expand_area',
       'mapping_happy_auto',

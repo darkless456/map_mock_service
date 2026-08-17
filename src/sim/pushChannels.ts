@@ -36,7 +36,7 @@ function activeContext(snapshot: VirtualRobotSnapshot) {
  * Coerces internal FSM work-status into the cloud WS enum
  * (`idle` / `mowing` / `charging` / `mapping` / `return_dock` / `error`), per
  * `ratel_backend_api.md` §2.2. `estop` → `error`; legacy `mapping_completed` is not a
- * cloud value → `idle` (completion surfaces as `sub_status: map_completing` then `idle`).
+ * cloud value → `idle` (completion surfaces as `sub_status: expand_area` then `idle`).
  * `return_dock`（回桩，docs §13）作为顶层 work_status 原样透传。
  */
 function toCloudWorkStatus(rawWork: string): string {
@@ -61,8 +61,11 @@ export function deriveSubStatus(robot: VirtualRobot): string {
         return 'edge_mapping';
       case 'MAP_BOUNDARY_DONE':
         return 'map_edge_finish';
+      // 建图完成等待窗口。固件的真实值是 `expand_area`（"等待用户决定是否再加一块草坪"），
+      // 不是旧的 `map_completing`——后者 App 侧已降为 SKIP，Mock 若继续推它，App 永远
+      // 进不了完成页。锚点 `extend_status.wait_extend_timestamp` 只在这一档的帧上有效。
       case 'MAP_COMPLETING':
-        return 'map_completing';
+        return 'expand_area';
       case 'returning':
         return 'return_dock';
       default:

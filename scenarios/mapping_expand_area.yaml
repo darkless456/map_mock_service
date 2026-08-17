@@ -1,6 +1,6 @@
 name: mapping_expand_area
 description: >-
-  添加草坪联调场景。第一块草坪闭合后停在活跃的 map_completing 选择窗口，
+  添加草坪联调场景。第一块草坪闭合后停在活跃的 expand_area 选择窗口，
   等待 App 发送 EXPAND_AREA；成功后由 Mock 核心切换数据集并推送 find_boundary。
 guide:
   title: 建图 - 添加草坪
@@ -50,5 +50,5 @@ steps:
   - notify: { work_status: mapping, sub_status: map_edge_finish }
   - expect: { state: WORKING, phase: MAP_BOUNDARY_DONE, mode: auto }
   - wait: 5s
-  - notify: { work_status: mapping, sub_status: map_completing }
+  - notify: { work_status: mapping, sub_status: expand_area }
   - expect: { state: WORKING, phase: MAP_COMPLETING }

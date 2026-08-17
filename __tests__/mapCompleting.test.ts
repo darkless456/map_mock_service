@@ -41,7 +41,7 @@ function postJson(port: number, path: string, body: Record<string, unknown>) {
 function enterMapCompleting(robot: VirtualRobot): void {
   robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'leave_dock' });
   robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'find_boundary' });
-  robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'map_completing' });
+  robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'expand_area' });
 }
 
 async function startServer(robot: VirtualRobot): Promise<{ server: http.Server; port: number }> {
@@ -149,15 +149,42 @@ describe('MAP_COMPLETING lifecycle + COMPLETE action', () => {
       const enteredAtBoundary = robot.snapshot().lastNotifySubStatusEnteredAt;
 
       mock.timers.tick(1_000);
-      robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'map_completing' });
+      robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'expand_area' });
       const detail = await postJson(port, '/ratel/api/v1/courtyard/robot/detail', { sn: 'SN-COMPLETE-5' });
       const data = detail.json.data as Record<string, unknown>;
-      assert.equal(data.sub_status, 'map_completing');
+      assert.equal(data.sub_status, 'expand_area');
       assert.ok(typeof data.sub_status_entered_at === 'number');
       assert.notEqual(data.sub_status_entered_at, enteredAtBoundary);
       assert.equal((data.extend_status as Record<string, unknown>).area_complete_map_build, 1);
     } finally {
       mock.timers.reset();
+      server.close();
+    }
+  });
+
+  it('exposes wait_extend_timestamp as the countdown anchor, and clears it when the window closes', async () => {
+    const robot = new VirtualRobot({ sn: 'SN-COMPLETE-6' });
+    const { server, port } = await startServer(robot);
+    try {
+      await postJson(port, CREATE_PATH, { sn: 'SN-COMPLETE-6', map_id: 'mock_map_001', mode: 'auto' });
+      const before = Date.now();
+      enterMapCompleting(robot);
+      const after = Date.now();
+
+      const detail = await postJson(port, '/ratel/api/v1/courtyard/robot/detail', { sn: 'SN-COMPLETE-6' });
+      const extend = (detail.json.data as Record<string, unknown>).extend_status as Record<string, unknown>;
+      const anchor = extend.wait_extend_timestamp as number;
+      // 锚点必须是 armMapCompletingCountdown 的那一刻（毫秒 epoch），不是每次读取的当前时刻——
+      // 否则 mock 自己的 120s 自动完成和 App 显示的剩余秒数会各走各的。
+      assert.ok(anchor >= before && anchor <= after, `anchor ${anchor} outside [${before}, ${after}]`);
+
+      // COMPLETE 关掉等待窗口 → 锚点归 0（App 读作「倒计时已归零」）。
+      const res = await postJson(port, ACTION_PATH, { sn: 'SN-COMPLETE-6', action: 'COMPLETE' });
+      assert.equal(res.status, 200);
+      const detailAfter = await postJson(port, '/ratel/api/v1/courtyard/robot/detail', { sn: 'SN-COMPLETE-6' });
+      const extendAfter = (detailAfter.json.data as Record<string, unknown>).extend_status as Record<string, unknown>;
+      assert.equal(extendAfter.wait_extend_timestamp, 0);
+    } finally {
       server.close();
     }
   });
