@@ -9,11 +9,10 @@ import { ChaosController } from '../src/sim/chaos';
 import { ScenarioEngine } from '../src/sim/scenarioEngine';
 import { Recorder } from '../src/sim/recorder';
 import {
-  MAPPING_EXPANSION_FIND_BOUNDARY_DELAY_MS,
-  MAPPING_EXPANSION_UNDOCK_DELAY_MS,
+  MAPPING_EXTEND_FIND_BOUNDARY_DELAY_MS,
+  MAPPING_EXTEND_UNDOCK_DELAY_MS,
 } from '../src/sim/SimulatorDefaults';
 
-const EXPANSION_PATH = '/ratel/api/v1/mapping/expansion';
 const TASK_LIST_PATH = '/ratel/central-control-service/api/v1/ratel_mapping_task/list';
 const CREATE_PATH = '/ratel/central-control-service/api/v1/ratel_mapping_task/create';
 
@@ -75,26 +74,33 @@ function seedFinishedLawn(robot: VirtualRobot): void {
 
 const okSwitchDataset = () => ({ ok: true as const, name: 'mapping_lawn2_aisle', patchCount: 3 });
 
-describe('mapping/expansion (§9.1 发起地图扩展)', () => {
-  it('returns the documented success envelope and creates an active task for the requested map', async () => {
+describe("ratel_mapping_task/create mode='extend'（v9 扩展建图 / 地图编辑页添加草坪）", () => {
+  it('returns a task_id and creates an active extend task for the requested map', async () => {
     const robot = new VirtualRobot({ sn: 'SN-EXPANSION-1' });
     seedFinishedLawn(robot);
     const { server, port, mapStream } = await startServer(robot);
     try {
-      const res = await postJson(port, EXPANSION_PATH, { sn: 'SN-EXPANSION-1', map_id: 'map-001' });
+      const res = await postJson(port, CREATE_PATH, {
+        sn: 'SN-EXPANSION-1',
+        map_id: 'map-001',
+        mode: 'extend',
+      });
 
-      // §9.1 成功示例只有 code/message —— `data` 只在设备拒绝时出现。
+      // create 对 extend 同样必须回 task_id —— Mower 侧缺 task_id 直接 fail-fast 不进建图页。
       assert.equal(res.status, 200);
-      assert.deepEqual(res.json, { code: 200, message: 'SUCCESS' });
+      const data = res.json.data as Record<string, unknown>;
+      assert.equal(typeof data.task_id, 'string');
+      assert.ok((data.task_id as string).length > 0);
 
-      // Mower 的 confirmLaunch → recoverTaskId 依赖任务列表里有一条活跃任务，否则跳转后
-      // EDGE_START/EDGE_CLOSE 全部发不出去。
+      // 任务列表里必须能查到同一条活跃任务（App 的懒回补兜底路径依赖它）。
       const list = await postJson(port, TASK_LIST_PATH, { sn: 'SN-EXPANSION-1', limit: 10 });
       const tasks = (list.json.data as Record<string, unknown>).list as Array<Record<string, unknown>>;
       const active = tasks.find(task => task.task_status === 'ON_THE_WAY');
       assert.ok(active, 'expansion must leave an ON_THE_WAY mapping task');
+      assert.equal(active.task_id, data.task_id);
       assert.equal((active.task_info as Record<string, unknown>).map_id, 'map-001');
-      assert.equal((active.task_info as Record<string, unknown>).mode, 'remote');
+      // 任务列表回 extend；App 侧 normalizeSessionMode 归一为手摇会话 remote。
+      assert.equal((active.task_info as Record<string, unknown>).mode, 'extend');
 
       assert.equal(mapStream.dataset, 'mapping_lawn2_aisle');
       // 首帧必须是 mapping/precondition：Mower 的 `PREPARING + idle` 是启动失败判据。
@@ -117,20 +123,23 @@ describe('mapping/expansion (§9.1 发起地图扩展)', () => {
 
     mock.timers.enable({ apis: ['setTimeout'] });
     try {
-      const error = robot.startMappingExpansion(
-        { sn: 'SN-EXPANSION-2', mapId: 'map-001' },
+      const { task, error } = robot.createMappingTask(
+        { sn: 'SN-EXPANSION-2', map_id: 'map-001', mode: 'extend' },
         { switchDataset: okSwitchDataset },
       );
-      assert.equal(error, null);
+      assert.equal(error, undefined);
+      assert.ok(task, 'extend create must return a task record (task_id)');
+      assert.equal(task.map_id, 'map-001');
+      assert.equal(task.mode, 'extend');
       assert.equal(robot.snapshot().mapping.state, 'PREPARING');
       // 既有草坪的 label 必须保留 —— useMappingPassageCapture 靠它判定通道端点归属。
       assert.equal(robot.mappingLawnCount(), lawnsBefore);
 
-      mock.timers.tick(MAPPING_EXPANSION_UNDOCK_DELAY_MS);
+      mock.timers.tick(MAPPING_EXTEND_UNDOCK_DELAY_MS);
       assert.equal(robot.snapshot().lastNotifySubStatus, 'leave_dock');
       assert.equal(robot.snapshot().mapping.state, 'UNDOCKING');
 
-      mock.timers.tick(MAPPING_EXPANSION_FIND_BOUNDARY_DELAY_MS - MAPPING_EXPANSION_UNDOCK_DELAY_MS);
+      mock.timers.tick(MAPPING_EXTEND_FIND_BOUNDARY_DELAY_MS - MAPPING_EXTEND_UNDOCK_DELAY_MS);
       assert.equal(robot.snapshot().lastNotifySubStatus, 'find_boundary');
       assert.equal(robot.snapshot().mapping.state, 'REMOTE_CONTROL');
       assert.equal(robot.snapshot().mapping.mode, 'remote');
@@ -146,28 +155,45 @@ describe('mapping/expansion (§9.1 发起地图扩展)', () => {
 
   it('reaches an app-confirmable state well inside the mower 12s start watchdog', () => {
     assert.ok(
-      MAPPING_EXPANSION_FIND_BOUNDARY_DELAY_MS < 12_000,
-      'expansion push sequence must finish before START_STATUS_WATCHDOG_MS',
+      MAPPING_EXTEND_FIND_BOUNDARY_DELAY_MS < 12_000,
+      'extend push sequence must finish before START_STATUS_WATCHDOG_MS',
     );
-    assert.ok(MAPPING_EXPANSION_UNDOCK_DELAY_MS < MAPPING_EXPANSION_FIND_BOUNDARY_DELAY_MS);
+    assert.ok(MAPPING_EXTEND_UNDOCK_DELAY_MS < MAPPING_EXTEND_FIND_BOUNDARY_DELAY_MS);
   });
 
   it('rejects missing params (400), unknown sn (404) and a busy device (409)', async () => {
     const robot = new VirtualRobot({ sn: 'SN-EXPANSION-3' });
     const { server, port } = await startServer(robot);
     try {
-      assert.equal((await postJson(port, EXPANSION_PATH, { map_id: 'map-001' })).status, 400);
-      assert.equal((await postJson(port, EXPANSION_PATH, { sn: 'SN-EXPANSION-3' })).status, 400);
+      assert.equal((await postJson(port, CREATE_PATH, { map_id: 'map-001', mode: 'extend' })).status, 400);
+      assert.equal((await postJson(port, CREATE_PATH, { sn: 'SN-EXPANSION-3', mode: 'extend' })).status, 400);
 
-      // §9.1「无法获取设备 MAC」
-      const unknownSn = await postJson(port, EXPANSION_PATH, { sn: 'SN-NOT-BOUND', map_id: 'map-001' });
+      // 「无法获取设备 MAC」
+      const unknownSn = await postJson(port, CREATE_PATH, { sn: 'SN-NOT-BOUND', map_id: 'map-001', mode: 'extend' });
       assert.equal(unknownSn.status, 404);
 
-      // §9.1「设备返回非成功码」：设备正在建图时拒绝扩展，`data` 携带设备侧错误信息。
+      // 「设备返回非成功码」：设备正在建图时拒绝扩展，`data` 携带设备侧错误信息。
       await postJson(port, CREATE_PATH, { sn: 'SN-EXPANSION-3', map_id: 'mock_map_001', mode: 'auto' });
-      const busy = await postJson(port, EXPANSION_PATH, { sn: 'SN-EXPANSION-3', map_id: 'map-001' });
+      const busy = await postJson(port, CREATE_PATH, { sn: 'SN-EXPANSION-3', map_id: 'map-001', mode: 'extend' });
       assert.equal(busy.status, 409);
       assert.equal((busy.json.data as Record<string, unknown>).robot_code, -1);
+    } finally {
+      robot.reset();
+      server.close();
+    }
+  });
+});
+
+describe('legacy /ratel/api/v1/mapping/expansion is gone (v9 cutover)', () => {
+  it('404s — no back-compat alias for the removed endpoint', async () => {
+    const robot = new VirtualRobot({ sn: 'SN-EXPANSION-4' });
+    const { server, port } = await startServer(robot);
+    try {
+      const res = await postJson(port, '/ratel/api/v1/mapping/expansion', {
+        sn: 'SN-EXPANSION-4',
+        map_id: 'map-001',
+      });
+      assert.equal(res.status, 404);
     } finally {
       robot.reset();
       server.close();

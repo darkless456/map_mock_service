@@ -21,6 +21,20 @@ describe('fault fixtures', () => {
     assert.equal(chaos.snapshot().reorderWindowMs, 400);
   });
 
+  /**
+   * 上传失败注入：Mock 此前从 `expand_area` 一步跳 `idle`，整个上传段不可达，
+   * App 的失败页/重试完全没法联调。这条锁住注入 → 失败 → 会话仍存活 → 重试走完。
+   */
+  it('injects an upload failure that holds the session in upload_map', () => {
+    const robot = new VirtualRobot();
+    const chaos = new ChaosController();
+
+    const result = applyFault('mapping_upload_failed', { robot, chaos });
+
+    assert.equal(result.ok, true, result.error);
+    assert.equal(robot.uploadFailAt, 40);
+  });
+
   it('applies notify faults through scenario steps', async () => {
     const robot = new VirtualRobot();
     const chaos = new ChaosController();

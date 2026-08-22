@@ -14,6 +14,12 @@ export interface FaultDefinition {
   readonly dataset?: string;
   readonly setup?: VirtualRobotSetup;
   readonly notify?: RatelNotifyPayload;
+  /**
+   * 地图上传失败注入：上传进度到达该百分比时转失败态，并**停在 `upload_map` 不转 idle**
+   * ——这正是 [决议-1] 承诺的真机行为，App 的失败页可达性依赖它。
+   * `null` 显式解除注入（重试后应能走完）。
+   */
+  readonly upload_fail_at?: number | null;
   readonly fixtures?: Readonly<Record<string, unknown>>;
 }
 
@@ -67,6 +73,10 @@ export function applyFault(name: string, deps: FaultApplyDeps): FaultApplyResult
 
   if (fault.chaos) chaos = deps.chaos.update(fault.chaos);
   if (fault.setup) deps.robot.applySetup(fault.setup);
+  // 先于 notify 生效：注入点必须在设备进入上传段之前就位。
+  if (fault.upload_fail_at !== undefined) {
+    deps.robot.uploadFailAt = fault.upload_fail_at;
+  }
   if (fault.notify) notified = deps.robot.pushRatelStatus(fault.notify);
 
   return { ok: true, fault, chaos, dataset, notified };
@@ -95,6 +105,16 @@ function assertFault(value: unknown, label: string): asserts value is FaultDefin
   if (fault.chaos !== undefined) assertObject(fault.chaos, `${label}.chaos`);
   if (fault.setup !== undefined) assertObject(fault.setup, `${label}.setup`);
   if (fault.notify !== undefined) assertObject(fault.notify, `${label}.notify`);
+  if (
+    fault.upload_fail_at !== undefined &&
+    fault.upload_fail_at !== null &&
+    (typeof fault.upload_fail_at !== 'number' ||
+      !Number.isFinite(fault.upload_fail_at) ||
+      fault.upload_fail_at < 0 ||
+      fault.upload_fail_at > 100)
+  ) {
+    throw new Error(`${label}.upload_fail_at must be null or a number in [0, 100]`);
+  }
   if (fault.fixtures !== undefined) assertObject(fault.fixtures, `${label}.fixtures`);
 }
 

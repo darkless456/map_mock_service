@@ -93,6 +93,7 @@ describe('e2e scenarios', () => {
       'mapping_happy_auto_multilawn',
       'mapping_happy_manual',
       'mapping_stream_incremental',
+      'mapping_upload_failed',
       'mowing_estop_running',
       'mowing_happy_auto',
       'mowing_recharge',

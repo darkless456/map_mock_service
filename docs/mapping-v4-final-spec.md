@@ -67,7 +67,9 @@ mock 自身链路跑通，也会在真实 App 的 `BackendPhaseMapper`（同一�
 `MappingTaskBridge.ts` 的 `VALID_ACTIONS` 从 `{PAUSE, RESUME, STOP}` 扩展为：
 
 ```ts
-const VALID_ACTIONS = new Set(['PAUSE', 'RESUME', 'STOP', 'EDGE_START', 'EDGE_CLOSE', 'COMPLETE', 'EXPAND_AREA']);
+const VALID_ACTIONS = new Set(['PAUSE', 'RESUME', 'CANCEL', 'EDGE_START', 'EDGE_CLOSE', 'EXPAND_AREA_FINISH', 'EXPAND_AREA', 'RETRY_UPLOAD_MAP']);
+// 2026-08-21 更正：结束建图的权威名是 EXPAND_AREA_FINISH（本文档早期写的 COMPLETE 是猜测名，
+// 与 App 端接口文档和 mower 实现都不一致，已按接口文档改正）。
 ```
 
 | Action | 语义 | 前置条件 | 设备权威 ack（sub_status） | 失败语义 |

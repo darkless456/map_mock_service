@@ -16,6 +16,14 @@ export interface ExtendStatus {
    * 的帧上有效。见 mower 仓 `pendingSignalsContract.waitExtendTimestampEventFromRaw`。
    */
   readonly wait_extend_timestamp: number;
+  /**
+   * 地图上传百分比 `0..100`。与 `wait_extend_timestamp` 同构的**帧门控**字段：
+   * 只有 `sub_status === 'upload_map'` 的帧上有效，其余帧给 `0`。
+   * [占位] 字段名与 mower 侧 `pendingSignalsContract` 的常量同步，机器端定稿后一起改。
+   */
+  readonly upload_map_progress: number;
+  /** 上传三态：`0=none 1=上传中 2=成功 3=失败`。门控同上。 */
+  readonly upload_map_status: number;
 }
 
 /**
@@ -50,5 +58,15 @@ export function buildExtendStatus(robot: VirtualRobot): ExtendStatus {
     // 会读成「倒计时已归零」，因此这里必须归 0 而不是留着上一轮的时刻。
     wait_extend_timestamp:
       isMapping && robot.lastNotifySubStatus === 'expand_area' ? robot.waitExtendTimestamp() : 0,
+    // 上传两字段只在 `upload_map` 帧上有效——App 侧 `mapUploadEventFromRaw` 做的是同一道
+    // 帧门控，非上传帧读到的值会被直接丢弃，这里给 0 保持「字段常在、无值时为 0」的真机语义。
+    upload_map_progress:
+      isMapping && robot.lastNotifySubStatus === 'upload_map'
+        ? robot.mapUploadTelemetry().progress
+        : 0,
+    upload_map_status:
+      isMapping && robot.lastNotifySubStatus === 'upload_map'
+        ? robot.mapUploadTelemetry().status
+        : 0,
   };
 }

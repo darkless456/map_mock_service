@@ -1,0 +1,5 @@
+{
+  "name": "mapping_upload_failed",
+  "description": "地图上传失败：进度走到 40% 后设备汇报 upload_map_status=3（失败档），并保持 work_status=mapping / sub_status=upload_map 不转 idle。App 应展示「地图保存失败」页，提供「退出建图」与「重试」两个出口；重试后本次注入自动解除，上传会走完 100% 并跳转地图编辑页。",
+  "upload_fail_at": 40
+}

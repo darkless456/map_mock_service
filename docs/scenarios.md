@@ -18,7 +18,7 @@ YAML scenarios drive **cloud-accurate** `NOTIFY_RATEL_STATUS` pushes over WebSoc
 | 场景 | 停在哪里 | 等 App 做什么 |
 |------|----------|----------------|
 | `mapping_expand_area` | `WORKING` + `MAP_COMPLETING`（建图完成页）| `ratel_mapping_task/action` 的 `EXPAND_AREA` |
-| `mapedit_add_lawn` | `work_status: idle`（设备空闲、已有一块草坪）| 地图编辑页「添加 → 添加草坪」→ `POST /ratel/api/v1/mapping/expansion`（§9.1）|
+| `mapedit_add_lawn` | `work_status: idle`（设备空闲、已有一块草坪）| 地图编辑页「添加 → 添加草坪」→ `POST .../ratel_mapping_task/create` + `mode:'extend'`|
 
 ## Mapping `sub_status` sequence (§5.1)
 
@@ -137,7 +137,7 @@ Both scenarios rely on the mirrored mower FSM where `work_status: emergency_stop
 > `ratel_mapping_task/action` 的 `EDGE_START`/`EDGE_CLOSE`；断线重连恢复改读 `robot/detail`
 > 的 `sub_status`/`sub_status_entered_at`/`extend_status`。
 
-这四个 action（`EDGE_START`/`EDGE_CLOSE`/`COMPLETE`/`EXPAND_AREA`）都不是 scenario YAML 的
+这四个 action（`EDGE_START`/`EDGE_CLOSE`/`EXPAND_AREA_FINISH`/`EXPAND_AREA`）都不是 scenario YAML 的
 `notify`/`emit` 步骤能驱动的——它们是真实 HTTP 请求，走 `POST ratel_mapping_task/action`
 `{ sn, task_id?, action, payload? }`，须由 App（或 `curl`/测试）主动发起，因此不在 9 个
 checked-in scenario 文件里；对应回归覆盖在 `__tests__/mappingTaskAction.test.ts`、
@@ -155,7 +155,7 @@ checked-in scenario 文件里；对应回归覆盖在 `__tests__/mappingTaskActi
 4. 进入 `edge_mapping` 后同理，`extend_status.legitimate_end_point` 延迟 ~3s 结算，`EDGE_CLOSE`
    成功后 ~800ms 异步补推 `sub_status: map_edge_finish`（`MAP_BOUNDARY_DONE`）。
 
-**COMPLETE / EXPAND_AREA**（"立即生效"，倒计时期间的用户主动终结/续接，§1/§3）：
+**EXPAND_AREA_FINISH / EXPAND_AREA**（"立即生效"，倒计时期间的用户主动终结/续接，§1/§3）：
 
 - 前置条件均为 `sub_status === 'expand_area'`（`MAP_COMPLETING`，120s 倒计时中），否则 `409`。
 - `COMPLETE`：清倒计时 + 同步 `CMD_CONFIRM` → `task_status=COMPLETE`。重复调用因任务已终态

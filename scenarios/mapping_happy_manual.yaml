@@ -69,6 +69,6 @@ steps:
   - expect: { state: WORKING, phase: MAP_BOUNDARY_DONE, mode: auto }
   # 沿边闭合 Loading（固定 3s）后直接进入完成页。
   - wait: 5s
-  # 保持任务活跃，完成页可选择 COMPLETE 或 EXPAND_AREA。
+  # 保持任务活跃，完成页可选择 EXPAND_AREA_FINISH 或 EXPAND_AREA。
   - notify: { work_status: mapping, sub_status: expand_area }
   - expect: { state: WORKING, phase: MAP_COMPLETING }

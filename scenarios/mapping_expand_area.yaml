@@ -22,7 +22,7 @@ guide:
     - 确认 App 进入 REMOTE_CONTROL / MAP_SCAN_BOUNDARY_MANUAL 并显示遥控面板
   auto_behavior:
     - 场景只推进到活跃的 MAP_COMPLETING，不发送 idle 或 COMPLETE
-    - 后续状态由 EXPAND_AREA、EDGE_START、EDGE_CLOSE、COMPLETE action 驱动
+    - 后续状态由 EXPAND_AREA、EDGE_START、EDGE_CLOSE、EXPAND_AREA_FINISH action 驱动
   duration: 约 45 秒后进入交互等待
   pushes:
     - NOTIFY_RATEL_STATUS

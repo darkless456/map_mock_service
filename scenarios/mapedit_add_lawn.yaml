@@ -1,19 +1,19 @@
 name: mapedit_add_lawn
 description: >-
-  地图编辑「添加草坪」联调场景（APP端接口文档 §9.1 发起地图扩展）。先跑完一块草坪并让设备回到
-  idle —— 这正是进入地图编辑页的真实前置状态；随后场景停住，等 App 调
-  POST /ratel/api/v1/mapping/expansion，后续状态推进全部由 Mock 核心自己完成。
+  地图编辑「添加草坪」联调场景（发起建图任务 create + mode=extend，APP端接口文档 v9）。先跑完
+  一块草坪并让设备回到 idle —— 这正是进入地图编辑页的真实前置状态；随后场景停住，等 App 调
+  POST .../ratel_mapping_task/create（mode=extend），后续状态推进全部由 Mock 核心自己完成。
 guide:
-  title: 地图编辑 — 添加草坪（地图扩展）
+  title: 地图编辑 — 添加草坪（扩展建图 mode=extend）
   domain_label: 建图
-  summary: 设备 idle + 已有地图，等待 App 在地图编辑页点「添加草坪」发起地图扩展。
+  summary: 设备 idle + 已有地图，等待 App 在地图编辑页点「添加草坪」发起扩展建图。
   when_to_use: >-
-    验证地图编辑页「添加草坪」入口：HTTP 200 之后 App 是否在 12s 启动看门狗内
+    验证地图编辑页「添加草坪」入口：create 返回 task_id 之后 App 是否在 12s 启动看门狗内
     进入 REMOTE_CONTROL / MAP_SCAN_BOUNDARY_MANUAL 并显示遥控面板。
   simulates:
     - 自动建完第一块草坪并 idle 收口（进入地图编辑页的真实前置）
-    - 等 App 调 POST /ratel/api/v1/mapping/expansion
-    - 接口返回 §9.1 的 {"code":200,"message":"SUCCESS"}（成功响应不带 data）
+    - "等 App 调 POST .../ratel_mapping_task/create，body 带 sn / map_id / mode=extend"
+    - "接口返回 code=200 且 data.task_id 非空（extend 同样必须回 task_id）"
     - Mock 核心随后自动推送 precondition → leave_dock → find_boundary 并切到 lawn2 数据集
   prerequisites:
     - 已启动 map_mock_service（npm start），App mock 指向 http://localhost:9900
@@ -25,7 +25,7 @@ guide:
     - 确认 App 进入 REMOTE_CONTROL / MAP_SCAN_BOUNDARY_MANUAL 并显示遥控面板
   auto_behavior:
     - 场景本身只负责造出「设备 idle + 已有一块草坪」，不主动发起扩展
-    - 扩展后的状态推进由 /mapping/expansion 路由与 VirtualRobot 定时器驱动，与场景无关
+    - 扩展后的状态推进由 create(mode=extend) 分支与 VirtualRobot 定时器驱动，与场景无关
     - 既有草坪的 mappingLabels 在扩展时刻意保留，新通道 label 追加在其后
   duration: 约 40 秒后进入交互等待
   pushes:
@@ -57,6 +57,6 @@ steps:
   - notify: { work_status: mapping, sub_status: expand_area }
   - expect: { state: WORKING, phase: MAP_COMPLETING }
   - wait: 5s
-  # idle 收口：地图编辑页只在设备空闲时可进入，也是 §9.1 扩展的真实起点。
+  # idle 收口：地图编辑页只在设备空闲时可进入，也是扩展建图的真实起点。
   - notify: { work_status: idle, sub_status: none }
   - note: 设备已 idle 且已有一块草坪，请在 App 地图编辑页点击「添加」→「添加草坪」

@@ -1,0 +1,59 @@
+name: mapping_upload_failed
+description: >-
+  地图上传失败联调场景。自动建图走到完成页后由 App 点「完成」触发上传；
+  进度到 40% 转失败态并停在 upload_map（不转 idle），App 应展示「地图保存失败」页。
+guide:
+  title: 建图 - 上传地图失败
+  domain_label: 建图
+  summary: 验证上传中环形进度、上传失败页、重试与「退出建图」二次确认。
+  when_to_use: 验证建图完成后的上传段 UI（进度环 / 失败页 / 重试 / 退出建图）。
+  simulates:
+    - 自动完成退桩、寻边、沿边和闭合，进入 WORKING / MAP_COMPLETING
+    - 注入上传失败点（40%），等待 App 点「完成」
+    - 上传进度按 500ms 步进推送，到 40% 转 upload_map_status=3
+    - 失败后保持 work_status=mapping / sub_status=upload_map，不转 idle
+  prerequisites:
+    - 已启动 map_mock_service，App mock 指向当前服务
+    - App 已登录且 WS 已连接
+  user_steps:
+    - 在 App 选择自动建图
+    - 在模拟面板运行本场景
+    - 完成页出现后点击「完成」（或等 120s 倒计时归零）
+    - 观察上传中环形进度走到 40% 后出现「地图保存失败」
+    - 点「重试」应重新从 0% 走完并跳转地图编辑页
+    - 或点「退出建图」→ 二次确认 →「取消」应回到失败页，「退出」应回首页
+  auto_behavior:
+    - 场景只推进到活跃的 MAP_COMPLETING 并注入失败点，不发送 idle 或 EXPAND_AREA_FINISH
+    - 上传段由 App 的 EXPAND_AREA_FINISH / RETRY_UPLOAD_MAP action 驱动
+    - 重试会自动解除失败注入，因此第二次上传一定成功
+  duration: 约 30 秒后进入交互等待
+  pushes:
+    - NOTIFY_RATEL_STATUS
+    - RATEL_MAPPING_TASK
+    - MAP_INCREMENTAL
+domain: mapping
+dataset: mapping_happy
+setup:
+  state: IDLE
+  phase: null
+steps:
+  - emit: { type: CMD_START, mode: auto, taskMode: MAP_BUILD }
+  - notify: { work_status: mapping, sub_status: precondition }
+  - expect: { state: PREPARING, mode: auto }
+  - wait: 3s
+  - notify: { work_status: mapping, sub_status: leave_dock }
+  - expect: { state: UNDOCKING }
+  - wait: 4s
+  - notify: { work_status: mapping, sub_status: find_boundary }
+  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY, mode: auto }
+  - wait: 6s
+  - notify: { work_status: mapping, sub_status: edge_mapping }
+  - expect: { state: WORKING, phase: MAP_FOLLOW_BOUNDARY, mode: auto }
+  - wait: 8s
+  - notify: { work_status: mapping, sub_status: map_edge_finish }
+  - expect: { state: WORKING, phase: MAP_BOUNDARY_DONE, mode: auto }
+  - wait: 4s
+  # 注入必须在进入上传段之前就位。
+  - fault: mapping_upload_failed
+  - notify: { work_status: mapping, sub_status: expand_area }
+  - expect: { state: WORKING, phase: MAP_COMPLETING }

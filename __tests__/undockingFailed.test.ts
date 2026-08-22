@@ -13,7 +13,8 @@ describe('mapping_undock_failed fault', () => {
 
   it('terminates an active mapping task: state ERRORED, sub_status undocking_failed, task_status FAILED, no retry path', () => {
     const robot = new VirtualRobot({ sn: 'SN-UNDOCK-1' });
-    const task = robot.createMappingTask({ sn: 'SN-UNDOCK-1', map_id: 'mock_map_001', mode: 'auto' });
+    const { task } = robot.createMappingTask({ sn: 'SN-UNDOCK-1', map_id: 'mock_map_001', mode: 'auto' });
+    assert.ok(task);
     const chaos = new ChaosController();
 
     const result = applyFault('mapping_undock_failed', { robot, chaos });

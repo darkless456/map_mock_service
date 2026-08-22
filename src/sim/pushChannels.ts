@@ -66,6 +66,10 @@ export function deriveSubStatus(robot: VirtualRobot): string {
       // 进不了完成页。锚点 `extend_status.wait_extend_timestamp` 只在这一档的帧上有效。
       case 'MAP_COMPLETING':
         return 'expand_area';
+      // 注意：上传段（`upload_map`）**不在这里**。fsm-mirror 的 MappingPhase 联合类型里
+      // 没有 `MAP_UPLOADING`（镜像只覆盖设备自身建模的阶段），上传是 Mock 在 COMPLETE 之后
+      // 用 `pushRatelStatus` 显式推的一段，`lastNotifySubStatus` 因此始终是权威值，
+      // 不会掉进本函数的兜底分支。
       case 'returning':
         return 'return_dock';
       default:
