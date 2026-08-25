@@ -43,6 +43,7 @@ function postJson(port: number, path: string, body: Record<string, unknown>) {
 function enterMapCompleting(robot: VirtualRobot): void {
   robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'leave_dock' });
   robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'find_boundary' });
+  robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'map_edge_finish' });
   robot.pushRatelStatus({ work_status: 'mapping', sub_status: 'expand_area' });
 }
 
@@ -148,6 +149,13 @@ describe('EXPAND_AREA', () => {
       mock.timers.tick(3000);
       const started = await postJson(port, ACTION_PATH, { sn: 'SN-EXPAND-3', action: 'EDGE_START' });
       assert.equal(started.status, 200);
+      mock.timers.tick(800);
+      const detail = robot.buildDeviceInfo();
+      const extend = detail.extend_status as Record<string, unknown>;
+      assert.equal(detail.sub_status, 'edge_mapping');
+      assert.equal(extend.starting_point_x, 41.3);
+      assert.equal(extend.starting_point_y, 7.45);
+      assert.equal(extend.starting_point_theta, 0);
     } finally {
       mock.timers.reset();
       server.close();

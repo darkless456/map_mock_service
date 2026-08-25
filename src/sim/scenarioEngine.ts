@@ -27,6 +27,13 @@ export interface LoopStep {
 export type ScenarioStep =
   | { readonly emit: Record<string, unknown> }
   | { readonly notify: Record<string, unknown> }
+  | {
+      readonly mappingAction: {
+        readonly action?: string;
+        readonly taskId?: string;
+        readonly save?: boolean;
+      };
+    }
   | { readonly expect: Record<string, unknown> }
   | { readonly wait: string | number | { readonly until?: Record<string, unknown>; readonly timeout?: string | number } }
   | { readonly loop: LoopStep }
@@ -313,6 +320,37 @@ export class ScenarioEngine {
         sn: typeof body.sn === 'string' ? body.sn : undefined,
       });
       logs.push({ index, kind: 'notify', ok: true, detail: body });
+      return;
+    }
+
+    if ('mappingAction' in step) {
+      const body = step.mappingAction;
+      const action = typeof body.action === 'string' ? body.action.trim() : '';
+      if (!action) throw new Error(`step ${index}: mappingAction.action is required`);
+      const snapshot = this.robot.snapshot();
+      const error = this.robot.applyMappingTaskAction(
+        {
+          sn: snapshot.sn,
+          taskId:
+            typeof body.taskId === 'string'
+              ? body.taskId
+              : snapshot.activeMappingTask?.task_id,
+          action,
+          save: body.save,
+        },
+        { switchDataset: this.switchDataset },
+      );
+      logs.push({
+        index,
+        kind: 'mappingAction',
+        ok: error === null,
+        detail: error ?? { action },
+      });
+      if (error) {
+        throw new Error(
+          `step ${index}: mappingAction ${action} failed (${error.kind}): ${error.message}`,
+        );
+      }
       return;
     }
 

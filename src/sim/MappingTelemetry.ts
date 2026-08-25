@@ -5,6 +5,12 @@ export interface PassageCheckpoint {
   end: { x: number; y: number } | null;
 }
 
+export interface MappingStartingPoint {
+  readonly x: number;
+  readonly y: number;
+  readonly theta: number;
+}
+
 /**
  * mapping-v4-final-spec.md §2 leaves the trigger conditions for
  * `extend_status.legitimate_starting_point`/`legitimate_end_point` undefined (audit gap G4).
@@ -19,6 +25,7 @@ const END_POINT_SETTLE_MS = 3_000;
 export class MappingTelemetry {
   legitimateStartingPoint = false;
   legitimateEndPoint = false;
+  confirmedStartingPoint: MappingStartingPoint | null = null;
   readonly passageCheckpoints: PassageCheckpoint[] = [];
   private lastPhase: MappingPhase | null = null;
   private startSettleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -31,6 +38,7 @@ export class MappingTelemetry {
     this.clearTimers();
     this.legitimateStartingPoint = false;
     this.legitimateEndPoint = false;
+    this.confirmedStartingPoint = null;
     this.passageCheckpoints.length = 0;
     this.lastPhase = null;
   }
@@ -42,6 +50,7 @@ export class MappingTelemetry {
     this.clearTimers();
     if (phase === 'MAP_SCAN_BOUNDARY_MANUAL') {
       this.legitimateStartingPoint = false;
+      this.confirmedStartingPoint = null;
       this.startSettleTimer = setTimeout(() => {
         this.startSettleTimer = null;
         this.legitimateStartingPoint = true;
@@ -75,9 +84,10 @@ export class MappingTelemetry {
   }
 
   /** Consumes the starting-point signal (called when EDGE_START is accepted). */
-  confirmEdgeStart(): void {
+  confirmEdgeStart(point: MappingStartingPoint): void {
     this.legitimateStartingPoint = false;
-    this.recordPassageEnd();
+    this.confirmedStartingPoint = point;
+    this.recordPassageEnd(point);
   }
 
   /** Consumes the end-point signal (called when EDGE_CLOSE is accepted). */
@@ -89,10 +99,10 @@ export class MappingTelemetry {
     this.passageCheckpoints.push({ start: { x: 0, y: 0 }, end: null });
   }
 
-  private recordPassageEnd(): void {
+  private recordPassageEnd(point: MappingStartingPoint): void {
     const last = this.passageCheckpoints[this.passageCheckpoints.length - 1];
     if (last && !last.end) {
-      last.end = { x: 0, y: 0 };
+      last.end = { x: point.x, y: point.y };
     }
   }
 

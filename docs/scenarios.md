@@ -13,11 +13,12 @@ YAML scenarios drive **cloud-accurate** `NOTIFY_RATEL_STATUS` pushes over WebSoc
 
 **Important:** 场景均自包含（`setup: { state: IDLE }` + `emit CMD_START` 由场景自行建任务，无需 App 先发 HTTP `ratel_mapping_task/create` / `ratel_task/create`）。直接在 `/sim/panel` 运行即可驱动 App FSM 与导航；如需配合真机轨迹/瓦片渲染，App 仍需连上 WS（割草轨迹还需 `LOCATION_REGISTER`）。
 
-两个「交互等待」场景是例外，它们只负责造出前置状态，后续推进由 **App 主动调用 HTTP** 触发：
+以下「交互等待」场景是例外，它们只负责造出前置状态，后续推进由 **App 主动调用 HTTP** 触发：
 
 | 场景 | 停在哪里 | 等 App 做什么 |
 |------|----------|----------------|
 | `mapping_expand_area` | `WORKING` + `MAP_COMPLETING`（建图完成页）| `ratel_mapping_task/action` 的 `EXPAND_AREA` |
+| `mapping_passage_rendering_recovery` | 先停在第一块草坪 `MAP_COMPLETING`，自动确认第二块草坪起点后等待闭合 | App 触发 `EXPAND_AREA` → 场景自动执行 `EDGE_START` → App 触发 `EDGE_CLOSE`；最终在完成页验证服务端恢复 |
 | `mapedit_add_lawn` | `work_status: idle`（设备空闲、已有一块草坪）| 地图编辑页「添加 → 添加草坪」→ `POST .../ratel_mapping_task/create` + `mode:'extend'`|
 
 ## Mapping `sub_status` sequence (§5.1)
@@ -128,6 +129,7 @@ Both scenarios rely on the mirrored mower FSM where `work_status: emergency_stop
 | `mapping_estop_edge_follow.yaml` | 建图沿边后急停：`MAP_FOLLOW_BOUNDARY` → `emergency_stop` → `ESTOPPED` → release + `CMD_RESET` → `RESUMING` → `COMPLETED` | 自动结束（约 1 分钟） |
 | `mowing_estop_running.yaml` | 割草执行中急停：`MOW_RUNNING` → `emergency_stop` → `ESTOPPED` → release + `CMD_RESET` → `RESUMING` → `COMPLETED` | 自动结束（约 45 秒） |
 | `mapping_stream_incremental.yaml` | **无限循环**：在可推流建图阶段间循环，持续广播 `MAP_INCREMENTAL`（测建图渲染）| 手动停止 |
+| `mapping_passage_rendering_recovery.yaml` | **半自动**：第一块草坪闭合后由 App 添加草坪，Mock 在设备起点有效后自动执行 `EDGE_START`，验证通道切回普通轨迹及 `labels + track/query` 恢复 | `EXPAND_AREA` 最长等待 110 秒，`EDGE_CLOSE` 最长等待 10 分钟 |
 | `mowing_trajectory_stream.yaml` | **无限循环**：保持 `ON_THE_WAY`，沿语义地图路线持续推 `ROBOT_LOCATION`（测割草轨迹渲染）| 手动停止 |
 
 ## 建图 v4 action 流程（`ratel_mapping_task/action`）
@@ -137,11 +139,10 @@ Both scenarios rely on the mirrored mower FSM where `work_status: emergency_stop
 > `ratel_mapping_task/action` 的 `EDGE_START`/`EDGE_CLOSE`；断线重连恢复改读 `robot/detail`
 > 的 `sub_status`/`sub_status_entered_at`/`extend_status`。
 
-这四个 action（`EDGE_START`/`EDGE_CLOSE`/`EXPAND_AREA_FINISH`/`EXPAND_AREA`）都不是 scenario YAML 的
-`notify`/`emit` 步骤能驱动的——它们是真实 HTTP 请求，走 `POST ratel_mapping_task/action`
-`{ sn, task_id?, action, payload? }`，须由 App（或 `curl`/测试）主动发起，因此不在 9 个
-checked-in scenario 文件里；对应回归覆盖在 `__tests__/mappingTaskAction.test.ts`、
-`__tests__/mapCompleting.test.ts`、`__tests__/expandArea.test.ts`。
+这些 action 线上都通过 `POST ratel_mapping_task/action` 发送。场景默认仍等待 App 真实请求；
+仅需要消除人工按钮依赖的专项场景可使用受限的
+`mappingAction: { action: EDGE_START }` 步骤，经 `VirtualRobot.applyMappingTaskAction` 走同一套
+相位、合法点、任务状态和异步设备确认校验，不能用它绕过协议门禁。
 
 **EDGE_START / EDGE_CLOSE**（"受理不等于生效"，§1）：
 

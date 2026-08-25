@@ -162,6 +162,10 @@ export class VirtualRobot extends EventEmitter {
     return this.mappingTelemetry.legitimateEndPoint;
   }
 
+  get confirmedStartingPoint() {
+    return this.mappingTelemetry.confirmedStartingPoint;
+  }
+
   /** `ratel_map/labels` accumulated state (mapping-v4-final-spec.md §6). */
   mappingLabelsList() {
     return this.mappingLabels.list();
@@ -421,7 +425,8 @@ export class VirtualRobot extends EventEmitter {
     if (!this.legitimateStartingPoint) {
       return { kind: 'unprocessable', message: 'extend_status.legitimate_starting_point is 0' };
     }
-    this.mappingTelemetry.confirmEdgeStart();
+    const point = this.mappingLabels.nextEdgeStartPoint();
+    this.mappingTelemetry.confirmEdgeStart({ ...point, theta: 0 });
     this.scheduleMappingActionAck('EDGE_START', () => this.pushRatelStatus({ work_status: 'mapping', sub_status: 'edge_mapping' }));
     return null;
   }
@@ -996,7 +1001,8 @@ export class VirtualRobot extends EventEmitter {
   }
 
   confirmEdgeStart(): void {
-    this.mappingTelemetry.confirmEdgeStart();
+    const point = this.mappingLabels.nextEdgeStartPoint();
+    this.mappingTelemetry.confirmEdgeStart({ ...point, theta: 0 });
     this.pushRatelStatus();
     this.emit('changed', this.snapshot());
   }

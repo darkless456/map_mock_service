@@ -1,0 +1,83 @@
+name: mapping_passage_rendering_recovery
+description: >-
+  双草坪通道显示与恢复回归场景。自动完成第一块草坪后等待 App 真实发送 EXPAND_AREA，
+  Mock 切换到 mapping_lawn2_aisle 并持续推送通道过渡帧；第二块草坪起点由场景自动确认，
+  闭合仍由 App 的 EDGE_CLOSE 驱动，最终停在 MAP_COMPLETING 供重连恢复检查。
+guide:
+  title: 建图 - 双草坪通道显示与恢复
+  domain_label: 建图
+  summary: 验证草坪 1 闭合点到草坪 2 设备确认起点之间的通道实时渲染、稳定性和服务端恢复。
+  when_to_use: 验证通道样式错误、闪烁、端点不准，以及重连后通道未恢复等回归问题。
+  simulates:
+    - 自动完成第一块草坪并进入 MAP_COMPLETING
+    - 等待 App 发送 EXPAND_AREA，随后切换到 mapping_lawn2_aisle 通道数据集
+    - 在手动寻边阶段持续推送从草坪 1 闭合位置驶向草坪 2 的 MAP_INCREMENTAL
+    - 设备起点有效后自动执行 EDGE_START，再等待 App 以 EDGE_CLOSE 完成第二块草坪
+    - 返回 MAP_COMPLETING，并保留 labels 与 track/query 响应用于恢复
+  prerequisites:
+    - 已启动 map_mock_service，App mock 指向当前服务且 WS 已连接
+    - 运行前在模拟面板停止旧场景并重置机器人，确保从空白建图会话开始
+  user_steps:
+    - 在模拟面板运行本场景，等待 App 显示第一块草坪完成页
+    - 点击“添加草坪”，确认通道从第一块草坪闭合位置开始并随设备移动连续增长
+    - 到达第二块草坪后无需点击“开始”；场景会在设备起点有效后自动触发 EDGE_START
+    - 确认通道终点固定在第二块草坪的设备确认起点，样式始终为通道且全程无闪烁
+    - 在第二块草坪确认闭合，等待再次进入完成页
+    - 在 120 秒完成页窗口内断开并恢复 WS 或重进建图页，确认只恢复一条草坪间通道且端点、样式不变
+  auto_behavior:
+    - 第一块草坪由场景自动推进；EXPAND_AREA、EDGE_CLOSE 仍由 App 真实 HTTP action 触发
+    - EXPAND_AREA 最多等待 110 秒；进入草坪 2 寻边后等待 3.2 秒并自动执行 EDGE_START
+    - EDGE_CLOSE 最多等待 10 分钟
+    - 第二块草坪闭合后等待 3 秒再进入 MAP_COMPLETING，场景结束后机器人仍保留活跃会话供恢复验证
+    - 服务端恢复数据来自 labels 与 track/query，不模拟或依赖 App 本地地图缓存
+  duration: 约 30 秒进入第一块草坪完成页，后续由人工操作决定
+  pushes:
+    - NOTIFY_RATEL_STATUS
+    - RATEL_MAPPING_TASK
+    - MAP_INCREMENTAL
+domain: mapping
+dataset: mapping_happy
+setup:
+  state: IDLE
+  phase: null
+steps:
+  - emit: { type: CMD_START, mode: auto, taskMode: MAP_BUILD }
+  - notify: { work_status: mapping, sub_status: precondition }
+  - expect: { state: PREPARING, mode: auto }
+  - wait: 2s
+  - notify: { work_status: mapping, sub_status: leave_dock }
+  - expect: { state: UNDOCKING }
+  - wait: 3s
+  - notify: { work_status: mapping, sub_status: find_boundary }
+  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY, mode: auto }
+  - wait: 4s
+  - notify: { work_status: mapping, sub_status: edge_mapping }
+  - expect: { state: WORKING, phase: MAP_FOLLOW_BOUNDARY, mode: auto }
+  - wait: 8s
+  - notify: { work_status: mapping, sub_status: map_edge_finish }
+  - expect: { state: WORKING, phase: MAP_BOUNDARY_DONE, mode: auto }
+  - note: passage_start_checkpoint_lawn_1_closed
+  - wait: 3s
+  - notify: { work_status: mapping, sub_status: expand_area }
+  - expect: { state: WORKING, phase: MAP_COMPLETING }
+  - note: waiting_for_app_expand_area
+  - wait:
+      until: { state: REMOTE_CONTROL, phase: MAP_SCAN_BOUNDARY_MANUAL, mode: remote }
+      timeout: 110s
+  - expect: { lastNotifySubStatus: find_boundary }
+  - note: passage_streaming_until_device_confirmed_lawn_2_start
+  - wait: 3.2s
+  - mappingAction: { action: EDGE_START }
+  - note: passage_end_checkpoint_lawn_2_edge_start_auto_confirmed
+  - wait:
+      until: { state: REMOTE_CONTROL, phase: MAP_FOLLOW_BOUNDARY_MANUAL, mode: remote }
+      timeout: 5s
+  - expect: { lastNotifySubStatus: edge_mapping }
+  - wait:
+      until: { state: WORKING, phase: MAP_BOUNDARY_DONE }
+      timeout: 600s
+  - expect: { lastNotifySubStatus: map_edge_finish }
+  - wait: 3s
+  - notify: { work_status: mapping, sub_status: expand_area }
+  - expect: { state: WORKING, phase: MAP_COMPLETING }
+  - note: recovery_window_labels_and_track_query_ready

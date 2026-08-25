@@ -4,6 +4,9 @@ import type { SimView } from './simFsmTypes';
 export interface ExtendStatus {
   readonly legitimate_starting_point: 0 | 1;
   readonly legitimate_end_point: 0 | 1;
+  readonly starting_point_x?: number;
+  readonly starting_point_y?: number;
+  readonly starting_point_theta?: number;
   readonly manual_closure_suggested: 0 | 1;
   readonly locator_status: number;
   readonly operation_status: number;
@@ -30,10 +33,10 @@ export interface ExtendStatus {
  * mapping-v4-final-spec.md §2 defines the `extend_status` structure but not the trigger
  * semantics for all 8 fields (audit gap G1). Per the spec's own Appendix A autonomy rule
  * (values, not structure/channel, are the mock's call), only the two fields that gate
- * EDGE_START/EDGE_CLOSE — legitimate_starting_point/legitimate_end_point — are dynamically
- * derived from MappingTelemetry (see MappingTelemetry.syncWithPhase). The remaining fields
- * are conservative defaults with no upstream contract yet; revisit once the real device
- * semantics are confirmed.
+ * EDGE_START/EDGE_CLOSE signals and the confirmed `starting_point_*` coordinates are dynamically
+ * derived from MappingTelemetry (see MappingTelemetry.syncWithPhase). The remaining fields are
+ * conservative defaults with no upstream contract yet; revisit once the real device semantics
+ * are confirmed.
  */
 export function buildExtendStatus(robot: VirtualRobot): ExtendStatus {
   const isMapping = robot.activeDomain === 'mapping';
@@ -41,6 +44,13 @@ export function buildExtendStatus(robot: VirtualRobot): ExtendStatus {
   return {
     legitimate_starting_point: isMapping && robot.legitimateStartingPoint ? 1 : 0,
     legitimate_end_point: isMapping && robot.legitimateEndPoint ? 1 : 0,
+    ...(isMapping && robot.confirmedStartingPoint
+      ? {
+          starting_point_x: robot.confirmedStartingPoint.x,
+          starting_point_y: robot.confirmedStartingPoint.y,
+          starting_point_theta: robot.confirmedStartingPoint.theta,
+        }
+      : {}),
     manual_closure_suggested: 0,
     locator_status: ctx.error ? 3 : 1,
     operation_status: 0,

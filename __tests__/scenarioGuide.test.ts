@@ -28,6 +28,7 @@ describe('scenarioGuide', () => {
       'mapping_happy_auto',
       'mapping_happy_auto_multilawn',
       'mapping_happy_manual',
+      'mapping_passage_rendering_recovery',
       'mapping_stream_incremental',
       'mapping_upload_failed',
       'mowing_estop_running',
@@ -39,6 +40,17 @@ describe('scenarioGuide', () => {
     assert.ok(happy);
     assert.ok(happy!.summary.length > 0);
     assert.equal(happy!.domainLabel, '建图');
+  });
+
+  it('documents the interactive passage rendering and recovery checkpoints', () => {
+    const doc = loadScenarioGuide('mapping_passage_rendering_recovery', DEFAULT_SCENARIO_ROOT);
+    assert.ok(doc);
+    assert.match(doc!.summary, /通道.*恢复/);
+    assert.ok(doc!.userSteps.some(step => step.includes('自动触发 EDGE_START')));
+    assert.ok(doc!.userSteps.some(step => step.includes('labels') || step.includes('恢复')));
+    assert.ok(doc!.autoBehavior.some(step => step.includes('EXPAND_AREA')));
+    assert.ok(doc!.autoBehavior.some(step => step.includes('自动执行 EDGE_START')));
+    assert.ok(doc!.autoBehavior.some(step => step.includes('本地地图缓存')));
   });
 
   it('returns null for unknown scenario', () => {

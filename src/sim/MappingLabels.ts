@@ -97,6 +97,10 @@ export class MappingLabelsTracker {
     return this.labels.filter(label => label.type === 'edge_start').length;
   }
 
+  nextEdgeStartPoint(): MapLabelPoint {
+    return edgeStartPoint(this.edgeStartCount() + 1, coordinateParameters());
+  }
+
   addAisle(): void {
     const idx = this.labels.filter(label => label.type === 'aisle').length + 1;
     this.labels.push({ id: `aisle_${idx}`, type: 'aisle', shape: 'point', points: aislePoints(idx, coordinateParameters()) });

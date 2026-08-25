@@ -25,6 +25,26 @@ steps:
     assert.equal(robot.snapshot().mapping.state, 'WORKING');
   });
 
+  it('runs a mapping task action from a scenario step', async () => {
+    const robot = new VirtualRobot({ sn: 'SN-SCENARIO-ACTION' });
+    const engine = new ScenarioEngine({ robot, chaos: new ChaosController() });
+    const result = await engine.run({
+      inline: {
+        name: 'mapping action smoke',
+        domain: 'mapping',
+        setup: { state: 'IDLE', phase: null },
+        steps: [
+          { emit: { type: 'CMD_START', mode: 'auto', taskMode: 'MAP_BUILD' } },
+          { mappingAction: { action: 'CANCEL', save: false } },
+          { expect: { state: 'CANCELLED' } },
+        ],
+      },
+    });
+
+    assert.equal(result.ok, true, result.error);
+    assert.equal(result.logs.some(log => log.kind === 'mappingAction'), true);
+  });
+
   it('runs an inline mowing scenario with notify steps', async () => {
     const robot = new VirtualRobot({ sn: 'SN-MOW-SCENARIO' });
     const engine = new ScenarioEngine({ robot, chaos: new ChaosController() });
