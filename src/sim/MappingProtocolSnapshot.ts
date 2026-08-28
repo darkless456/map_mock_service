@@ -20,13 +20,16 @@ export interface ExtendStatus {
    */
   readonly wait_extend_timestamp: number;
   /**
-   * 地图上传百分比 `0..100`。与 `wait_extend_timestamp` 同构的**帧门控**字段：
-   * 只有 `sub_status === 'upload_map'` 的帧上有效，其余帧给 `0`。
-   * [占位] 字段名与 mower 侧 `pendingSignalsContract` 的常量同步，机器端定稿后一起改。
+   * 地图上传百分比 `0..100`（设备端 2026-08-24 定稿）。与 `wait_extend_timestamp`
+   * 同构的**帧门控**字段：只有 `sub_status === 'upload_map'` 的帧上有效，其余帧给 `0`。
    */
-  readonly upload_map_progress: number;
-  /** 上传三态：`0=none 1=上传中 2=成功 3=失败`。门控同上。 */
-  readonly upload_map_status: number;
+  readonly map_upload_progress: number;
+  /**
+   * 上传状态三值枚举：`UPLOADING` / `SUCCESS` / `FAILED`（App 侧比较忽略大小写）。
+   * 门控同上；非上传帧**整个 key 省略**——设备在非上传帧上不会宣告上传状态，
+   * 给个假值反而会掩盖 App 侧「缺失即沉默」那条路径。
+   */
+  readonly map_upload_state?: string;
 }
 
 /**
@@ -70,13 +73,14 @@ export function buildExtendStatus(robot: VirtualRobot): ExtendStatus {
       isMapping && robot.lastNotifySubStatus === 'expand_area' ? robot.waitExtendTimestamp() : 0,
     // 上传两字段只在 `upload_map` 帧上有效——App 侧 `mapUploadEventFromRaw` 做的是同一道
     // 帧门控，非上传帧读到的值会被直接丢弃，这里给 0 保持「字段常在、无值时为 0」的真机语义。
-    upload_map_progress:
+    map_upload_progress:
       isMapping && robot.lastNotifySubStatus === 'upload_map'
         ? robot.mapUploadTelemetry().progress
         : 0,
-    upload_map_status:
-      isMapping && robot.lastNotifySubStatus === 'upload_map'
-        ? robot.mapUploadTelemetry().status
-        : 0,
+    ...(isMapping &&
+    robot.lastNotifySubStatus === 'upload_map' &&
+    robot.mapUploadTelemetry().state !== null
+      ? { map_upload_state: robot.mapUploadTelemetry().state as string }
+      : {}),
   };
 }

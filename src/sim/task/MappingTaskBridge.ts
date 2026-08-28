@@ -15,8 +15,8 @@ import type { MappingActionDeps, MappingActionError, VirtualRobot, MappingTaskRe
 // PAUSE / RESUME / CANCEL / EDGE_START / EDGE_CLOSE / EXPAND_AREA / EXPAND_AREA_FINISH。
 const VALID_ACTIONS = new Set([
   'PAUSE', 'RESUME', 'CANCEL', 'EDGE_START', 'EDGE_CLOSE', 'EXPAND_AREA_FINISH', 'EXPAND_AREA',
-  // [占位] 上传失败后的「重试上传」，云端尚未定义；与 mower 的 `MappingTaskAction` 同步。
-  'RETRY_UPLOAD_MAP',
+  // 上传失败后的「重传地图」（设备端 2026-08-24 定稿），与 mower 的 `MappingTaskAction` 同步。
+  'RETRANSMIT_MAP',
 ]);
 
 /**
@@ -53,7 +53,7 @@ export function applyMappingTaskAction(
       error: {
         kind: 'bad_request',
         message:
-          'action must be one of PAUSE|RESUME|CANCEL|EDGE_START|EDGE_CLOSE|EXPAND_AREA_FINISH|EXPAND_AREA|RETRY_UPLOAD_MAP',
+          'action must be one of PAUSE|RESUME|CANCEL|EDGE_START|EDGE_CLOSE|EXPAND_AREA_FINISH|EXPAND_AREA|RETRANSMIT_MAP',
       },
     };
   }

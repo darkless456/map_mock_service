@@ -127,7 +127,11 @@ export class VirtualRobot extends EventEmitter {
    * ——这正是 [决议-1] 承诺的真机行为，失败页的可达性依赖它。
    */
   private uploadProgress = 0;
-  private uploadStatus: 0 | 1 | 2 | 3 = 0;
+  /**
+   * `null` = 尚未进入上传段，快照里**整个 key 省略**（对齐真机：非上传帧不宣告上传状态）。
+   * 三个值域与设备端 2026-08-24 定稿一致。
+   */
+  private uploadState: 'UPLOADING' | 'SUCCESS' | 'FAILED' | null = null;
   private uploadTimer: ReturnType<typeof setTimeout> | null = null;
   /** `null` = 不注入失败；数值 = 进度达到它时转失败态。 */
   uploadFailAt: number | null = null;
@@ -404,8 +408,8 @@ export class VirtualRobot extends EventEmitter {
         return this.applyEdgeStartAction(task);
       case 'EDGE_CLOSE':
         return this.applyEdgeCloseAction(task);
-      // [占位] 云端未定义该 action，与 mower 侧 `MappingTaskAction` 同步的占位名。
-      case 'RETRY_UPLOAD_MAP':
+      // 「重传地图」，与 mower 侧 `MappingTaskAction` 同步（设备端 2026-08-24 定稿）。
+      case 'RETRANSMIT_MAP':
         return this.retryMapUpload();
       case 'EXPAND_AREA_FINISH':
         return this.applyCompleteAction(task);
@@ -628,7 +632,7 @@ export class VirtualRobot extends EventEmitter {
     // 上传段的步进定时器同样要停：STOP / reset 之后不该再有进度帧冒出来。
     this.clearUploadTimer();
     this.uploadProgress = 0;
-    this.uploadStatus = 0;
+    this.uploadState = null;
   }
 
   listMappingTasks(sn?: string): MappingTaskRecord[] {
@@ -877,21 +881,27 @@ export class VirtualRobot extends EventEmitter {
   private beginMapUpload(): void {
     this.clearUploadTimer();
     this.uploadProgress = 0;
-    this.uploadStatus = 1;
+    this.uploadState = 'UPLOADING';
     this.pushRatelStatus({ work_status: 'mapping', sub_status: 'upload_map' });
     this.scheduleUploadStep();
   }
 
-  /** 重试上传：从 0 重新走完，并**清掉失败位**（真机上也应如此，见 §4.7 的建议项）。 */
+  /**
+   * 重传地图：从 0 重新走完。
+   *
+   * `beginMapUpload()` 会**立刻**把状态翻回 `UPLOADING` 并推一帧——这正是设备契约 ①
+   * 要求的行为（受理 RETRANSMIT_MAP 后尽快宣告已恢复，不得再用新时间戳重报 FAILED）。
+   * App 侧「失败页停留到设备明确说恢复」这条路径靠它才能走通。
+   */
   retryMapUpload(): MappingActionError | null {
     if (this.lastNotifySubStatus !== 'upload_map') {
       return {
         kind: 'conflict',
-        message: `RETRY_UPLOAD_MAP not allowed outside MAP_UPLOADING (sub_status=${this.lastNotifySubStatus ?? 'none'})`,
+        message: `RETRANSMIT_MAP not allowed outside MAP_UPLOADING (sub_status=${this.lastNotifySubStatus ?? 'none'})`,
       };
     }
-    if (this.uploadStatus !== 3) {
-      return { kind: 'conflict', message: 'RETRY_UPLOAD_MAP requires a failed upload' };
+    if (this.uploadState !== 'FAILED') {
+      return { kind: 'conflict', message: 'RETRANSMIT_MAP requires a failed upload' };
     }
     // 场景里注入的失败点只生效一次，否则重试永远失败、M3 走不通。
     this.uploadFailAt = null;
@@ -908,12 +918,12 @@ export class VirtualRobot extends EventEmitter {
       );
       if (this.uploadFailAt !== null && this.uploadProgress >= this.uploadFailAt) {
         // 失败：推失败态后**停住**——不转 idle、不再步进，等 App 决定重试还是退出。
-        this.uploadStatus = 3;
+        this.uploadState = 'FAILED';
         this.pushRatelStatus({ work_status: 'mapping', sub_status: 'upload_map' });
         return;
       }
       if (this.uploadProgress >= 100) {
-        this.uploadStatus = 2;
+        this.uploadState = 'SUCCESS';
         this.pushRatelStatus({ work_status: 'mapping', sub_status: 'upload_map' });
         // 收尾权在 `work_status`，不是 `CMD_CONFIRM`。
         // 后者只在 `phase === 'MAP_COMPLETING'` 时受理，而此刻 phase 已经被
@@ -922,7 +932,7 @@ export class VirtualRobot extends EventEmitter {
         this.pushRatelStatus({ work_status: 'idle', sub_status: 'complete' });
         return;
       }
-      this.uploadStatus = 1;
+      this.uploadState = 'UPLOADING';
       this.pushRatelStatus({ work_status: 'mapping', sub_status: 'upload_map' });
       this.scheduleUploadStep();
     }, VirtualRobot.UPLOAD_STEP_MS);
@@ -936,9 +946,12 @@ export class VirtualRobot extends EventEmitter {
     }
   }
 
-  /** 供快照读取：`extend_status.upload_map_progress` / `upload_map_status`。 */
-  mapUploadTelemetry(): { progress: number; status: number } {
-    return { progress: this.uploadProgress, status: this.uploadStatus };
+  /** 供快照读取：`extend_status.map_upload_progress` / `map_upload_state`。 */
+  mapUploadTelemetry(): {
+    progress: number;
+    state: 'UPLOADING' | 'SUCCESS' | 'FAILED' | null;
+  } {
+    return { progress: this.uploadProgress, state: this.uploadState };
   }
 
   private clearMapCompletingCountdown(): void {

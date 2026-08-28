@@ -108,7 +108,7 @@ describe('MAP_COMPLETING lifecycle + EXPAND_AREA_FINISH action', () => {
       // 上传中：会话仍存活，sub_status 已切到 upload_map。
       assert.equal(robot.snapshot().mapping.state, 'WORKING');
       assert.equal(robot.lastNotifySubStatus, 'upload_map');
-      assert.equal(robot.mapUploadTelemetry().status, 1);
+      assert.equal(robot.mapUploadTelemetry().state, 'UPLOADING');
 
       tickUploadSteps(5);
       assert.equal(robot.mapUploadTelemetry().progress, 50);
@@ -116,7 +116,7 @@ describe('MAP_COMPLETING lifecycle + EXPAND_AREA_FINISH action', () => {
 
       tickUploadSteps(5);
       assert.equal(robot.mapUploadTelemetry().progress, 100);
-      assert.equal(robot.mapUploadTelemetry().status, 2);
+      assert.equal(robot.mapUploadTelemetry().state, 'SUCCESS');
       assert.equal(robot.snapshot().mapping.state, 'COMPLETED');
       assert.equal(robot.activeMappingTask()?.status, 'COMPLETE');
 
@@ -129,7 +129,7 @@ describe('MAP_COMPLETING lifecycle + EXPAND_AREA_FINISH action', () => {
   });
 
   /** 上传失败：停在 `upload_map` **不转 idle**（[决议-1] 承诺的真机行为），重试后走完。 */
-  it('holds the session in upload_map on failure and recovers on RETRY_UPLOAD_MAP', async () => {
+  it('holds the session in upload_map on failure and recovers on RETRANSMIT_MAP', async () => {
     const robot = new VirtualRobot({ sn: 'SN-COMPLETE-4' });
     mock.timers.enable({ apis: ['setTimeout'] });
     const { server, port } = await startServer(robot);
@@ -141,7 +141,7 @@ describe('MAP_COMPLETING lifecycle + EXPAND_AREA_FINISH action', () => {
       await postJson(port, ACTION_PATH, { sn: 'SN-COMPLETE-4', action: 'EXPAND_AREA_FINISH' });
       tickUploadSteps(10);
 
-      assert.equal(robot.mapUploadTelemetry().status, 3);
+      assert.equal(robot.mapUploadTelemetry().state, 'FAILED');
       assert.equal(robot.mapUploadTelemetry().progress, 40);
       // 关键：会话没有被终结，sub_status 停在 upload_map —— 失败页才可达。
       assert.equal(robot.snapshot().mapping.state, 'WORKING');
@@ -149,10 +149,10 @@ describe('MAP_COMPLETING lifecycle + EXPAND_AREA_FINISH action', () => {
 
       const retried = await postJson(port, ACTION_PATH, {
         sn: 'SN-COMPLETE-4',
-        action: 'RETRY_UPLOAD_MAP',
+        action: 'RETRANSMIT_MAP',
       });
       assert.equal(retried.status, 200);
-      assert.equal(robot.mapUploadTelemetry().status, 1);
+      assert.equal(robot.mapUploadTelemetry().state, 'UPLOADING');
       assert.equal(robot.mapUploadTelemetry().progress, 0);
 
       tickUploadSteps(10);
@@ -163,7 +163,7 @@ describe('MAP_COMPLETING lifecycle + EXPAND_AREA_FINISH action', () => {
     }
   });
 
-  it('rejects RETRY_UPLOAD_MAP when the upload has not failed', async () => {
+  it('rejects RETRANSMIT_MAP when the upload has not failed', async () => {
     const robot = new VirtualRobot({ sn: 'SN-COMPLETE-5' });
     const { server, port } = await startServer(robot);
     try {
@@ -172,7 +172,7 @@ describe('MAP_COMPLETING lifecycle + EXPAND_AREA_FINISH action', () => {
 
       const tooEarly = await postJson(port, ACTION_PATH, {
         sn: 'SN-COMPLETE-5',
-        action: 'RETRY_UPLOAD_MAP',
+        action: 'RETRANSMIT_MAP',
       });
       assert.equal(tooEarly.status, 409);
     } finally {

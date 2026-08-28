@@ -10,7 +10,7 @@ guide:
   simulates:
     - 自动完成退桩、寻边、沿边和闭合，进入 WORKING / MAP_COMPLETING
     - 注入上传失败点（40%），等待 App 点「完成」
-    - 上传进度按 500ms 步进推送，到 40% 转 upload_map_status=3
+    - 上传进度按 500ms 步进推送，到 40% 转 map_upload_state=FAILED
     - 失败后保持 work_status=mapping / sub_status=upload_map，不转 idle
   prerequisites:
     - 已启动 map_mock_service，App mock 指向当前服务
@@ -24,7 +24,7 @@ guide:
     - 或点「退出建图」→ 二次确认 →「取消」应回到失败页，「退出」应回首页
   auto_behavior:
     - 场景只推进到活跃的 MAP_COMPLETING 并注入失败点，不发送 idle 或 EXPAND_AREA_FINISH
-    - 上传段由 App 的 EXPAND_AREA_FINISH / RETRY_UPLOAD_MAP action 驱动
+    - 上传段由 App 的 EXPAND_AREA_FINISH / RETRANSMIT_MAP action 驱动
     - 重试会自动解除失败注入，因此第二次上传一定成功
   duration: 约 30 秒后进入交互等待
   pushes:
