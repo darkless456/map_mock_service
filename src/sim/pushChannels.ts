@@ -1,4 +1,10 @@
-import type { VirtualRobot, MappingTaskRecord, MowingTaskRecord, VirtualRobotSnapshot } from './virtualRobot';
+import type {
+  VirtualRobot,
+  MappingTaskRecord,
+  MowingTaskRecord,
+  RobotErrorRecord,
+  VirtualRobotSnapshot,
+} from './virtualRobot';
 import type { RatelStatusPushPayload } from './ratelStatusPush';
 import type { SimTaskState, SimView } from './simFsmTypes';
 import { buildExtendStatus } from './MappingProtocolSnapshot';
@@ -9,6 +15,25 @@ export interface WsEnvelope<TData = Record<string, unknown>> {
   readonly cmd_id: string;
   readonly version: number;
   readonly data: TData;
+}
+
+export function buildRobotError(
+  error: RobotErrorRecord,
+): WsEnvelope<Record<string, unknown>> {
+  return {
+    cmd: error.active ? 'ROBOT_ERROR' : 'ROBOT_ERROR_RECOVERY',
+    cmd_id: createId(),
+    version: 1,
+    data: {
+      sn: error.sn,
+      error_id: error.errorId,
+      error_type: error.errorType,
+      error_level: error.errorLevel,
+      task_message: error.message,
+      notify_timestamp: error.notifyTimestamp,
+      timestamp: Math.floor(error.notifyTimestamp / 1000),
+    },
+  };
 }
 
 function batteryPayload(level: number, charging: boolean) {

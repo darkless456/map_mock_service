@@ -17,6 +17,7 @@ import { handleMappingTaskRoutes } from './routes/mappingTask.routes';
 import { handleTrackRoutes } from './routes/track.routes';
 import { handleTaskRoutes } from './routes/task.routes';
 import { handleRechargeRoutes } from './routes/recharge.routes';
+import { handleRobotErrorRoutes } from './routes/robotErrors.routes';
 import { handleSimRoutes } from './routes/sim.routes';
 import {
   captureRequestPayload,
@@ -50,6 +51,7 @@ const ROUTES: readonly RouteHandler<AppRouteContext>[] = [
   handleTrackRoutes,
   handleTaskRoutes,
   handleRechargeRoutes,
+  handleRobotErrorRoutes,
   handleSimRoutes,
 ];
 

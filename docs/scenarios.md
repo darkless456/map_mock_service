@@ -127,6 +127,7 @@ Both scenarios rely on the mirrored mower FSM where `work_status: emergency_stop
 | `mowing_happy_auto.yaml` | 正常割草 happy flow：`map_check → mowing → return_dock → idle` → `COMPLETE` | 自动结束（约 40 秒） |
 | `mowing_recharge.yaml` | 割草并回充（回桩）：割草中触发回充 → `RETURNING_DOCK` 回桩子阶段 → `at_dock` → `idle` → `COMPLETED` | 自动结束（约 35 秒） |
 | `mapping_estop_edge_follow.yaml` | 建图沿边后急停：`MAP_FOLLOW_BOUNDARY` → `emergency_stop` → `ESTOPPED` → release + `CMD_RESET` → `RESUMING` → `COMPLETED` | 自动结束（约 1 分钟） |
+| `mapping_auto_error_snapshot_and_ws.yaml` | 自动建图 Warn：HTTP 快照恢复 `501001` → WS recovery → WS 实时 `502003` → recovery；FSM 始终保持正常建图 phase | 自动结束（约 40 秒） |
 | `mowing_estop_running.yaml` | 割草执行中急停：`MOW_RUNNING` → `emergency_stop` → `ESTOPPED` → release + `CMD_RESET` → `RESUMING` → `COMPLETED` | 自动结束（约 45 秒） |
 | `mapping_stream_incremental.yaml` | **无限循环**：在可推流建图阶段间循环，持续广播 `MAP_INCREMENTAL`（测建图渲染）| 手动停止 |
 | `mapping_passage_rendering_recovery.yaml` | **半自动**：第一块草坪闭合后由 App 添加草坪，Mock 在设备起点有效后自动执行 `EDGE_START`，验证通道切回普通轨迹及 `labels + track/query` 恢复 | `EXPAND_AREA` 最长等待 110 秒，`EDGE_CLOSE` 最长等待 10 分钟 |
@@ -174,6 +175,9 @@ Both scenarios rely on the mirrored mower FSM where `work_status: emergency_stop
 | Step | Purpose |
 |------|---------|
 | `notify` | `NOTIFY_RATEL_STATUS` (+ mock FSM via EventAdapter mirror) |
+| `robotErrorSnapshot` | 只写入 `/robot/errors/unhandled` 快照，不推 WS；用于测试页面进入恢复 |
+| `robotError` | 写入 active 快照并推送 WS `ROBOT_ERROR` |
+| `robotErrorRecovery` | 清除对应 active 快照并推送 WS `ROBOT_ERROR_RECOVERY` |
 | `emit` | Raw FSM event (`CMD_START` / `CMD_PAUSE` / `CMD_RESUME` / `CMD_RESET` / `DEVICE_*` …) |
 | `expect` | Assert mock FSM snapshot |
 | `wait` | Delay between WS pushes（在 `loop` 内可被「停止场景」中断，约 50ms 粒度）|

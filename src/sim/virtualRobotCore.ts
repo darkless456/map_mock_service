@@ -52,6 +52,8 @@ import type {
   RechargeStatusPush,
   RechargeTaskRecord,
   RecordedEvent,
+  RobotErrorInput,
+  RobotErrorRecord,
   RobotDomain,
   VirtualRobotOptions,
   VirtualRobotSetup,
@@ -71,6 +73,8 @@ export type {
   RechargeStatusPush,
   RechargeTaskRecord,
   RecordedEvent,
+  RobotErrorInput,
+  RobotErrorRecord,
   RobotDomain,
   VirtualRobotOptions,
   VirtualRobotSetup,
@@ -138,6 +142,9 @@ export class VirtualRobot extends EventEmitter {
   private readonly eventLog: EventLog;
   private readonly mowingTasks = new MowingTaskService();
   private readonly mappingTaskRecords = new MappingTaskService();
+  private readonly robotErrorRecords = new Map<string, RobotErrorRecord>();
+  private nextRobotErrorId = 1;
+  private lastRobotErrorTimestamp = 0;
   private readonly rechargeTasks = new RechargeTaskService(
     (payload) => this.emit('rechargeStatus', payload),
     (payload) => { this.pushRatelStatus(payload); },
@@ -218,6 +225,7 @@ export class VirtualRobot extends EventEmitter {
       mappingTasks: this.mappingTaskRecords.list(),
       latestMappingTaskBySn: this.mappingTaskRecords.latestBySnObject(),
       activeMappingTask: this.activeMappingTask(),
+      robotErrors: this.robotErrors(),
       events: this.eventLog.snapshot(),
       // §6.7(3) P5b 改进 3: surface last-notify projection so the panel metric
       // card reads live sub_status instead of a stale 'none'.
@@ -249,6 +257,9 @@ export class VirtualRobot extends EventEmitter {
     this.clearMapCompletingCountdown();
     this.mowingTasks.clear();
     this.mappingTaskRecords.clear();
+    this.robotErrorRecords.clear();
+    this.nextRobotErrorId = 1;
+    this.lastRobotErrorTimestamp = 0;
     this.rechargeTasks.clear();
     this.record(null, { type: 'SIM_RESET' });
     this.emit('changed', this.snapshot());
@@ -256,6 +267,67 @@ export class VirtualRobot extends EventEmitter {
 
   activeRechargeTask(): RechargeTaskRecord | null {
     return this.rechargeTasks.active();
+  }
+
+  robotErrors(): RobotErrorRecord[] {
+    return [...this.robotErrorRecords.values()].sort(
+      (left, right) => right.notifyTimestamp - left.notifyTimestamp,
+    );
+  }
+
+  activeRobotErrors(): RobotErrorRecord[] {
+    return this.robotErrors().filter(error => error.active);
+  }
+
+  seedRobotError(input: RobotErrorInput): RobotErrorRecord {
+    return this.upsertRobotError(input, false);
+  }
+
+  reportRobotError(input: RobotErrorInput): RobotErrorRecord {
+    return this.upsertRobotError(input, true);
+  }
+
+  recoverRobotError(errorId: string): RobotErrorRecord | null {
+    const current = this.robotErrorRecords.get(errorId);
+    if (!current) return null;
+    const recovered: RobotErrorRecord = {
+      ...current,
+      active: false,
+      notifyTimestamp: this.nextRobotErrorTimestamp(),
+    };
+    this.robotErrorRecords.set(errorId, recovered);
+    this.emit('robotError', recovered);
+    return recovered;
+  }
+
+  private upsertRobotError(
+    input: RobotErrorInput,
+    broadcast: boolean,
+  ): RobotErrorRecord {
+    const existing = this.robotErrorRecords.get(input.errorId);
+    const notifyTimestamp = this.nextRobotErrorTimestamp();
+    const record: RobotErrorRecord = {
+      id: existing?.id ?? this.nextRobotErrorId++,
+      sn: this.sn,
+      errorId: input.errorId,
+      errorType: input.errorType,
+      errorLevel: input.errorLevel ?? 'Warn',
+      message: input.message ?? '',
+      active: true,
+      notifyTimestamp,
+      createdAt: existing?.createdAt ?? new Date(notifyTimestamp).toISOString(),
+    };
+    this.robotErrorRecords.set(record.errorId, record);
+    if (broadcast) this.emit('robotError', record);
+    return record;
+  }
+
+  private nextRobotErrorTimestamp(): number {
+    this.lastRobotErrorTimestamp = Math.max(
+      Date.now(),
+      this.lastRobotErrorTimestamp + 1,
+    );
+    return this.lastRobotErrorTimestamp;
   }
 
   startRecharge(sn?: string): RechargeTaskRecord {

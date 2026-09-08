@@ -7,6 +7,7 @@ import type { FaultApplyResult } from './faults';
 import type { Recorder } from './recorder';
 import { parseRobotDomain, requireRobotDomain, type NonNullableRobotDomain } from './virtualRobot';
 import type { RobotDomain, VirtualRobot, VirtualRobotSetup } from './virtualRobot';
+import type { RobotErrorInput } from './virtualRobot';
 import type { SimView } from './simFsmTypes';
 import {
   listScenarioGuideSummaries,
@@ -27,6 +28,9 @@ export interface LoopStep {
 export type ScenarioStep =
   | { readonly emit: Record<string, unknown> }
   | { readonly notify: Record<string, unknown> }
+  | { readonly robotErrorSnapshot: Record<string, unknown> }
+  | { readonly robotError: Record<string, unknown> }
+  | { readonly robotErrorRecovery: Record<string, unknown> }
   | {
       readonly mappingAction: {
         readonly action?: string;
@@ -323,6 +327,33 @@ export class ScenarioEngine {
       return;
     }
 
+    if ('robotErrorSnapshot' in step) {
+      const input = normalizeRobotErrorInput(step.robotErrorSnapshot, index);
+      const error = this.robot.seedRobotError(input);
+      logs.push({ index, kind: 'robotErrorSnapshot', ok: true, detail: error });
+      return;
+    }
+
+    if ('robotError' in step) {
+      const input = normalizeRobotErrorInput(step.robotError, index);
+      const error = this.robot.reportRobotError(input);
+      logs.push({ index, kind: 'robotError', ok: true, detail: error });
+      return;
+    }
+
+    if ('robotErrorRecovery' in step) {
+      const errorId = readRobotErrorId(step.robotErrorRecovery.error_id);
+      if (!errorId) {
+        throw new Error(`step ${index}: robotErrorRecovery.error_id is required`);
+      }
+      const error = this.robot.recoverRobotError(errorId);
+      if (!error) {
+        throw new Error(`step ${index}: robot error ${errorId} is not present`);
+      }
+      logs.push({ index, kind: 'robotErrorRecovery', ok: true, detail: error });
+      return;
+    }
+
     if ('mappingAction' in step) {
       const body = step.mappingAction;
       const action = typeof body.action === 'string' ? body.action.trim() : '';
@@ -549,6 +580,36 @@ function normalizeEvent(body: Record<string, unknown>): Record<string, unknown> 
     };
   }
   return event;
+}
+
+function readRobotErrorId(value: unknown): string {
+  if (typeof value !== 'string' && typeof value !== 'number') return '';
+  return String(value).trim();
+}
+
+function normalizeRobotErrorInput(
+  body: Record<string, unknown>,
+  stepIndex: number,
+): RobotErrorInput {
+  const errorId = readRobotErrorId(body.error_id);
+  const errorType =
+    typeof body.error_type === 'string' ? body.error_type.trim() : '';
+  if (!errorId) {
+    throw new Error(`step ${stepIndex}: robot error error_id is required`);
+  }
+  if (!errorType) {
+    throw new Error(`step ${stepIndex}: robot error error_type is required`);
+  }
+  return {
+    errorId,
+    errorType,
+    ...(typeof body.error_level === 'string' && body.error_level.trim()
+      ? { errorLevel: body.error_level.trim() }
+      : {}),
+    ...(typeof body.task_message === 'string' && body.task_message.trim()
+      ? { message: body.task_message.trim() }
+      : {}),
+  };
 }
 
 function parseDuration(value: string | number): number {

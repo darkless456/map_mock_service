@@ -133,6 +133,25 @@ export interface RechargeStatusPush {
   readonly remark: string;
 }
 
+export interface RobotErrorRecord {
+  readonly id: number;
+  readonly sn: string;
+  readonly errorId: string;
+  readonly errorType: string;
+  readonly errorLevel: string;
+  readonly message: string;
+  readonly active: boolean;
+  readonly notifyTimestamp: number;
+  readonly createdAt: string;
+}
+
+export interface RobotErrorInput {
+  readonly errorId: string;
+  readonly errorType: string;
+  readonly errorLevel?: string;
+  readonly message?: string;
+}
+
 export interface VirtualRobotSnapshot {
   readonly sn: string;
   readonly nickname: string;
@@ -146,6 +165,7 @@ export interface VirtualRobotSnapshot {
   readonly mappingTasks: readonly MappingTaskRecord[];
   readonly latestMappingTaskBySn: Readonly<Record<string, string>>;
   readonly activeMappingTask: MappingTaskRecord | null;
+  readonly robotErrors: readonly RobotErrorRecord[];
   readonly events: readonly RecordedEvent[];
   /** Last WS `NOTIFY_RATEL_STATUS` projection — surfaced for the panel metric cards. */
   readonly lastNotifyWorkStatus: string | null;

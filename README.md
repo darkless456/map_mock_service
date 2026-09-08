@@ -83,7 +83,7 @@ The service only registers the mower API paths below. The mower app calls device
 | `POST` | `/ratel/api/v1/courtyard/robot/unbind` | Reset virtual robot state. |
 | `GET/POST` | `/ratel/map-service/api/v1/ratel/map/list` | Return semantic + real-scene basemap URLs, map metadata (`resolution` / `origin`), and annotation increments. |
 | `POST` | `/ratel/map-service/api/v1/ratel/semantic/save` | Save annotation increment package in memory and dispatch `CMD_SAVE`. |
-| `POST` | `/ratel/api/v1/map/topology/edit` | Apply a merge to the current map, increment `base_version`, and publish the merged `type:71` boundary through the next `map/list`. |
+| `POST` | `/ratel/api/v1/map/topology/edit` | Apply a cut or merge in memory, increment `base_version`, and publish the resulting `type:71` boundaries through the next `map/list`. |
 | `POST` | `/ratel/api/v1/map/delete` | Delete an in-memory map package. |
 | `POST` | `/ratel/api/v1/robot/self_check` | 通知机器开始自检（建图前置第一步） |
 | `POST` | `/ratel/api/v1/mapping/check` | 建图条件检测 → 轮询直至六项齐全（mock 每次多返回一项） |
@@ -107,6 +107,8 @@ Each `map/list` item carries both basemap URLs and shared world metadata:
 ## Test Data Fixtures
 
 Hot-editable API response data lives in `fixtures/`. Edit `fixtures/**/*.jsonc` or `fixtures/maps/map_list.json`; the next request uses the new content without restarting the simulator. Static map increments and charging dock points come from `fixtures/maps/map_list.json`; `semantic/save` and `map/topology/edit` only create in-memory runtime overrides.
+
+Topology editing accepts one `area` operation per request using the current `map/list` `base_version` and coordinate unit. For `cut`, send `id: [sourceAreaId]` and two `points` spanning the area; the simulator generates new UUIDs for the resulting regions. For `merge`, send `id: [newAreaId, ...sourceAreaIds]`; the simulator unions the source boundaries, including partial shared edges. Disconnected or hole-containing merge results are rejected. Other map elements, including keep-out zones, remain intact. Refresh `map/list` after each operation to get the new IDs and version before editing again. Results survive subsequent requests and annotation saves, and reset when the service restarts; fixture files are never rewritten.
 
 Run `npm run check-fixtures` after editing fixtures. See [docs/fixtures-guide.md](docs/fixtures-guide.md) and [docs/data-dictionary.md](docs/data-dictionary.md).
 

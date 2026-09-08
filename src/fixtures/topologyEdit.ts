@@ -1,182 +1,146 @@
+import { randomUUID } from 'node:crypto';
+import polygonClipping, { type Polygon, type MultiPolygon } from 'polygon-clipping';
 import { buildMapListResponse } from './mapList.fixture';
-import {
-  setSemanticOverride,
-  type IncrementPackage,
-  type ProtocolIncrement,
-  type ProtocolPoint,
-  type ProtocolUnit,
-} from './semanticOverrides';
+import { setSemanticOverride, type ProtocolIncrement, type ProtocolPoint, type ProtocolUnit } from './semanticOverrides';
 
-const AREA_BOUNDARY_TYPE = 71;
 const EPSILON = 1e-7;
 
 export type TopologyEditResult =
-  | {
-      readonly ok: true;
-      readonly mapId: string;
-      readonly baseVersion: number;
-      readonly resultAreaId: string;
-    }
-  | {
-      readonly ok: false;
-      readonly status: number;
-      readonly message: string;
-    };
+  | { readonly ok: true; readonly mapId: string; readonly baseVersion: number; readonly resultAreaId: string }
+  | { readonly ok: false; readonly status: number; readonly message: string };
 
-export function applyTopologyEdit(
-  body: Record<string, unknown>,
-): TopologyEditResult {
+export function applyTopologyEdit(body: Record<string, unknown>): TopologyEditResult {
   const mapId = nonEmptyString(body.map_id);
-  const baseVersion = finiteNumber(body.base_version);
-  const areas = body.area;
-  if (!mapId || baseVersion === null || !Array.isArray(areas) || areas.length !== 1) {
-    return failure(400, 'map_id, base_version and exactly one area are required');
+  const baseVersion = body.base_version;
+  if (!mapId || typeof baseVersion !== 'number' || !Number.isInteger(baseVersion) ||
+      !Array.isArray(body.area) || body.area.length !== 1) {
+    return failure(400, 'map_id, integer base_version and exactly one area are required');
   }
-
-  const area = recordValue(areas[0]);
+  const area = recordValue(body.area[0]);
   if (!area) return failure(400, 'area[0] must be an object');
-  if (area.action !== 'merge') {
-    return failure(422, 'mock topology/edit currently supports merge only');
+  if (area.action !== 'cut' && area.action !== 'merge') {
+    return failure(422, 'supported topology actions are cut and merge');
   }
-
-  const ids = stringArray(area.id);
-  if (!ids || ids.length < 3) {
-    return failure(400, 'merge id must contain result id and at least two source ids');
+  const ids = Array.isArray(area.id) ? area.id.map(nonEmptyString) : [];
+  if (!ids.every((id): id is string => id !== null) ||
+      (area.action === 'cut' ? ids.length !== 1 : ids.length < 3)) {
+    return failure(400, 'cut requires one source id; merge requires a result id and at least two source ids');
   }
-  const [resultAreaId, ...sourceAreaIds] = ids;
-  if (new Set(ids).size !== ids.length) {
-    return failure(400, 'merge area ids must be unique');
-  }
-
-  const map = buildMapListResponse('http://map-edit.local').data.items.find(
-    item => item.map_id === mapId,
-  );
+  if (new Set(ids).size !== ids.length) return failure(400, 'area ids must be unique');
+  const map = buildMapListResponse('http://map-edit.local').data.items.find(item => item.map_id === mapId);
   if (!map) return failure(404, `map ${mapId} not found`);
   if (map.base_version !== baseVersion) {
-    return failure(
-      409,
-      `base_version conflict: expected ${map.base_version}, received ${baseVersion}`,
-    );
+    return failure(409, `base_version conflict: expected ${map.base_version}, received ${baseVersion}`);
   }
-
-  const boundaries = map.increments.filter(
-    increment =>
-      increment.type === AREA_BOUNDARY_TYPE &&
-      increment.shape === 'polygon' &&
-      increment.action !== 'delete',
-  );
-  if (boundaries.some(boundary => boundary.element_id === resultAreaId)) {
-    return failure(409, `result area ${resultAreaId} already exists`);
+  if (body.unit !== undefined && (body.unit || 'meter') !== (map.unit || 'meter')) {
+    return failure(400, `unit must match map unit ${map.unit}`);
   }
-
-  const selected = sourceAreaIds.map(id =>
-    boundaries.find(boundary => boundary.element_id === id),
-  );
-  const missingIndex = selected.findIndex(boundary => boundary === undefined);
-  if (missingIndex >= 0) {
-    return failure(404, `source area ${sourceAreaIds[missingIndex]} not found`);
+  const boundaries = map.increments.filter(isBoundary);
+  if (area.action === 'merge' && map.increments.some(item => item.element_id === ids[0])) {
+    return failure(409, `result area ${ids[0]} already exists`);
   }
-
-  let merged = [...selected[0]!.points];
-  for (const boundary of selected.slice(1)) {
-    const next = mergeAlongReversedSharedEdge(merged, boundary!.points);
-    if (!next) {
-      return failure(422, 'selected areas do not share an exact boundary edge');
+  const sourceIds = area.action === 'cut' ? ids : ids.slice(1);
+  const selected: ProtocolIncrement[] = [];
+  for (const id of sourceIds) {
+    const boundary = boundaries.find(item => item.element_id === id);
+    if (!boundary) return failure(404, `source area ${id} not found`);
+    selected.push(boundary);
+  }
+  let polygons: MultiPolygon;
+  try {
+    if (area.action === 'cut') {
+      const line = readLine(area.points);
+      if (!line) return failure(400, 'cut points must contain two distinct finite coordinates');
+      const pieces = cutPolygon(selected[0].points, line);
+      if (!pieces) return failure(422, 'cut segment must cross the area from boundary to boundary');
+      polygons = pieces;
+    } else {
+      polygons = polygonClipping.union(toPolygon(selected[0].points), ...selected.slice(1).map(item => toPolygon(item.points)));
+      if (polygons.length !== 1) return failure(422, 'selected areas must form one connected polygon');
     }
-    merged = next;
+  } catch {
+    return failure(422, 'invalid topology geometry');
   }
-
-  const sourceIdSet = new Set(sourceAreaIds);
-  const mergedBoundary: ProtocolIncrement = {
-    element_id: resultAreaId,
-    type: AREA_BOUNDARY_TYPE,
-    action: 'add',
-    shape: 'polygon',
-    points: merged,
-    properties: { area: polygonArea(merged) },
-    source: 'robot',
-  };
+  if (polygons.some(polygon => polygon.length !== 1)) {
+    return failure(422, 'area boundaries with holes are not supported');
+  }
+  const replacements: ProtocolIncrement[] = polygons.map(polygon => {
+    const points = polygon[0].slice(0, -1).map(([x, y]) => ({ x, y }));
+    return {
+      element_id: area.action === 'merge' ? ids[0] : randomUUID(),
+      type: 71,
+      action: 'add',
+      shape: 'polygon',
+      points,
+      properties: { area: polygonArea(points) },
+      source: 'robot',
+    };
+  });
+  if (replacements.some(item => polygonArea(item.points) <= EPSILON)) {
+    return failure(422, 'topology result contains a degenerate area');
+  }
+  const sourceIdSet = new Set(sourceIds);
+  const increments = [
+    ...map.increments.filter(item => !isBoundary(item) || !sourceIdSet.has(item.element_id)),
+    ...replacements,
+  ];
   const nextVersion = map.base_version + 1;
-  const pkg: IncrementPackage = {
+  setSemanticOverride(mapId, {
     ...(typeof map.name === 'string' ? { name: map.name } : {}),
-    area: mapAreaAfterMerge(map.increments, sourceIdSet, merged),
-    map_id: map.map_id,
+    area: increments.filter(isBoundary).reduce((sum, item) => sum + polygonArea(item.points), 0),
+    map_id: mapId,
     base_version: nextVersion,
     timestamp: Date.now(),
-    unit: protocolUnit(body.unit),
+    unit: (map.unit || 'meter') as ProtocolUnit,
     is_use: map.is_use,
-    increments: [
-      ...map.increments.filter(
-        increment =>
-          increment.type !== AREA_BOUNDARY_TYPE ||
-          !sourceIdSet.has(increment.element_id),
-      ),
-      mergedBoundary,
-    ],
-  };
-  setSemanticOverride(map.map_id, pkg);
-
-  return {
-    ok: true,
-    mapId: map.map_id,
-    baseVersion: nextVersion,
-    resultAreaId,
-  };
+    increments,
+  });
+  return { ok: true, mapId, baseVersion: nextVersion, resultAreaId: replacements[0].element_id };
 }
 
-function mergeAlongReversedSharedEdge(
-  a: readonly ProtocolPoint[],
-  b: readonly ProtocolPoint[],
-): ProtocolPoint[] | null {
-  for (let aIndex = 0; aIndex < a.length; aIndex += 1) {
-    const aNext = (aIndex + 1) % a.length;
-    for (let bIndex = 0; bIndex < b.length; bIndex += 1) {
-      const bNext = (bIndex + 1) % b.length;
-      if (!samePoint(a[aIndex], b[bNext]) || !samePoint(a[aNext], b[bIndex])) {
-        continue;
-      }
+function isBoundary(item: ProtocolIncrement): boolean {
+  return item.type === 71 && item.shape === 'polygon' && item.action !== 'delete';
+}
 
-      const aOuter = walkRing(a, aNext, aIndex);
-      const bOuter = walkRing(b, bNext, bIndex);
-      const combined = [...aOuter, ...bOuter.slice(1)];
-      if (samePoint(combined[0], combined[combined.length - 1])) combined.pop();
-      return simplifyCollinear(combined);
+function toPolygon(points: readonly ProtocolPoint[]): Polygon {
+  return [points.map(point => [point.x, point.y])];
+}
+
+function readLine(value: unknown): [ProtocolPoint, ProtocolPoint] | null {
+  if (!Array.isArray(value) || value.length !== 2) return null;
+  const points: ProtocolPoint[] = [];
+  for (const item of value) {
+    const point = recordValue(item);
+    if (!point || typeof point.x !== 'number' || typeof point.y !== 'number' ||
+        !Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
+    points.push({ x: point.x, y: point.y });
+  }
+  return Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y) > EPSILON
+    ? [points[0], points[1]] : null;
+}
+
+function cutPolygon(points: readonly ProtocolPoint[], [start, end]: [ProtocolPoint, ProtocolPoint]): MultiPolygon | null {
+  const length = Math.hypot(end.x - start.x, end.y - start.y);
+  const dx = (end.x - start.x) / length;
+  const dy = (end.y - start.y) / length;
+  const extent = Math.max(length, ...points.map(point => Math.hypot(point.x - start.x, point.y - start.y))) * 2 + 1;
+  const world = (along: number, normal: number): [number, number] =>
+    [start.x + along * dx - normal * dy, start.y + along * dy + normal * dx];
+  // These boxes cover the source polygon on either side of the cutting line.
+  const halves = [1, -1].map(sign => polygonClipping.intersection(toPolygon(points), [[
+    world(-extent, 0), world(extent, 0), world(extent, sign * extent), world(-extent, sign * extent),
+  ]]));
+  if (halves.some(half => half.length === 0)) return null;
+  const pieces = halves.flat();
+  // Require the finite App segment to cover every crossing of the boundary.
+  for (const polygon of pieces) {
+    for (const [x, y] of polygon[0]) {
+      const normal = -(x - start.x) * dy + (y - start.y) * dx;
+      const along = (x - start.x) * dx + (y - start.y) * dy;
+      if (Math.abs(normal) <= EPSILON && (along < -EPSILON || along > length + EPSILON)) return null;
     }
   }
-  return null;
-}
-
-function walkRing(
-  points: readonly ProtocolPoint[],
-  start: number,
-  end: number,
-): ProtocolPoint[] {
-  const result: ProtocolPoint[] = [];
-  let index = start;
-  for (;;) {
-    result.push(points[index]);
-    if (index === end) return result;
-    index = (index + 1) % points.length;
-  }
-}
-
-function simplifyCollinear(points: readonly ProtocolPoint[]): ProtocolPoint[] {
-  let result = [...points];
-  let changed = true;
-  while (changed && result.length > 3) {
-    changed = false;
-    for (let index = 0; index < result.length; index += 1) {
-      const previous = result[(index - 1 + result.length) % result.length];
-      const current = result[index];
-      const next = result[(index + 1) % result.length];
-      if (Math.abs(cross(previous, current, next)) <= EPSILON) {
-        result = result.filter((_, candidate) => candidate !== index);
-        changed = true;
-        break;
-      }
-    }
-  }
-  return result;
+  return pieces;
 }
 
 function polygonArea(points: readonly ProtocolPoint[]): number {
@@ -188,52 +152,13 @@ function polygonArea(points: readonly ProtocolPoint[]): number {
   return Math.abs(twiceArea) / 2;
 }
 
-function mapAreaAfterMerge(
-  increments: readonly ProtocolIncrement[],
-  sourceIds: ReadonlySet<string>,
-  merged: readonly ProtocolPoint[],
-): number {
-  return increments
-    .filter(
-      increment =>
-        increment.type === AREA_BOUNDARY_TYPE &&
-        increment.shape === 'polygon' &&
-        increment.action !== 'delete' &&
-        !sourceIds.has(increment.element_id),
-    )
-    .reduce((sum, increment) => sum + polygonArea(increment.points), polygonArea(merged));
-}
-
-function samePoint(a: ProtocolPoint, b: ProtocolPoint): boolean {
-  return Math.abs(a.x - b.x) <= EPSILON && Math.abs(a.y - b.y) <= EPSILON;
-}
-
-function cross(a: ProtocolPoint, b: ProtocolPoint, c: ProtocolPoint): number {
-  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-}
-
-function protocolUnit(value: unknown): ProtocolUnit {
-  return value === 'px' || value === 'pixel' || value === '' ? value : 'meter';
-}
-
 function recordValue(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
+    ? value as Record<string, unknown> : null;
 }
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
-function finiteNumber(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-function stringArray(value: unknown): string[] | null {
-  if (!Array.isArray(value)) return null;
-  const result = value.map(nonEmptyString);
-  return result.every((item): item is string => item !== null) ? result : null;
 }
 
 function failure(status: number, message: string): TopologyEditResult {

@@ -1,0 +1,78 @@
+name: mapping_auto_error_snapshot_and_ws
+description: >-
+  自动建图异常快照与实时推送联调场景。进入建图页前静默写入 EdgeFollowError，
+  由 App 聚焦后的 unhandled HTTP 快照恢复；随后通过 WS 恢复该错误，再实时推送并恢复
+  NoGrassLineVisible。两种异常都不改变建图 FSM phase。
+guide:
+  title: 建图 - 自动建图异常快照与实时推送
+  domain_label: 建图
+  summary: 验证 501001/502003 在建图页的 HTTP 恢复、WS 实时错误、恢复和中断 UI。
+  when_to_use: >-
+    验证建图页保留地图与轨迹、显示建图中断状态和橙色提示、机器人感叹号标记，
+    以及点击“切换遥控建图”仍走现有命令链路。
+  simulates:
+    - 在 CreateMap 聚焦前静默写入 501001 EdgeFollowError，供 HTTP unhandled 快照恢复
+    - 保持 MAP_FOLLOW_BOUNDARY，不把异常写入建图 FSM
+    - 推送 ROBOT_ERROR_RECOVERY 恢复 501001
+    - 实时推送 502003 NoGrassLineVisible，再推送 recovery
+  prerequisites:
+    - 已启动 map_mock_service，App mock 指向当前服务
+    - App 已登录且 WS 已连接
+  user_steps:
+    - 打开 /sim/panel，选择 mapping_auto_error_snapshot_and_ws
+    - 点击“运行场景”，等待 App 进入自动建图页
+    - 观察 501001 由 HTTP 快照恢复后显示中断 UI，实时地图与轨迹应保留
+    - 等待 501001 自动恢复，再观察 502003 WS 实时错误显示同一套 UI
+    - 等待 502003 自动恢复，确认中断 UI 消失且建图仍处于沿边阶段
+  auto_behavior:
+    - setup 为 IDLE，自动推进到寻边和沿边
+    - 501001 在进入建图页前只写 HTTP 快照，不发送 WS
+    - 两个错误各停留 8 秒供观察，恢复后停留 3 秒
+    - 最后进入 MAP_COMPLETING，场景自动结束
+  duration: 约 40 秒
+  pushes:
+    - NOTIFY_RATEL_STATUS
+    - ROBOT_ERROR / ROBOT_ERROR_RECOVERY
+    - HTTP POST /ratel/api/v1/robot/errors/unhandled
+domain: mapping
+dataset: mapping_happy
+setup:
+  state: IDLE
+  phase: null
+steps:
+  - emit: { type: CMD_START, mode: auto, taskMode: MAP_BUILD }
+  - notify: { work_status: mapping, sub_status: precondition }
+  - expect: { state: PREPARING }
+  - wait: 2s
+  - notify: { work_status: mapping, sub_status: leave_dock }
+  - expect: { state: UNDOCKING }
+  - robotErrorSnapshot:
+      error_id: '501001'
+      error_type: EdgeFollowError
+      error_level: Warn
+      task_message: 自动建图中断，设备走上历史轨迹，请遥控接管
+  - wait: 1s
+  - notify: { work_status: mapping, sub_status: find_boundary }
+  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY, mode: auto }
+  - wait: 3s
+  - notify: { work_status: mapping, sub_status: edge_mapping }
+  - expect: { state: WORKING, phase: MAP_FOLLOW_BOUNDARY, mode: auto }
+  - wait: 5s
+  - robotErrorRecovery: { error_id: '501001' }
+  - wait: 3s
+  - robotError:
+      error_id: '502003'
+      error_type: NoGrassLineVisible
+      error_level: Warn
+      task_message: 自动建图中断，未识别到草坪边缘，请遥控设备沿着草坪边缘行驶
+  - expect: { state: WORKING, phase: MAP_FOLLOW_BOUNDARY, mode: auto }
+  - wait: 8s
+  - robotErrorRecovery: { error_id: '502003' }
+  - expect: { state: WORKING, phase: MAP_FOLLOW_BOUNDARY, mode: auto }
+  - wait: 3s
+  - notify: { work_status: mapping, sub_status: map_edge_finish }
+  - expect: { state: WORKING, phase: MAP_BOUNDARY_DONE }
+  - wait: 2s
+  - notify: { work_status: mapping, sub_status: expand_area }
+  - expect: { state: WORKING, phase: MAP_COMPLETING }
+

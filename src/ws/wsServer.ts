@@ -9,11 +9,17 @@ import {
   buildMowStatus,
   buildNotifyRatelStatus,
   buildRecharge,
+  buildRobotError,
   buildRobotLocation,
   changedPushes,
 } from '../sim/pushChannels';
 import type { RatelStatusPushPayload } from '../sim/ratelStatusPush';
-import type { RechargeStatusPush, VirtualRobot, VirtualRobotSnapshot } from '../sim/virtualRobot';
+import type {
+  RechargeStatusPush,
+  RobotErrorRecord,
+  VirtualRobot,
+  VirtualRobotSnapshot,
+} from '../sim/virtualRobot';
 import { MapStream } from '../sim/mapStream';
 import type { ChaosController } from '../sim/chaos';
 import type { Recorder, RecordingEntry } from '../sim/recorder';
@@ -180,6 +186,11 @@ export function createWsServer({
   };
   robot.on('rechargeStatus', onRechargeStatus);
 
+  const onRobotError = (error: RobotErrorRecord) => {
+    outbound.broadcastJson(buildRobotError(error));
+  };
+  robot.on('robotError', onRobotError);
+
   const mapTimer = setInterval(() => {
     if (!robot.shouldStreamMap()) return;
     outbound.broadcastRawMany(mapStream.nextFrame({ sn: robot.sn }));
@@ -239,6 +250,7 @@ export function createWsServer({
       recorder?.off('entry', onRecorderEntry);
       robot.off('ratelStatus', onRatelStatus);
       robot.off('rechargeStatus', onRechargeStatus);
+      robot.off('robotError', onRobotError);
       closeWebSocketClients(wss);
       closeWebSocketClients(inspectWss);
       wss.close();

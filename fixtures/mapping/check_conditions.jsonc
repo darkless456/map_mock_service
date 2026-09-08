@@ -5,7 +5,7 @@
 {
   "bluetooth_status": "ok",
   "bluetooth_msg": "",
-  "cellular": "ok",
+  "cellular": "error",
   "wifi": "ok",
   "battery": "ok",
   "docking_station": "ok",
