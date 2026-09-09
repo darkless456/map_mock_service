@@ -195,8 +195,19 @@ export class VirtualRobot extends EventEmitter {
     return this.trackHistory.setScenario(next);
   }
 
+  /**
+   * 合成轨迹的锚点直接取自 `mappingLabels` 的 `edge_start`，保证
+   * `track/query` 与 `ratel_map/labels` 用的是**同一批点**——
+   * App 的 `recoverPassagesFromTrack` 正是拿 labels 的 edge_start 在这条轨迹上找邻近簇，
+   * 两者一旦漂移就永远切不出通道。
+   */
   trackQuery(params: TrackQueryParams): TrackPoint[] {
-    return this.trackHistory.query(params);
+    const edgeStarts = this.mappingLabels
+      .list()
+      .filter(label => label.type === 'edge_start')
+      .map(label => label.points[0])
+      .filter((point): point is { x: number; y: number } => Boolean(point));
+    return this.trackHistory.query({ edgeStarts, ...params });
   }
 
   /** Force the active mapping task terminal (design §19.5 item 3); see MappingTaskService.forceStatus. */

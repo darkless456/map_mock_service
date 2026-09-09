@@ -59,8 +59,20 @@ export const handleMapRoutes: RouteHandler<AppRouteContext> = async (req, res, u
     return true;
   }
 
-  // POST /map-service/api/v1/ratel_map/labels -- dynamic label list (mapping-v4-final-spec.md §6)
-  if (url.pathname === '/map-service/api/v1/ratel_map/labels' && methodIs(req, 'POST')) {
+  // POST /ratel/map-service/api/v1/ratel_map/labels -- dynamic label list
+  // (mapping-v4-final-spec.md §6)
+  //
+  // ⚠️ 必须带 `/ratel` 前缀：App 侧常量是
+  // `src/api/index.tsx: mappingLabelsApi = '/ratel/map-service/api/v1/ratel_map/labels'`。
+  // 本路由曾是 12 条业务路由里唯一漏掉前缀的一条，导致 App 拿到 404 →
+  // labels 恒为空 → `recoverPassagesFromTrack` 永远 `insufficient_edge_starts`，
+  // 建图中的通道恢复链路整条无法验证（与真机上的设备端缺陷同一症状，容易误判）。
+  // 无前缀的旧路径保留为别名，兼容既有 __tests__ 与手工调试脚本。
+  if (
+    (url.pathname === '/ratel/map-service/api/v1/ratel_map/labels' ||
+      url.pathname === '/map-service/api/v1/ratel_map/labels') &&
+    methodIs(req, 'POST')
+  ) {
     const body = await readJsonBody(req);
     const mapId = stringBodyField(body, 'map_id') ?? 'mock_map_001';
     sendOk(res, { map_id: mapId, labels: ctx.robot.mappingLabelsList() });

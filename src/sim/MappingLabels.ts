@@ -1,4 +1,5 @@
 import { fixtureLoader } from '../fixtures';
+import { checkAisleEndpoints } from './passageConsistencyCheck';
 
 export interface MapLabelPoint {
   readonly x: number;
@@ -67,13 +68,28 @@ function edgeStartPoint(lawnIndex: number, params: LabelCoordinateParameters): M
   return translate(params.first_lawn.edge_start, lawnTranslation(lawnIndex, params));
 }
 
+/**
+ * 通道端点**必须**与 `edge_start` 严格相同。
+ *
+ * App 侧有三条通道链路会对同一条通道各产出一份，靠 `passageEndpointsMatch`（**0.5m** 容差）
+ * 去重：
+ *  1. 实时采集 `useMappingPassageCapture` —— 端点取设备下发的沿边起点；
+ *  2. `recoverPassagesFromTrack` —— 端点吸附到 `edge_start`；
+ *  3. 本函数产出的 `aisle` label（`pickAislePassages`）。
+ *
+ * 早期实现把 aisle 端点放在 `first_lawn.entry (±exit_offset)` 上，与 `edge_start`
+ * 相距 `hypot(1,1)=1.41m` —— **超过 0.5m 容差**，导致同一条通道去重失败、在 App 上叠着画两条。
+ * 端点定义变更后（通道起点 = 上一块草坪的沿边起点），这里必须跟着对齐。
+ *
+ * - `lawnIndex === 1`：桩/入场点 → 第一块草坪沿边起点；
+ * - `lawnIndex >= 2`：上一块草坪沿边起点 → 本块草坪沿边起点。
+ */
 function aislePoints(lawnIndex: number, params: LabelCoordinateParameters): MapLabelPoint[] {
-  const currentEntry = translate(params.first_lawn.entry, lawnTranslation(lawnIndex, params));
+  const current = edgeStartPoint(lawnIndex, params);
   if (lawnIndex === 1) {
-    return [currentEntry, translate(currentEntry, params.first_lawn.exit_offset)];
+    return [translate(params.first_lawn.entry, lawnTranslation(lawnIndex, params)), current];
   }
-  const previousEntry = translate(params.first_lawn.entry, lawnTranslation(lawnIndex - 1, params));
-  return [translate(previousEntry, params.first_lawn.exit_offset), currentEntry];
+  return [edgeStartPoint(lawnIndex - 1, params), current];
 }
 
 /**
@@ -109,5 +125,8 @@ export class MappingLabelsTracker {
   addEdgeStart(): void {
     const idx = this.edgeStartCount() + 1;
     this.labels.push({ id: `edge_start_${idx}`, type: 'edge_start', shape: 'point', points: [edgeStartPoint(idx, coordinateParameters())] });
+    // 每闭合一块草坪就复核一次 aisle ↔ edge_start 端点是否仍然重合；
+    // 漂了就 warn，避免 App 侧只看到「同一条通道画了两条」这种难回溯的表象。
+    checkAisleEndpoints(this.labels);
   }
 }

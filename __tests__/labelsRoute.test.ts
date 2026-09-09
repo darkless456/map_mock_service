@@ -88,8 +88,15 @@ describe('POST /map-service/api/v1/ratel_map/labels', () => {
       const res = await postJson(port, LABELS_PATH, {});
       const labels = (res.json.data as Record<string, unknown>).labels as Array<Record<string, unknown>>;
       assert.ok(labels.length > 0);
-      assert.deepEqual(labels[0].points, [{ x: 10.3, y: 6.45 }, { x: 12.3, y: 8.45 }]);
+      // aisle 端点必须与 edge_start 严格重合：App 侧实时通道与 labels 通道靠
+      // passageEndpointsMatch（0.5m 容差）去重，早期的 (12.3, 8.45) 距 edge_start
+      // 1.41m，会让同一条通道叠着画两条。
+      assert.deepEqual(labels[0].points, [{ x: 10.3, y: 6.45 }, { x: 11.3, y: 7.45 }]);
       assert.deepEqual(labels[1].points, [{ x: 11.3, y: 7.45 }]);
+      assert.deepEqual(
+        labels[0].points[(labels[0].points as Array<unknown>).length - 1],
+        labels[1].points[0],
+      );
       for (const label of labels) {
         assert.equal(typeof label.id, 'string');
         assert.ok((label.id as string).length > 0);

@@ -5,8 +5,10 @@ import { ChaosController } from './sim/chaos';
 import { applyFault } from './sim/faults';
 import { createDatasetSwitcher, MapStream } from './sim/mapStream';
 import { Recorder } from './sim/recorder';
+import { runPassageConsistencyCheck } from './sim/passageConsistencyCheck';
 import { readRealismConfig } from './sim/realismConfig';
 import { ScenarioEngine } from './sim/scenarioEngine';
+import { EXPAND_AREA_DATASET } from './sim/SimulatorDefaults';
 import { VirtualRobot } from './sim/virtualRobot';
 import { createWsServer } from './ws/wsServer';
 import { logger } from './infra/logger';
@@ -22,6 +24,10 @@ if (patches.length === 0) {
   logger.error(`No patches found in dataset ${MOCK_DATA_DIR}. Exiting.`);
   process.exit(1);
 }
+
+// 通道 fixture 的几何自检（只 warn）。跨 fixture/dataset/常量的约束一旦漂移，
+// 在 App 上只表现为「通道不显示」或「画了两条」，很难回溯到 mock，故在启动时点名。
+runPassageConsistencyCheck([MOCK_DATA_DIR, EXPAND_AREA_DATASET]);
 
 const robot = new VirtualRobot();
 const mapStream = new MapStream(patches, MOCK_DATA_DIR);
