@@ -193,27 +193,72 @@ export function createWsServer({
 
   const mapTimer = setInterval(() => {
     if (!robot.shouldStreamMap()) return;
-    outbound.broadcastRawMany(mapStream.nextFrame({ sn: robot.sn }));
+    const patches = mapStream.nextFrame({ sn: robot.sn });
+    outbound.broadcastRawMany(patches);
+    // 诊断：建图增量帧的机器人位姿（验证 hypothesis #2：snake_case/camelCase 不匹配）
+    // 每 2 秒采样一条，打印 map_header 中发出的 robot_x/robot_y/robot_theta 原始值。
+    const mapDiagAt = Date.now();
+    if (mapDiagAt - (mapFrameLogAt ?? 0) > 2000) {
+      mapFrameLogAt = mapDiagAt;
+      const snap = robot.snapshot();
+      logger.info('MAP_INCREMENTAL dispatched (建图帧位姿诊断)', {
+        shouldStreamMap: true,
+        activeDomain: snap.activeDomain,
+        mappingPhase: snap.mapping.phase,
+        mappingState: snap.mapping.state,
+        // 说明：这里读不到 map_header 的 robot_x/robot_y/robot_theta，因为
+        // PatchLoader 在 encodePatch 内把它们写进了 header。要验证 native 侧
+        // 是否把它们放进 metaJson（camelCase），需要 App 端日志配合。
+        // 但可以确认：建图期间帧确实在推。
+      });
+    }
   }, pushIntervalMs);
 
+  let mapFrameLogAt = 0;
   let locationTickLogAt = 0;
   const locationTimer = setInterval(() => {
     const task = robot.activeTask();
     const recharge = robot.activeRechargeTask();
+    const mappingTask = robot.activeMappingTask();
     const mowActive = !!task && task.status === 'ON_THE_WAY';
     // 回桩中（RECHARGE ON_THE_WAY）继续推送 ROBOT_LOCATION，使返回轨迹持续显示（docs §13）。
     const rechargeActive = !!recharge && recharge.status === 'ON_THE_WAY';
-    if (!mowActive && !rechargeActive) {
+    // 建图期间也推送 ROBOT_LOCATION：位姿取自当前 MAP_INCREMENTAL 帧的 robot_x/y/theta
+    // （MapStream.currentRobotPose），使 App 的 RobotMotionController 有位置驱动动画。
+    const mappingActive = !!mappingTask && mappingTask.status === 'ON_THE_WAY';
+
+    if (!mowActive && !rechargeActive && !mappingActive) {
       lastMowingLocationStatus = task ? task.status : null;
       return;
     }
-    if (lastMowingLocationStatus !== 'ON_THE_WAY') {
-      resetPoseState(pose);
+
+    const locationSn = task?.sn ?? recharge?.sn ?? mappingTask?.sn ?? robot.sn;
+    const mapId = task
+      ? taskMapId(task)
+      : (mappingTask?.map_id ?? 'mock_map_001');
+
+    let current;
+    if (mappingActive && !mowActive && !rechargeActive) {
+      // 建图期间：位姿来自当前地图帧（与 MAP_INCREMENTAL 帧头一致），
+      // 而非割草轨迹位姿。MapStream.currentRobotPose 返回 PatchLoader 计算的
+      // robotX = originX + (mapCols * resolution) / 2（地图栅格中心 + 朝向）。
+      const streamPose = mapStream.currentRobotPose();
+      if (!streamPose) {
+        // 还没有帧推过（建图刚开始），跳过本 tick。
+        lastMowingLocationStatus = null;
+        return;
+      }
+      current = { x: streamPose.x, y: streamPose.y, angle: streamPose.theta };
+      lastMowingLocationStatus = 'ON_THE_WAY';
+    } else {
+      // 割草 / 回桩：沿用轨迹位姿推进。
+      if (lastMowingLocationStatus !== 'ON_THE_WAY') {
+        resetPoseState(pose);
+      }
+      lastMowingLocationStatus = 'ON_THE_WAY';
+      current = advancePose(pose);
     }
-    lastMowingLocationStatus = 'ON_THE_WAY';
-    const locationSn = task?.sn ?? recharge?.sn ?? robot.sn;
-    const mapId = task ? taskMapId(task) : 'mock_map_001';
-    const current = advancePose(pose);
+
     // 诊断：每秒最多一条，确认正在推流以及订阅者数量。
     const now = Date.now();
     if (now - locationTickLogAt > 1000) {
@@ -223,6 +268,8 @@ export function createWsServer({
         subscriberCount: outbound.locationSubscriberCount(locationSn),
         x: current.x,
         y: current.y,
+        angle: current.angle,
+        mode: mappingActive && !mowActive ? 'mapping' : 'mowing',
       });
     }
     outbound.broadcastLocation(locationSn, buildRobotLocation(locationSn, current, { mapId }));

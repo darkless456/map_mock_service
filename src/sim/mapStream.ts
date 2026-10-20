@@ -26,9 +26,17 @@ export interface MapFrameOptions {
   readonly cmd?: 'MAP_INCREMENTAL' | 'MAP_FIX';
 }
 
+export interface MapStreamRobotPose {
+  readonly x: number;
+  readonly y: number;
+  readonly theta: number;
+}
+
 export class MapStream {
   private patchIndex = 0;
   private frameId = 0;
+  /** Last patch dispatched by {@link nextFrame}; used for ROBOT_LOCATION during mapping. */
+  private currentPatch: MapPatch | null = null;
 
   constructor(
     private patches: readonly MapPatch[],
@@ -54,6 +62,7 @@ export class MapStream {
     this.patches = patches;
     this.patchIndex = 0;
     this.frameId = 0;
+    this.currentPatch = null;
   }
 
   nextFrame({ sn, cmd = 'MAP_INCREMENTAL' }: MapFrameOptions): string[] {
@@ -61,14 +70,27 @@ export class MapStream {
     const patch = cmd === 'MAP_FIX'
       ? this.patches[0]
       : this.patches[this.patchIndex++ % this.patches.length];
+    this.currentPatch = patch;
     this.frameId += 1;
     return this.encodePatch(sn, patch, cmd);
   }
 
   fullFrame(sn: string): string[] {
     if (this.patches.length === 0) return [];
+    this.currentPatch = this.patches[0];
     this.frameId += 1;
     return this.encodePatch(sn, this.patches[0], 'MAP_FIX');
+  }
+
+  /**
+   * 当前帧的机器人位姿（来自 PatchLoader 计算的地图栅格中心 + 朝向）。
+   * 建图期间 {@link wsServer.locationTimer} 用它推 ROBOT_LOCATION，
+   * 使 App 的 RobotMotionController 有位置驱动动画。
+   */
+  currentRobotPose(): MapStreamRobotPose | null {
+    const patch = this.currentPatch ?? this.patches[0];
+    if (!patch) return null;
+    return { x: patch.robotX, y: patch.robotY, theta: patch.robotTheta };
   }
 
   private encodePatch(sn: string, patch: MapPatch, cmd: 'MAP_INCREMENTAL' | 'MAP_FIX'): string[] {

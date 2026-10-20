@@ -1,0 +1,93 @@
+name: mapping_scan_boundary_fail_502004
+description: >-
+  自动寻边失败（502004）实时推送联调场景。寻边雷达阶段推 502004（不带 task_message），
+  验证中心区由雷达换成粉色光晕插画、横幅显示 App 自带的 502004 文案；恢复后回到雷达。
+  再推一次带 task_message 的 502004，验证设备文案优先；最后进入沿边推 502003 作对照
+  （地图 + 感叹号 + 原文案）。异常全程不改变建图 FSM phase。
+  error_type 名称尚无设备侧真源，暂用占位 NoLawnEdgeFound（App 只认 error_id）。
+guide:
+  title: 建图 - 自动寻边失败 502004（光晕插画）
+  domain_label: 建图
+  summary: 验证 502004 在寻边阶段显示粉色光晕插画与专属文案、恢复回雷达，并与 502003 沿边异常对照。
+  when_to_use: >-
+    验收「自动寻边失败光晕动效改造方案」：502004 的中心插画、横幅文案、设备文案优先级，
+    以及 502003 沿边丢失草线保持原样（地图 + 感叹号 + 原文案）。
+  simulates:
+    - 寻边阶段 WS 推送 502004（无 task_message），App 走自带文案
+    - 推送 ROBOT_ERROR_RECOVERY 恢复 502004，回到寻边雷达
+    - 寻边阶段再推一次带 task_message 的 502004，设备文案应优先显示
+    - 沿边阶段推送 502003 作对照，再 recovery
+  prerequisites:
+    - 已启动 map_mock_service，App mock 指向当前服务
+    - App 已登录且 WS 已连接
+  user_steps:
+    - 打开 /sim/panel，选择 mapping_scan_boundary_fail_502004
+    - 点击“运行场景”，等待 App 进入自动建图页并显示蓝色雷达
+    - 检查点 1（10 秒）：中心区为粉色光晕呼吸 + 机器图，机器图位置与雷达态相同不跳动；横幅为「自动建图中断，未识别到草坪边缘，请遥控设备沿着草坪边缘行驶」；底部只有「切换遥控建图」；状态为「建图中断」
+    - 检查点 2：502004 恢复后中心区回到蓝色雷达、横幅消失
+    - 检查点 3（8 秒）：再次出现光晕，横幅显示设备文案「【设备文案】502004 task_message 优先显示」
+    - 检查点 4（8 秒）：进入沿边后推 502003，中心区为实时地图 + 机器人感叹号，横幅为 502003 原文案（不应是光晕）
+    - 恢复后场景进入建图完成等待页，自动结束
+  auto_behavior:
+    - setup 为 IDLE，自动推进离桩 → 寻边
+    - 寻边雷达先展示 5 秒再推 502004
+    - 两次 502004 分别停留 10 秒 / 8 秒，恢复后停留 4 秒
+    - 502003 对照停留 8 秒，恢复后进入 MAP_COMPLETING，场景自动结束
+    - 「切换遥控建图」不在本场景模拟范围：mock 镜像 FSM 在自动 WORKING 下不接受该命令，点击无效属预期
+  duration: 约 60 秒
+  pushes:
+    - NOTIFY_RATEL_STATUS
+    - ROBOT_ERROR / ROBOT_ERROR_RECOVERY
+domain: mapping
+dataset: mapping_happy
+setup:
+  state: IDLE
+  phase: null
+steps:
+  - emit: { type: CMD_START, mode: auto, taskMode: MAP_BUILD }
+  - notify: { work_status: mapping, sub_status: precondition }
+  - expect: { state: PREPARING }
+  - wait: 2s
+  - notify: { work_status: mapping, sub_status: leave_dock }
+  - expect: { state: UNDOCKING }
+  - wait: 2s
+  - notify: { work_status: mapping, sub_status: find_boundary }
+  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY, mode: auto }
+  - wait: 5s
+  - note: checkpoint_1_502004_app_copy
+  - robotError:
+      error_id: '502004'
+      error_type: NoLawnEdgeFound
+      error_level: Warn
+  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY, mode: auto }
+  - wait: 10s
+  - note: checkpoint_2_502004_recovered_back_to_radar
+  - robotErrorRecovery: { error_id: '502004' }
+  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY, mode: auto }
+  - wait: 4s
+  - note: checkpoint_3_502004_device_message_wins
+  - robotError:
+      error_id: '502004'
+      error_type: NoLawnEdgeFound
+      error_level: Warn
+      task_message: 【设备文案】502004 task_message 优先显示
+  - wait: 8s
+  - robotErrorRecovery: { error_id: '502004' }
+  - wait: 4s
+  - notify: { work_status: mapping, sub_status: edge_mapping }
+  - expect: { state: WORKING, phase: MAP_FOLLOW_BOUNDARY, mode: auto }
+  - wait: 4s
+  - note: checkpoint_4_502003_contrast_map_unchanged
+  - robotError:
+      error_id: '502003'
+      error_type: NoGrassLineVisible
+      error_level: Warn
+  - expect: { state: WORKING, phase: MAP_FOLLOW_BOUNDARY, mode: auto }
+  - wait: 8s
+  - robotErrorRecovery: { error_id: '502003' }
+  - wait: 3s
+  - notify: { work_status: mapping, sub_status: map_edge_finish }
+  - expect: { state: WORKING, phase: MAP_BOUNDARY_DONE }
+  - wait: 2s
+  - notify: { work_status: mapping, sub_status: expand_area }
+  - expect: { state: WORKING, phase: MAP_COMPLETING }

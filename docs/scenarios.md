@@ -128,6 +128,8 @@ Both scenarios rely on the mirrored mower FSM where `work_status: emergency_stop
 | `mowing_recharge.yaml` | 割草并回充（回桩）：割草中触发回充 → `RETURNING_DOCK` 回桩子阶段 → `at_dock` → `idle` → `COMPLETED` | 自动结束（约 35 秒） |
 | `mapping_estop_edge_follow.yaml` | 建图沿边后急停：`MAP_FOLLOW_BOUNDARY` → `emergency_stop` → `ESTOPPED` → release + `CMD_RESET` → `RESUMING` → `COMPLETED` | 自动结束（约 1 分钟） |
 | `mapping_auto_error_snapshot_and_ws.yaml` | 自动建图 Warn：HTTP 快照恢复 `501001` → WS recovery → WS 实时 `502003` → recovery；FSM 始终保持正常建图 phase | 自动结束（约 40 秒） |
+| `mapping_scan_boundary_fail_502004.yaml` | 自动寻边失败 `502004`（WS 实时）：寻边雷达 → 502004 无 `task_message`（光晕插画 + App 自带文案）→ recovery 回雷达 → 502004 带 `task_message`（设备文案优先）→ 沿边推 `502003` 对照（地图 + 感叹号 + 原文案）；FSM phase 不变。`error_type` 暂用占位 `NoLawnEdgeFound` | 自动结束（约 60 秒） |
+| `mapping_scan_boundary_fail_502004_snapshot.yaml` | 自动寻边失败 `502004`（HTTP 快照）：寻边阶段只静默写入 unhandled 快照、不发 WS；测试者 60 秒内退出建图页再进 / 杀 App 重开，验证聚焦拉快照还原光晕插画；随后 WS recovery | 自动结束（约 90 秒，含 60 秒人工窗口） |
 | `mowing_estop_running.yaml` | 割草执行中急停：`MOW_RUNNING` → `emergency_stop` → `ESTOPPED` → release + `CMD_RESET` → `RESUMING` → `COMPLETED` | 自动结束（约 45 秒） |
 | `mapping_stream_incremental.yaml` | **无限循环**：在可推流建图阶段间循环，持续广播 `MAP_INCREMENTAL`（测建图渲染）| 手动停止 |
 | `mapping_passage_rendering_recovery.yaml` | **半自动**：第一块草坪闭合后由 App 添加草坪，Mock 在设备起点有效后自动执行 `EDGE_START`，验证通道切回普通轨迹及 `labels + track/query` 恢复 | `EXPAND_AREA` 最长等待 110 秒，`EDGE_CLOSE` 最长等待 10 分钟 |

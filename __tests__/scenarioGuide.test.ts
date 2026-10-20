@@ -30,6 +30,8 @@ describe('scenarioGuide', () => {
       'mapping_happy_auto_multilawn',
       'mapping_happy_manual',
       'mapping_passage_rendering_recovery',
+      'mapping_scan_boundary_fail_502004',
+      'mapping_scan_boundary_fail_502004_snapshot',
       'mapping_stream_incremental',
       'mapping_upload_failed',
       'mowing_estop_running',

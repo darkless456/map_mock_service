@@ -4,9 +4,17 @@ import http from 'node:http';
 import { ChaosController } from '../src/sim/chaos';
 import { MapStream } from '../src/sim/mapStream';
 import { Recorder } from '../src/sim/recorder';
-import { ScenarioEngine } from '../src/sim/scenarioEngine';
+import {
+  ScenarioEngine,
+  parseScenario,
+  type ScenarioDefinition,
+  type ScenarioStep,
+} from '../src/sim/scenarioEngine';
 import { buildRobotError } from '../src/sim/pushChannels';
 import { VirtualRobot } from '../src/sim/virtualRobot';
+import type { RobotErrorRecord } from '../src/sim/virtualRobotTypes';
+import fs from 'node:fs';
+import path from 'node:path';
 import { createHttpHandler, type AppRouteContext } from '../src/http/router';
 
 const servers: http.Server[] = [];
@@ -212,7 +220,98 @@ describe('robot error snapshots and pushes', () => {
     assert.equal(guide?.domain, 'mapping');
     assert.match(guide?.summary ?? '', /501001\/502003/);
   });
+
+  it('runs the 502004 live scenario: app copy, recovery, device message, then 502003 contrast', async () => {
+    const robot = new VirtualRobot({ sn: 'SCAN-FAIL-SN' });
+    const pushes = recordRobotErrorPushes(robot);
+    const engine = new ScenarioEngine({ robot, chaos: new ChaosController() });
+
+    const result = await engine.run({
+      inline: withoutWaits('mapping_scan_boundary_fail_502004'),
+    });
+
+    assert.equal(result.ok, true, result.error);
+    assert.deepEqual(pushes, [
+      // 第一次不带 task_message：App 必须走自带的 502004 文案。
+      { errorId: '502004', active: true, message: '' },
+      { errorId: '502004', active: false, message: '' },
+      {
+        errorId: '502004',
+        active: true,
+        message: '【设备文案】502004 task_message 优先显示',
+      },
+      {
+        errorId: '502004',
+        active: false,
+        message: '【设备文案】502004 task_message 优先显示',
+      },
+      { errorId: '502003', active: true, message: '' },
+      { errorId: '502003', active: false, message: '' },
+    ]);
+    assert.equal(robot.snapshot().mapping.phase, 'MAP_COMPLETING');
+    assert.equal(robot.activeRobotErrors().length, 0);
+  });
+
+  it('keeps the 502004 snapshot scenario silent on WS until recovery', async () => {
+    const robot = new VirtualRobot({ sn: 'SCAN-FAIL-SNAPSHOT-SN' });
+    const pushes = recordRobotErrorPushes(robot);
+    const engine = new ScenarioEngine({ robot, chaos: new ChaosController() });
+
+    const result = await engine.run({
+      inline: withoutWaits('mapping_scan_boundary_fail_502004_snapshot'),
+    });
+
+    assert.equal(result.ok, true, result.error);
+    // 只有 recovery 走 WS：502004 本身只能经 HTTP unhandled 快照被 App 拿到。
+    assert.deepEqual(pushes, [
+      { errorId: '502004', active: false, message: '' },
+    ]);
+    assert.equal(robot.activeRobotErrors().length, 0);
+  });
+
+  it('registers both 502004 scenario guides', () => {
+    const engine = new ScenarioEngine({
+      robot: new VirtualRobot(),
+      chaos: new ChaosController(),
+    });
+
+    for (const name of [
+      'mapping_scan_boundary_fail_502004',
+      'mapping_scan_boundary_fail_502004_snapshot',
+    ]) {
+      assert.ok(engine.listScenarios().includes(name), name);
+      const guide = engine.getScenarioGuide(name);
+      assert.equal(guide?.domain, 'mapping');
+      assert.match(guide?.summary ?? '', /502004/);
+    }
+  });
 });
+
+/** 读入仓库内的场景并去掉所有 wait，让 60s+ 的人工观察场景在单测里瞬间跑完。 */
+function withoutWaits(name: string): ScenarioDefinition {
+  const file = path.join(__dirname, '..', 'scenarios', `${name}.yaml`);
+  const scenario = parseScenario(
+    fs.readFileSync(file, 'utf8'),
+  ) as ScenarioDefinition;
+  return {
+    ...scenario,
+    steps: scenario.steps.filter((step: ScenarioStep) => !('wait' in step)),
+  };
+}
+
+function recordRobotErrorPushes(
+  robot: VirtualRobot,
+): Array<Pick<RobotErrorRecord, 'errorId' | 'active' | 'message'>> {
+  const pushes: Array<Pick<RobotErrorRecord, 'errorId' | 'active' | 'message'>> = [];
+  robot.on('robotError', (record: RobotErrorRecord) => {
+    pushes.push({
+      errorId: record.errorId,
+      active: record.active,
+      message: record.message,
+    });
+  });
+  return pushes;
+}
 
 function assertNumber(value: unknown, key: string): number {
   assert.ok(value && typeof value === 'object' && !Array.isArray(value));
