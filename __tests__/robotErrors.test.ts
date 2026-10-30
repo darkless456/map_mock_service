@@ -221,6 +221,38 @@ describe('robot error snapshots and pushes', () => {
     assert.match(guide?.summary ?? '', /501001\/502003/);
   });
 
+  it('runs the 501001/502003 tip scenario with the design copy over WS', async () => {
+    const robot = new VirtualRobot({ sn: 'AUTO-ERROR-TIP-SN' });
+    const pushes = recordRobotErrorPushes(robot);
+    const engine = new ScenarioEngine({ robot, chaos: new ChaosController() });
+
+    const result = await engine.run({
+      inline: withoutWaits('mapping_auto_error_501001_502003'),
+    });
+
+    assert.equal(result.ok, true, result.error);
+    assert.deepEqual(pushes, [
+      { errorId: '501001', active: true, message: '路径重复，请切换手动摇控建图' },
+      { errorId: '501001', active: false, message: '路径重复，请切换手动摇控建图' },
+      {
+        errorId: '502003',
+        active: true,
+        message: '无法确认草坪边界，请切换手动摇控建图',
+      },
+      {
+        errorId: '502003',
+        active: false,
+        message: '无法确认草坪边界，请切换手动摇控建图',
+      },
+    ]);
+    assert.equal(robot.snapshot().mapping.phase, 'MAP_COMPLETING');
+    assert.equal(robot.activeRobotErrors().length, 0);
+    assert.match(
+      engine.getScenarioGuide('mapping_auto_error_501001_502003')?.summary ?? '',
+      /501001\/502003/,
+    );
+  });
+
   it('runs the 502004 live scenario: app copy, recovery, device message, then 502003 contrast', async () => {
     const robot = new VirtualRobot({ sn: 'SCAN-FAIL-SN' });
     const pushes = recordRobotErrorPushes(robot);

@@ -87,6 +87,7 @@ describe('e2e scenarios', () => {
     assert.equal(robot.snapshot().mapping.phase, 'MAP_COMPLETING');
     assert.deepEqual([...engine.listScenarios()].sort(), [
       'mapedit_add_lawn',
+      'mapping_auto_error_501001_502003',
       'mapping_auto_error_snapshot_and_ws',
       'mapping_estop_edge_follow',
       'mapping_expand_area',

@@ -1,0 +1,84 @@
+name: mapping_auto_error_501001_502003
+description: >-
+  自动建图沿边异常 501001 / 502003 的 UI 验收场景（WS 实时）。沿边阶段先推 501001
+  （task_message 为设计稿文案「路径重复，请切换手动摇控建图」），恢复后再推 502003
+  （「无法确认草坪边界，请切换手动摇控建图」）。每个异常停留 20 秒，用于对照
+  figma-20261027/建图任务-异常打断 检查右上角提示条（浅橙半透明底 + 橙字 + 白底感叹号）。
+  异常全程不改变建图 FSM phase。
+guide:
+  title: 建图 - 沿边异常 501001/502003 提示条验收
+  domain_label: 建图
+  summary: 验证 501001/502003 实时推送时右上角提示条的视觉（浅橙底、橙字、感叹号图标）与设计稿一致。
+  when_to_use: >-
+    验收建图异常提示条视觉改造（MappingPersistentTip warning 变体）：背景不应是深橙实心底、
+    文字为橙色、文字前有白底橙色感叹号；同时看机器人感叹号标记与「切换遥控建图」按钮。
+  simulates:
+    - 沿边阶段 WS 推送 501001 EdgeFollowError（带设计稿 task_message）
+    - 推送 ROBOT_ERROR_RECOVERY 恢复 501001
+    - 沿边阶段 WS 推送 502003 NoGrassLineVisible（带设计稿 task_message）
+    - 推送 ROBOT_ERROR_RECOVERY 恢复 502003
+  prerequisites:
+    - 已启动 map_mock_service，App mock 指向当前服务
+    - App 已登录且 WS 已连接
+  user_steps:
+    - 打开 /sim/panel，选择 mapping_auto_error_501001_502003
+    - 点击“运行场景”，等待 App 进入自动建图页并开始沿边
+    - 检查点 1（20 秒）：右上角提示条显示「路径重复，请切换手动摇控建图」，浅橙半透明底 + 橙字 + 文字前白底橙色感叹号；对照设计稿 501001异常.png
+    - 检查点 2：501001 恢复后提示条消失
+    - 检查点 3（20 秒）：提示条显示「无法确认草坪边界，请切换手动摇控建图」，样式同检查点 1；对照设计稿 502003&502004异常.png
+    - 恢复后场景进入建图完成等待页，自动结束
+    - 需要更长观察时间可在面板点「暂停」冻结场景计时
+  auto_behavior:
+    - setup 为 IDLE，自动推进离桩 → 寻边 → 沿边
+    - 沿边 4 秒后推 501001，停留 20 秒后 recovery，间隔 4 秒
+    - 再推 502003，停留 20 秒后 recovery，3 秒后进入 MAP_COMPLETING，场景自动结束
+    - 「切换遥控建图」不在本场景模拟范围：mock 镜像 FSM 在自动 WORKING 下不接受该命令，点击无效属预期
+  duration: 约 65 秒
+  pushes:
+    - NOTIFY_RATEL_STATUS
+    - ROBOT_ERROR / ROBOT_ERROR_RECOVERY
+domain: mapping
+dataset: mapping_happy
+setup:
+  state: IDLE
+  phase: null
+steps:
+  - emit: { type: CMD_START, mode: auto, taskMode: MAP_BUILD }
+  - notify: { work_status: mapping, sub_status: precondition }
+  - expect: { state: PREPARING }
+  - wait: 2s
+  - notify: { work_status: mapping, sub_status: leave_dock }
+  - expect: { state: UNDOCKING }
+  - wait: 2s
+  - notify: { work_status: mapping, sub_status: find_boundary }
+  - expect: { state: WORKING, phase: MAP_SCAN_BOUNDARY, mode: auto }
+  - wait: 3s
+  - notify: { work_status: mapping, sub_status: edge_mapping }
+  - expect: { state: WORKING, phase: MAP_FOLLOW_BOUNDARY, mode: auto }
+  - wait: 4s
+  - note: checkpoint_1_501001_tip
+  - robotError:
+      error_id: '501001'
+      error_type: EdgeFollowError
+      error_level: Warn
+      task_message: 路径重复，请切换手动摇控建图
+  - expect: { state: WORKING, phase: MAP_FOLLOW_BOUNDARY, mode: auto }
+  - wait: 20s
+  - note: checkpoint_2_501001_recovered
+  - robotErrorRecovery: { error_id: '501001' }
+  - wait: 4s
+  - note: checkpoint_3_502003_tip
+  - robotError:
+      error_id: '502003'
+      error_type: NoGrassLineVisible
+      error_level: Warn
+      task_message: 无法确认草坪边界，请切换手动摇控建图
+  - expect: { state: WORKING, phase: MAP_FOLLOW_BOUNDARY, mode: auto }
+  - wait: 20s
+  - robotErrorRecovery: { error_id: '502003' }
+  - wait: 3s
+  - notify: { work_status: mapping, sub_status: map_edge_finish }
+  - expect: { state: WORKING, phase: MAP_BOUNDARY_DONE }
+  - wait: 2s
+  - notify: { work_status: mapping, sub_status: expand_area }
+  - expect: { state: WORKING, phase: MAP_COMPLETING }
